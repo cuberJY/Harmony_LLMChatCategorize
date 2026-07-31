@@ -11,6 +11,8 @@ export interface ApiConfig {
   baseUrl: string; // API 基础地址（OpenAI 兼容格式，含 /v1/chat/completions 路径）
   apiKey: string; // API 密钥（Bearer Token）
   model: string; // 模型名称
+  searchBaseUrl: string;  // 搜索 API 地址（可切换渠道）
+  searchApiKey: string;  // 搜索 API 密钥（Jina；留空则用免 key 模式）
 } 
 
 export class AppConfig {
@@ -23,9 +25,11 @@ export class AppConfig {
    * 第六步：改为从 Preferences 读取
    */
   private config: ApiConfig = {
-    baseUrl: "https://api.deepseek.com/chat/completions",
-    apiKey: "xxxxx", // ← 替换为你的真实 API Key
-    model: "deepseek-v4-flash",
+    baseUrl: "https://api.deepseek.com/chat/completions", // ← 替换为你的大模型 API 地址
+    apiKey: "xxxxxx", // ← 替换为你的大模型 API Key
+    model: "deepseek-v4-flash", // ← 替换为你的大模型名称
+    searchBaseUrl: "https://api.bochaai.com/v1/web-search", // ← 替换为你的搜索渠道地址
+    searchApiKey: "xxxxxx", // ← 替换为你的搜索 API Key
   };
 
   // 私有构造函数，禁止外部直接 new
@@ -49,7 +53,7 @@ export class AppConfig {
     return this.config.baseUrl;
   }
 
-  // 获取 API Key
+  // 获取大模型 API Key
   getApiKey(): string {
     return this.config.apiKey;
   }
@@ -59,15 +63,29 @@ export class AppConfig {
     return this.config.model;
   }
 
+  // 获取搜索 API 地址
+  getSearchBaseUrl(): string {
+    return this.config.searchBaseUrl;
+  }
+
+  // 获取搜索 API Key
+  getSearchApiKey(): string {
+    return this.config.searchApiKey;
+  }
+
   /**
    * 更新配置（第六步设置页调用）
    * @param baseUrl API 地址
    * @param apiKey API 密钥
    * @param model 模型名称
+   * @param searchBaseUrl 搜索 API 地址
+   * @param searchApiKey 搜索 API 密钥
    */
-  updateConfig(baseUrl: string, apiKey: string, model: string): void {
+  updateConfig(baseUrl: string, apiKey: string, model: string, searchBaseUrl: string, searchApiKey: string): void {
     this.config.baseUrl = baseUrl;
     this.config.apiKey = apiKey;
     this.config.model = model;
+    this.config.searchBaseUrl = searchBaseUrl;
+    this.config.searchApiKey = searchApiKey;
   }
 }

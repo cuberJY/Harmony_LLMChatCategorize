@@ -2,22 +2,22 @@
 import { Message } from "../model/Message";
 import { MessageBubble } from "../components/MessageBubble";
 import { ChatInput } from "../components/ChatInput";
+import { AppConfig } from "../config/AppConfig";
 import { COLORS, FONT_SIZES, SPACING } from "../common/AppConstants";
 import { AIService, StreamCallbacks } from "../service/AIService";
+import { SearchService } from "../service/SearchService";
 
 @Entry
 @Component
 struct ChatPage {
   @State messages: Message[] = [];
+  @State isAtBottom: boolean = true;
 
   // *** 当前对话 ID（后续接入数据库时会用到；现在先写死）
   private currentConversationId: string = "demo_conv_001";
 
-  // 生命周期：页面即将显示时
-  aboutToAppear(): void {
-    // 加载假数据，验证气泡组件渲染效果
-    // this.messages = this.getMockMessages();
-  }
+  private listScroller: Scroller = new Scroller(); // 消息列表滚动条
+  private isUserScrolling: boolean = false; // 是否正在手动滚动
 
   build() {
     Column() {
@@ -27,7 +27,7 @@ struct ChatPage {
         Row() {
           // 这里后续换成"三横线"图标，点击弹出侧边栏
           SymbolGlyph($r("sys.symbol.space_enlarge"))
-            .fontSize(20)
+            .fontSize(FONT_SIZES.ICON_XL)
             .fontWeight(700)
             .fontColor([Color.Black])
         }
@@ -47,7 +47,7 @@ struct ChatPage {
         // 右侧：「新建对话」按钮
         Row() {
           SymbolGlyph($r("sys.symbol.plus"))
-            .fontSize(20)
+            .fontSize(FONT_SIZES.ICON_XL)
             .fontWeight(700)
             .fontColor([Color.Black])
         }
@@ -69,7 +69,7 @@ struct ChatPage {
       })
 
       // 消息列表区域
-      List() {
+      List({ scroller: this.listScroller }) {
         /**
          * ForEach：根据数据数组循环生成 UI
          * 第1个参数：数据数组
@@ -89,7 +89,7 @@ struct ChatPage {
                     .fontColor(COLORS.TEXT_SECONDARY) // #999999
                     .width("100%")
                     .textAlign(TextAlign.Center) // ← 居中显示
-                    .padding({ top: 16, bottom: 4 });
+                    .padding({ top: SPACING.LG, bottom: SPACING.XS });
                 }
 
                 // 气泡本体
@@ -102,6 +102,35 @@ struct ChatPage {
       }
       // layoutWeight(1)：占据 Column 去掉标题栏和输入框后的全部剩余空间
       .layoutWeight(1)
+      .onAreaChange((oldValue: Area, newValue: Area) => {
+        // 可视区变矮 = 键盘弹出窗口被压缩 → 重新钉到底部
+        if (newValue.height < oldValue.height) {
+          this.scrollToBottom();
+        }
+      })
+      .onTouch((event: TouchEvent) => {
+        // 手指按下列表 = 用户正在操作
+        if (event.type === TouchType.Down) {
+          this.isUserScrolling = true;
+        }
+      })
+      .onScrollStop(() => {
+        // 滚动完全停止（含手指松开后的惯性滑完）→ 用户操作结束
+        this.isUserScrolling = false;
+      })
+      // 用户手指拖动或惯性滑动 → 取消自动跟随）
+      .onWillScroll(
+        (scrollOffset: number, scrollState: ScrollState, scrollSource: ScrollSource) => {
+          // 只有用户手指拖动/惯性滑动才取消自动跟随
+          if (scrollSource === ScrollSource.DRAG || scrollSource === ScrollSource.FLING) {
+            this.isAtBottom = false;
+          }
+        },
+      )
+      // 真正滚到列表底部边缘 → 恢复自动跟随
+      .onReachEnd(() => {
+        this.isAtBottom = true;
+      })
       .width("100%")
       .backgroundColor(COLORS.PAGE_BG)
       // 列表宽高反向排列（新消息在底部）→ 不需要，正常从上到下即可
@@ -109,36 +138,9 @@ struct ChatPage {
 
       // 底部输入区域
       ChatInput({
-        onChange: (text: string) => {
-          // 1. 创建用户消息并追加到列表
-          const userMsg = new Message(this.currentConversationId, "user", text);
-          this.messages.push(userMsg);
-
-          // 2. 创建一条空的 AI 消息作为占位（后续流式填充）
-          const aiMsg = new Message(this.currentConversationId, "assistant", "");
-          this.messages.push(aiMsg);
-
-          // 3. 构造历史消息数组（不含最后一条 aiMsg，因为它还为空）
-          const context: Message[] = this.messages.slice(0, -1);
-
-          // 4. 调用 AIService，通过回调逐字填充 AI 回复
-          const callbacks: StreamCallbacks = {
-            onChunk: (deltaText: string) => {
-              // 逐字拼接到 AI 消息内容中
-              aiMsg.content += deltaText;
-            },
-            onComplete: (fullText: string) => {
-              // 确保完整文本（兜底）
-              aiMsg.content = fullText;
-              this.messages = this.messages.slice();
-            },
-            onError: (errorMessage: string) => {
-              // 显示错误信息代替 AI 回复
-              aiMsg.content = `[错误] ${errorMessage}`;
-              this.messages = this.messages.slice();
-            },
-          };
-          AIService.getInstance().sendMessage(context, callbacks);
+        modelName: AppConfig.getInstance().getModel(), // 从配置获取当前模型
+        onChange: (text: string, webSearch: boolean) => {
+          this.handleUserSend(text, webSearch);
         },
       })
     }
@@ -147,26 +149,87 @@ struct ChatPage {
     .height("100%");
   }
 
-  // 生成模拟数据，用于验证 UI 渲染效果
-  private getMockMessages(): Message[] {
-    return [
-      new Message(
-        this.currentConversationId,
-        "user",
-        "你好，请问 HarmonyOS NEXT 和之前版本有什么主要区别？",
-      ),
-      new Message(
-        this.currentConversationId,
-        "assistant",
-        "HarmonyOS NEXT（5.0）是鸿蒙的全新版本，主要有以下变化：\n\n1. **不再兼容 Android**：完全移除 AOSP 代码，仅支持鸿蒙原生应用\n2. **ArkUI 声明式框架**：全新的 UI 开发范式\n3. **ArkTS 语言**：基于 TypeScript 深度定制\n4. **性能大幅提升**：方舟编译器 + 统一渲染引擎",
-      ),
-      new Message(this.currentConversationId, "user", "ArkTS 和 TypeScript 有什么不同？"),
-      new Message(
-        this.currentConversationId,
-        "assistant",
-        "ArkTS 在 TypeScript 基础上做了以下关键调整：\n\n1. **严格的静态类型检查**：编译期就能发现类型错误\n2. **装饰器扩展**：如 `@State`、`@Prop`、`@Link` 用于声明式 UI 状态管理\n3. **去掉了部分动态特性**：如 `any` 类型受限、`eval()` 不可用\n4. **原生 API 集成**：直接调用鸿蒙系统能力",
-      ),
-    ];
+  /**
+   * 处理用户发送：可选联网搜索 + LLM 流式回复
+   * @param text 用户输入文本
+   * @param webSearch 是否开启联网搜索
+   */
+  private async handleUserSend(text: string, webSearch: boolean): Promise<void> {
+    // 1. 创建用户消息
+    this.addMessage("user", text);
+    this.scrollToBottom();
+
+    // 2. 创建 AI 占位消息（保留引用，用于流式填充）
+    const aiMsg = this.addMessage("assistant", "");
+    aiMsg.isThinking = true;
+    aiMsg.thinkingStartTime = Date.now();
+
+    // 3. 构造历史上下文（不含最后一条空 AI 消息）
+    const context: Message[] = this.messages.slice(0, -1);
+
+    // 4. 联网搜索（开关开启 且 渠道已配置，才显示搜索状态并真正发起）
+    if (webSearch && SearchService.getInstance().isAvailable()) {
+      // 4.1 显示"正在搜索"状态（isSearching 控制，不写入 content）
+      aiMsg.isSearching = true;
+      this.messages = this.messages.slice(); // 触发 UI 刷新
+
+      // 4.2 调用搜索服务（失败时返回空串，不阻断流程）
+      const searchResult = await SearchService.getInstance().search(text);
+
+      // 4.3 结束搜索状态
+      aiMsg.isSearching = false;
+      if (searchResult.length > 0) {
+        // 有结果：作为 system 消息插入上下文最前面
+        const searchMsg = new Message(
+          this.currentConversationId,
+          "system",
+          `以下是从网络搜索到的参考资料，请基于这些信息回答用户的问题：\n\n${searchResult}`,
+        );
+        context.unshift(searchMsg);
+      } else {
+        // 无结果：标记失败，UI 显示降级提示（content 仍为空）
+        aiMsg.searchFailed = true;
+      }
+
+      // 4.4 恢复"思考中"状态，重新计时
+      aiMsg.isThinking = true;
+      aiMsg.thinkingStartTime = Date.now();
+      this.messages = this.messages.slice();
+    }
+
+    // 5. 构造回调并调用 AIService
+    const callbacks: StreamCallbacks = {
+      // 思考内容增量
+      onReasoningChunk: (deltaReasoning: string) => {
+        aiMsg.reasoning += deltaReasoning;
+        this.scrollToBottom();
+      },
+      onChunk: (deltaText: string) => {
+        aiMsg.searchFailed = false;
+        // 收到正文 = 思考结束
+        if (aiMsg.isThinking) {
+          aiMsg.isThinking = false;
+          aiMsg.thinkingDuration = Math.round((Date.now() - aiMsg.thinkingStartTime) / 100) / 10;
+        }
+        aiMsg.content += deltaText;
+        this.scrollToBottom();
+      },
+      onComplete: (fullText: string) => {
+        aiMsg.isThinking = false;
+        aiMsg.content = fullText;
+        this.messages = this.messages.slice();
+        this.scrollToBottom();
+      },
+      onError: (errorMessage: string) => {
+        aiMsg.isThinking = false;
+        aiMsg.content = `[错误] ${errorMessage}`;
+        this.messages = this.messages.slice();
+        this.scrollToBottom();
+      },
+    };
+
+    // 6. 调用 LLM
+    AIService.getInstance().sendMessage(context, callbacks);
   }
 
   /**
@@ -174,9 +237,19 @@ struct ChatPage {
    * @param role 消息角色
    * @param content 消息正文
    */
-  private addMessage(role: "user" | "assistant", content: string): void {
+  private addMessage(role: "user" | "assistant", content: string): Message {
     const msg = new Message(this.currentConversationId, role, content);
     this.messages.push(msg);
+    return msg;
+  }
+
+  // 滚动到最底部（确保最新消息可见）
+  private scrollToBottom(): void {
+    // 不在最底部 或 用户正在操作 → 不回滚
+    if (!this.isAtBottom || this.isUserScrolling) {
+      return;
+    }
+    this.listScroller.scrollToIndex(this.messages.length - 1, true, ScrollAlign.END);
   }
 
   /**

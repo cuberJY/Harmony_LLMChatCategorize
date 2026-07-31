@@ -10,7 +10,6 @@
  */
 
 import buffer from "@ohos.buffer";
-import { hilog } from "@kit.PerformanceAnalysisKit";
 import { http } from "@kit.NetworkKit";
 import { Message } from "../model/Message";
 import { AppConfig } from "../config/AppConfig";
@@ -20,6 +19,8 @@ import { AppConfig } from "../config/AppConfig";
  * 调用方（ChatPage）实现这三个回调来驱动 UI 更新
  */
 export interface StreamCallbacks {
+  // 每收到一段思考内容增量时触发（逐字/逐词输出效果）
+  onReasoningChunk: (deltaReasoning: string) => void;
   // 每收到一段增量文本时触发（逐字/逐词输出效果）
   onChunk: (deltaText: string) => void;
   // 全部文本接收完成时触发
@@ -37,12 +38,14 @@ interface ApiMessage {
 // SSE 单行解析结果
 interface SSEResult {
   delta: string;
+  reasoningDelta: string;
   done: boolean;
 }
 
 // SSE 响应中的 delta 结构
 interface SSEDelta {
   content: string;
+  reasoning_content: string;
 }
 
 // SSE 响应中的 choices 元素
@@ -53,16 +56,6 @@ interface SSEChoice {
 // SSE 完整响应结构
 interface SSEResponse {
   choices: SSEChoice[];
-}
-
-// 非流式响应中的 choice 元素（兜底用）
-interface ApiChoice {
-  message: SSEDelta;
-}
-
-// 非流式完整响应结构（兜底用）
-interface ApiResponse {
-  choices: ApiChoice[];
 }
 
 export class AIService {
@@ -103,6 +96,7 @@ export class AIService {
     const httpRequest: http.HttpRequest = http.createHttp();
 
     let fullText = "";
+    let fullReasoning = "";
     let isFinished = false; // 防止 onComplete/onError 重复调用
 
     // 安全调用回调的辅助函数
@@ -138,6 +132,12 @@ export class AIService {
           safeComplete(fullText);
           return;
         }
+        // 思考内容增量
+        if (result.reasoningDelta.length > 0) {
+          fullReasoning += result.reasoningDelta;
+          callbacks.onReasoningChunk(result.reasoningDelta);
+        }
+        // 正文增量
         if (result.delta.length > 0) {
           fullText += result.delta;
           callbacks.onChunk(result.delta);
@@ -208,7 +208,7 @@ export class AIService {
    */
   private parseSSELine(line: string): SSEResult {
     // ArkTS 要求对象字面量必须对应已声明的 interface
-    const result: SSEResult = { delta: "", done: false };
+    const result: SSEResult = { delta: "", reasoningDelta: "", done: false };
     const trimmed = line.trim();
 
     // 空行或注释行，跳过
@@ -229,9 +229,13 @@ export class AIService {
         // ArkTS 不允许 any 类型，必须用 as 断言到具体 interface
         const parsed: SSEResponse = JSON.parse(jsonStr) as SSEResponse;
         // OpenAI 兼容格式：choices[0].delta.content
-        const delta: string = parsed.choices?.[0]?.delta?.content || "";
-        if (delta.length > 0) {
-          result.delta = delta;
+        const reasoning: string = parsed.choices?.[0]?.delta?.reasoning_content || "";
+        const content: string = parsed.choices?.[0]?.delta?.content || "";
+        if (reasoning.length > 0) {
+          result.reasoningDelta = reasoning;
+        }
+        if (content.length > 0) {
+          result.delta = content;
         }
       } catch (e) {
         // JSON 解析失败，跳过这一行（可能是心跳包或不完整数据）
@@ -251,6 +255,11 @@ export class AIService {
    */
   private arrayBufferToString(bufferData: ArrayBuffer): string {
     // buffer.from() 接受 ArrayBuffer，toString("utf-8") 解码为字符串
-    return buffer.from(bufferData).toString("utf-8");
+    try {
+      return buffer.from(bufferData).toString("utf-8");
+    } catch (e) {
+      // 解码失败时返回空串，跳过该 chunk，不影响后续流式接收
+      return "";
+    }
   }
 }
