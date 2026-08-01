@@ -18,6 +18,7 @@ export enum COLORS {
   // 文字
   TEXT_PRIMARY = "#1A1A1A", // 主文字色
   TEXT_SECONDARY = "#999999", // 次要文字（时间戳等）
+  TEXT_IMPORTANT = "#2D65F8", // 重要文字
   TEXT_USER = "#1A1A1A", // 用户消息
   TEXT_AI = "#1A1A1A", // AI消息
   TEXT_DANGER = "#FF4D4F", // 危险文字
@@ -44,11 +45,13 @@ export enum FONT_SIZES {
   MODEL_NAME = 12, // 模型名称
   INPUT = 15, // 输入框
 
+  REMIND = 17, // 提示文字 
   BUTTON = 14, // 按钮文字
   TOGGLE = 13, // 切换按钮文字
 
   ICON_SM = 12,   // 小图标
   ICON_MD = 14,   // 中图标
+  ICON_LG = 16,   // 大图标
   ICON_XL = 20,   // 超大图标
   ICON_XXL = 24,  // 超超大图标
 };
@@ -60,6 +63,9 @@ export enum SPACING {
   MD = 12, // 中间距
   LG = 16, // 大间距
   XL = 20, // 超大间距
+  XXL = 24, // 超超大间距
+
+  TITLE_BAR_HEIGHT = 60, // 标题栏高度
 };
 
 // 气泡样式常量

@@ -55,10 +55,10 @@ export struct ConversationItem {
     }
     .width("100%")
     .padding({
-      left: SPACING.MD,
-      right: SPACING.MD,
-      top: SPACING.SM,
-      bottom: SPACING.SM,
+      left: SPACING.XL,
+      right: SPACING.XL,
+      top: SPACING.MD,
+      bottom: SPACING.MD,
     })
     .onClick(() => {
       // 点击 → 回调父组件，由父组件决定跳转逻辑

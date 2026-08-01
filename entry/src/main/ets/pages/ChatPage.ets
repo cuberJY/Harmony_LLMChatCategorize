@@ -180,7 +180,7 @@ struct ChatPage {
         })
       }
       .width("100%")
-      .height(60)
+      .height(SPACING.TITLE_BAR_HEIGHT)
       .padding({ left: SPACING.XL, right: SPACING.XL })
       .backgroundColor(COLORS.TITLE_BAR_BG)
       // 底部分割线

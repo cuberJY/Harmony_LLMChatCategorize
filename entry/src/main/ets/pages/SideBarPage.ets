@@ -51,40 +51,20 @@ struct SideBarPage {
       // 顶部栏：Tab 切换 + 返回
       if (this.isEditMode) {
         Row() {
-          Text("取消")
+          Text("已选择")
             .fontSize(FONT_SIZES.BODY)
-            .fontColor(COLORS.TOGGLE_TEXT_ACTIVE)
-            .padding(SPACING.MD)
-            .align(Alignment.Start)
-            .onClick(() => {
-              this.exitEditMode();
-            })
-          Text(this.isAllSelected() ? "取消全选" : "全选")
+            .fontColor(COLORS.TEXT_PRIMARY)
+          Text(this.selectedIds.length.toString())
             .fontSize(FONT_SIZES.BODY)
-            .fontColor(COLORS.TOGGLE_TEXT_ACTIVE)
-            .padding(SPACING.MD)
-            .align(Alignment.End)
-            .onClick(() => {
-              this.toggleSelectAll();
-            })
-          Row() {
-            Text("已选择")
-              .fontSize(FONT_SIZES.BODY)
-              .fontColor(COLORS.TEXT_PRIMARY)
-            Text(this.selectedIds.length.toString())
-              .fontSize(FONT_SIZES.BODY)
-              .fontColor(COLORS.PRIMARY)
-              // 数字用主题色突出，可选
-              .width(48)
-              // 固定宽度槽，容纳最多 4 位数字
-              .textAlign(TextAlign.Center)
-            Text("项")
-              .fontSize(FONT_SIZES.BODY)
-              .fontColor(COLORS.TEXT_PRIMARY)
-          }
+            .fontColor(COLORS.TEXT_IMPORTANT)
+            .textAlign(TextAlign.Center)
+          Text("项")
+            .fontSize(FONT_SIZES.BODY)
+            .fontColor(COLORS.TEXT_PRIMARY)
         }
         .width("100%")
-        .height(64)
+        .justifyContent(FlexAlign.Center)
+        .height(SPACING.TITLE_BAR_HEIGHT)
         .padding({ left: SPACING.XL, right: SPACING.XL })
         .backgroundColor(COLORS.TITLE_BAR_BG)
         .border({ width: { bottom: 1 }, color: { bottom: COLORS.DIVIDER } });
@@ -144,15 +124,14 @@ struct SideBarPage {
               .fontColor([Color.Black])
           }
           .width(40)
-          .padding({ right: SPACING.LG })
           .justifyContent(FlexAlign.End)
           .onClick(() => {
             router.back();
           })
         }
         .width("100%")
-        .height(60)
-        .padding({ left: SPACING.XL, right: SPACING.XL })
+        .height(SPACING.TITLE_BAR_HEIGHT)
+        .padding({ left: SPACING.LG, right: SPACING.XL })
         .backgroundColor(COLORS.TITLE_BAR_BG)
         // 底部分割线
         .border({
@@ -166,7 +145,7 @@ struct SideBarPage {
         // 收藏 Tab：文件夹列表（第七步实现，先空态占位）
         Column() {
           Text("暂无文件夹")
-            .fontSize(FONT_SIZES.BODY)
+            .fontSize(FONT_SIZES.REMIND)
             .fontColor(COLORS.TEXT_SECONDARY)
         }
         .width("100%")
@@ -176,28 +155,30 @@ struct SideBarPage {
         // 历史 Tab：搜索框 + 分组对话列表
         Column() {
           // 搜索框
-          TextInput({ placeholder: "搜索对话...", text: this.searchText })
-            .fontSize(FONT_SIZES.INPUT)
-            .fontColor(COLORS.TEXT_PRIMARY)
-            .placeholderColor(COLORS.TEXT_SECONDARY)
-            .backgroundColor(COLORS.PAGE_BG)
-            .borderRadius(16)
-            .borderWidth(1)
-            .borderColor(COLORS.INPUT_BORDER)
-            .padding({ left: SPACING.MD, right: SPACING.MD, top: SPACING.XS, bottom: SPACING.XS })
-            .margin({ left: SPACING.MD, right: SPACING.MD, top: SPACING.MD, bottom: SPACING.MD })
-            .onChange((value: string) => {
-              // 实时过滤：重新分组
-              this.searchText = value;
-              this.rebuildGroups();
-            })
+          if (this.conversations.length > 0) {
+            TextInput({ placeholder: "搜索对话...", text: this.searchText })
+              .fontSize(FONT_SIZES.INPUT)
+              .fontColor(COLORS.TEXT_PRIMARY)
+              .placeholderColor(COLORS.TEXT_SECONDARY)
+              .backgroundColor(COLORS.PAGE_BG)
+              .borderRadius(16)
+              .borderWidth(1)
+              .borderColor(COLORS.INPUT_BORDER)
+              .padding({ left: SPACING.MD, right: SPACING.MD, top: SPACING.XS, bottom: SPACING.XS })
+              .margin({ left: SPACING.MD, right: SPACING.MD, top: SPACING.MD, bottom: SPACING.MD })
+              .onChange((value: string) => {
+                // 实时过滤：重新分组
+                this.searchText = value;
+                this.rebuildGroups();
+              })
+          }
 
           // 分组对话列表
           if (this.groups.length === 0) {
             // 空态提示
             Column() {
               Text("暂无历史对话")
-                .fontSize(FONT_SIZES.BODY)
+                .fontSize(FONT_SIZES.REMIND)
                 .fontColor(COLORS.TEXT_SECONDARY)
             }
             .width("100%")
@@ -272,17 +253,37 @@ struct SideBarPage {
       // 底部：设置按钮
       if (this.isEditMode) {
         Row() {
-          Text(`删除(${this.selectedIds.length})`)
-            .fontSize(FONT_SIZES.BUTTON)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.selectedIds.length > 0 ? COLORS.TEXT_DANGER : COLORS.TEXT_SECONDARY)
-            .onClick(() => {
-              if (this.selectedIds.length > 0) this.confirmBatchDelete();
-            })
+          Row() {
+            Text("取消")
+              .fontSize(FONT_SIZES.BUTTON)
+              .fontColor(COLORS.TOGGLE_TEXT_ACTIVE)
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+              .onClick(() => {
+                this.exitEditMode();
+              })
+            Text(`删除`)
+              .fontSize(FONT_SIZES.BUTTON)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.selectedIds.length > 0 ? COLORS.TEXT_DANGER : COLORS.TEXT_SECONDARY)
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+              .onClick(() => {
+                if (this.selectedIds.length > 0) this.confirmBatchDelete();
+              })
+            Text(this.isAllSelected() ? "取消全选" : "全选")
+              .fontSize(FONT_SIZES.BUTTON)
+              .fontColor(COLORS.TOGGLE_TEXT_ACTIVE)
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+              .onClick(() => {
+                this.toggleSelectAll();
+              })
+          }
         }
         .width("100%")
-        .height(50)
-        .justifyContent(FlexAlign.Center)
+        .height(SPACING.TITLE_BAR_HEIGHT)
+        .justifyContent(FlexAlign.SpaceBetween)
         .backgroundColor(COLORS.TITLE_BAR_BG)
         .border({
           width: { top: 1 },
@@ -291,7 +292,7 @@ struct SideBarPage {
       } else {
         Row() {
           SymbolGlyph($r("sys.symbol.gearshape"))
-            .fontSize(FONT_SIZES.ICON_XL)
+            .fontSize(FONT_SIZES.ICON_LG)
             .fontWeight(600)
             .fontColor([Color.Black])
             .margin({ right: SPACING.XS })
@@ -301,7 +302,7 @@ struct SideBarPage {
             .fontColor(COLORS.TEXT_PRIMARY)
         }
         .width("100%")
-        .height(50)
+        .height(SPACING.TITLE_BAR_HEIGHT)
         .justifyContent(FlexAlign.Center)
         .backgroundColor(COLORS.TITLE_BAR_BG)
         // 顶部分割线
