@@ -63,6 +63,8 @@ class MessageDataSource implements IDataSource {
 struct ChatPage {
   @State isAtBottom: boolean = true;
   @State title: string = "新对话"; // 顶部标题（显示当前对话标题）
+  @State modelName: string = "";
+  
   private edgeDownX: number = 0; // 触摸按下时的 X 坐标（用于判断是否从左边缘右滑）
 
   private currentConversation: Conversation = new Conversation(); // 当前对话对象
@@ -103,6 +105,7 @@ struct ChatPage {
    * 检查 AppConfig.selectedConversation：有值则加载该历史对话
    */
   onPageShow(): void {
+    this.modelName = AppConfig.getInstance().getModel();
     const selected = AppConfig.getInstance().selectedConversation;
     if (selected) {
       // 消费掉标记，避免重复加载
@@ -257,7 +260,7 @@ struct ChatPage {
 
       // 底部输入区域
       ChatInput({
-        modelName: AppConfig.getInstance().getModel(), // 从配置获取当前模型
+        modelName: this.modelName, // 从配置获取当前模型
         onChange: (text: string, webSearch: boolean) => {
           this.handleUserSend(text, webSearch);
         },

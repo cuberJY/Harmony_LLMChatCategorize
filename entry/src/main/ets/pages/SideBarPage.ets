@@ -311,8 +311,7 @@ struct SideBarPage {
           color: { top: COLORS.DIVIDER },
         })
         .onClick(() => {
-          // 第六步接入 SettingsPage；当前弹提示避免跳转到不存在的页面报错
-          promptAction.showToast({ message: "设置功能即将上线" });
+          router.pushUrl({ url: "pages/SettingsPage" });
         });
       }
     }

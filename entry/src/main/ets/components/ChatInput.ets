@@ -32,7 +32,7 @@ export struct ChatInput {
   }
 
   // 模型名称（由父组件传入）
-  modelName: string = "deepseek-chat";
+  @Prop modelName: string = "";
 
   // 发送回调
   onChange?: (text: string, webSearch: boolean) => void;
@@ -40,7 +40,7 @@ export struct ChatInput {
   build() {
     Column() {
       // 1. 模型名称
-      Text(this.modelName)
+      Text(this.modelName.length > 0 ? this.modelName : "未配置模型，请前往设置")
         .fontSize(FONT_SIZES.MODEL_NAME)
         .fontColor(COLORS.TEXT_SECONDARY)
         .width("100%")

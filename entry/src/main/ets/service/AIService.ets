@@ -90,6 +90,11 @@ export class AIService {
    *   });
    */
   sendMessage(messages: Message[], callbacks: StreamCallbacks): void {
+    // 未配置时提前拦截，提示用户前往设置
+    if (!AppConfig.getInstance().isConfigured()) {
+      callbacks.onError("尚未配置 API，请先前往「设置」填写 API 地址、Key 和模型");
+      return;
+    }
     const config = AppConfig.getInstance().getConfig();
     this.sseBuffer = "";
 
