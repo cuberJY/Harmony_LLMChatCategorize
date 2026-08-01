@@ -6,6 +6,8 @@
  * 后续阶段（第六步）：替换为 @ohos.data.preferences 持久化存储
  */
 
+import { Conversation } from "../model/Conversation";
+
 // AI API 配置接口
 export interface ApiConfig {
   baseUrl: string; // API 基础地址（OpenAI 兼容格式，含 /v1/chat/completions 路径）
@@ -16,8 +18,8 @@ export interface ApiConfig {
 } 
 
 export class AppConfig {
-  // 单例实例
-  private static instance: AppConfig;
+  selectedConversation?: Conversation = undefined; // 当前选中的对话
+  private static instance: AppConfig; // 单例实例
 
   /**
    * 当前配置

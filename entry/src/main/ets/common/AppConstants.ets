@@ -20,6 +20,7 @@ export enum COLORS {
   TEXT_SECONDARY = "#999999", // 次要文字（时间戳等）
   TEXT_USER = "#1A1A1A", // 用户消息
   TEXT_AI = "#1A1A1A", // AI消息
+  TEXT_DANGER = "#FF4D4F", // 危险文字
   // 输入
   INPUT_BG = "#FFFFFF", // 输入区背景
   INPUT_BORDER = "#E0E0E0", // 输入框边框
@@ -30,6 +31,8 @@ export enum COLORS {
   TOGGLE_BG_INACTIVE = "#F0F0F0", // 切换按钮默认态背景
   TOGGLE_TEXT_ACTIVE = "#2D65F8", // 切换按钮激活态文字
   TOGGLE_TEXT_INACTIVE = "#666666", // 切换按钮默认态文字
+  // 悬浮菜单
+  MENU_BG = "#CDFFFFFF", // 对话管理
 };
 
 // 字号常量
@@ -47,6 +50,7 @@ export enum FONT_SIZES {
   ICON_SM = 12,   // 小图标
   ICON_MD = 14,   // 中图标
   ICON_XL = 20,   // 超大图标
+  ICON_XXL = 24,  // 超超大图标
 };
 
 // 间距常量

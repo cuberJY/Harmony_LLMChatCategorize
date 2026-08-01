@@ -1,5 +1,6 @@
 {
   "src": [
-    "pages/ChatPage"
+    "pages/ChatPage",
+    "pages/SideBarPage"
   ]
 }
