@@ -21,8 +21,8 @@ import { Conversation } from "../model/Conversation";
 import { Category } from "../model/Category";
 
 export class DatabaseHelper {
-  // 当前数据库结构版本号（v2：conversation 增加 is_favorite 列）
-  private static readonly DB_VERSION: number = 2;
+  // 当前数据库结构版本号
+  private static readonly DB_VERSION: number = 1;
 
   // 单例实例
   private static instance: DatabaseHelper;
@@ -73,23 +73,6 @@ export class DatabaseHelper {
     )`,
       );
 
-      // 数据库结构升级（v1 → v2）：旧库 conversation 表没有 is_favorite 列
-      // 1. 检查列是否已存在：用 ALTER TABLE 尝试添加，列已存在时抛异常（catch 忽略）
-      // 2. 存量数据迁移：旧版已分类（category_id 非空）的对话视为已收藏，保证文件夹内容不丢
-      try {
-        await store.executeSql(
-          `ALTER TABLE conversation ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0`,
-        );
-      } catch (e) {
-        // 列已存在（新库或已升级过），忽略
-      }
-      try {
-        await store.executeSql(
-          `UPDATE conversation SET is_favorite = 1 WHERE category_id != ''`,
-        );
-      } catch (e) {
-        // 迁移失败不影响主流程
-      }
       await store.executeSql(
         `CREATE TABLE IF NOT EXISTS message (
       id TEXT PRIMARY KEY,               -- 消息 ID（UUID）
