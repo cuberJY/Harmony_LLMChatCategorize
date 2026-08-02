@@ -39,6 +39,7 @@ export enum COLORS {
 // 字号常量
 export enum FONT_SIZES {
   TITLE = 18, // 标题栏
+  NAME = 16, // 名称
   TIME = 11, // 时间戳
   THINKING = 13, // 思考中文字
   BODY = 15, // 消息正文
@@ -47,7 +48,7 @@ export enum FONT_SIZES {
 
   REMIND = 17, // 提示文字 
   BUTTON = 14, // 按钮文字
-  TOGGLE = 13, // 切换按钮文字
+  TOGGLE = 16, // 切换按钮文字
 
   ICON_SM = 12,   // 小图标
   ICON_MD = 14,   // 中图标

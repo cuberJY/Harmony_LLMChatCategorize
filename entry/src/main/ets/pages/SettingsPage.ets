@@ -6,7 +6,7 @@
  * 点击"保存"后持久化到 Preferences，返回主页面
  */
 
-import { router, promptAction } from "@kit.ArkUI";
+import { router, promptAction, KeyboardAvoidMode } from "@kit.ArkUI";
 import { AppConfig } from "../config/AppConfig";
 import { COLORS, FONT_SIZES, SPACING } from "../common/AppConstants";
 
@@ -21,6 +21,11 @@ struct SettingsPage {
   @State searchApiKey: string = "";
 
   aboutToAppear(): void {
+    /**
+     *输入法避让：本页是表单页，切到"上抬"模式（键盘弹出时页面整体上抬，保证当前输入框不被遮挡）
+     *注：窗口全局为 RESIZE 压缩模式，只压缩 Scroll 高度、不会滚动到焦点输入框，底部输入框会被键盘盖住
+     */
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
     // 回显已保存的配置
     const config = AppConfig.getInstance().getConfig();
     this.baseUrl = config.baseUrl;
@@ -28,6 +33,11 @@ struct SettingsPage {
     this.model = config.model;
     this.searchBaseUrl = config.searchBaseUrl;
     this.searchApiKey = config.searchApiKey;
+  }
+
+  aboutToDisappear(): void {
+    // 离开页面时恢复全局压缩模式（聊天页底部输入栏依赖 RESIZE 模式）
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
   }
 
   build() {
@@ -67,6 +77,8 @@ struct SettingsPage {
         width: { bottom: 1 },
         color: { bottom: COLORS.DIVIDER },
       })
+      // 上抬避让时让标题栏保持原位，不被键盘顶出屏幕
+      .expandSafeArea([SafeAreaType.KEYBOARD])
 
       // 表单区域
       Scroll() {
@@ -209,7 +221,7 @@ struct SettingsPage {
             })
         }
         .width("100%")
-        .padding({ left: SPACING.MD, right: SPACING.MD })
+        .padding({ left: SPACING.LG, right: SPACING.LG })
         .alignItems(HorizontalAlign.Start)
       }
       .layoutWeight(1)

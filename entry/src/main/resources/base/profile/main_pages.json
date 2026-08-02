@@ -1,6 +1,7 @@
 {
   "src": [
     "pages/ChatPage",
+    "pages/FolderPage",
     "pages/SettingsPage",
     "pages/SideBarPage"
   ]

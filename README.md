@@ -18,6 +18,9 @@
 - **深度思考** — AI 推理过程可折叠展示，含思考耗时统计
 - **联网搜索** — 博查 Web Search 实时联网，结果作为参考资料驱动回答，失败自动降级
 - **设置页** — 应用内填写 API 地址 / Key / 模型，保存后持久化到 Preferences，重启不丢失
+- **多级文件夹分类** — 无限层级文件夹，收藏 Tab 显示顶级文件夹，支持进入下一级浏览
+- **文件夹管理** — 新建 / 重命名 / 移动 / 删除（二次确认 + 级联移除分类关系），图标 8 色可选
+- **对话归档** — 对话可移动到任意文件夹或移出不分类，按文件夹维度浏览
 - **历史会话** — 对话自动持久化，侧边栏按时间分组展示（今天/昨天/7天内/30天内/年月）
 - **会话管理** — 搜索过滤、长按菜单（多选/删除）、批量删除、左边缘右滑进入历史页
 - **消息持久化** — 用户消息/AI 回复（含思考内容）实时入库，支持历史加载回看
@@ -25,7 +28,6 @@
 - **流式节流** — 增量文本 50ms 节流合并刷新，高频流式更新降到 ~20fps
 - **键盘避让** — RESIZE 模式，键盘弹出自动钉底
 - **智能时间分割线** — 消息间隔超过 10 分钟自动显示
-- **对话分类管理** — Category 模型与分类表（规划中）
 
 ## 项目结构
 
@@ -49,10 +51,14 @@ ChatCategorize/
 │   │   ├── components/      # UI 组件
 │   │   │   ├── MessageBubble.ets      # 聊天气泡（含思考块）
 │   │   │   ├── ChatInput.ets          # 输入栏（深度思考/联网开关）
-│   │   │   └── ConversationItem.ets   # 历史对话列表项（长按菜单）
+│   │   │   ├── ConversationItem.ets   # 历史对话列表项（长按菜单）
+│   │   │   ├── FolderItem.ets         # 文件夹列表项（彩色图标）
+│   │   │   ├── EditFolderDialog.ets   # 编辑文件夹对话框（重命名+换色）
+│   │   │   └── FolderPickerDialog.ets # 文件夹选择器（移动对话/文件夹）
 │   │   ├── pages/           # 页面
 │   │   │   ├── ChatPage.ets       # 主聊天页
 │   │   │   ├── SideBarPage.ets    # 侧边栏（收藏/历史 Tab）
+│   │   │   ├── FolderPage.ets     # 文件夹页（子文件夹+对话，可多级）
 │   │   │   └── SettingsPage.ets   # 设置页（API 配置表单）
 │   │   └── entryability/    # Ability 入口
 │   │       └── EntryAbility.ets   # onCreate 预加载配置
@@ -129,12 +135,14 @@ ChatCategorize/
 |------|------|------|
 | `conversation` | id, title, category_id, created_at, updated_at | 对话表 |
 | `message` | id, conversation_id, role, content, reasoning, created_at | 消息表（含思考内容） |
-| `category` | id, name, sort_order, created_at | 分类表 |
+| `category` | id, name, parent_id, color, sort_order, created_at | 文件夹/分类表（支持多级嵌套） |
 
 - 单例模式，`init()` 幂等建表（IF NOT EXISTS）
 - 高频查询索引：`message(conversation_id)`、`conversation(updated_at DESC)`
 - 对话延迟入库：首条用户消息时才创建对话记录，避免空白对话污染历史
 - 删除对话级联删除消息（IN 条件）
+- 文件夹树：`parent_id` 空串为顶级，`getCategorySubtreeIds()` 收集子孙节点，移动文件夹时排除自身防止成环
+- 删除文件夹级联：`deleteCategoryCascade()` 先递归收集子孙，再移除其分类关系（对话本身不删除）
 - 所有 API 调用 try-catch 包裹，异常静默降级
 
 ### ChatPage — 渲染优化
@@ -148,9 +156,5 @@ ChatCategorize/
 | 模型 | 说明 |
 |------|------|
 | `Message` | 单条消息（@Observed 可观察），含 reasoning/isThinking/isSearching 等状态 |
-| `Conversation` | 一个对话会话，可归属于某个 Category |
-| `Category` | 对话分类，支持侧边栏筛选 |
-
-## 许可
-
-MIT
+| `Conversation` | 一个对话会话，可归属于某个 Category（文件夹） |
+| `Category` | 文件夹/分类（@Observed），含 parentId（多级嵌套）与 color（图标颜色） |

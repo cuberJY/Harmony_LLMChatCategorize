@@ -2,6 +2,7 @@
 * 对话数据模型
 * 对应一次完整的聊天会话
 */
+@Observed
 export class Conversation {
   id: string = ""; // UUID
   title: string = ""; // 对话标题（取首条用户消息截断，或 AI 自动概括）

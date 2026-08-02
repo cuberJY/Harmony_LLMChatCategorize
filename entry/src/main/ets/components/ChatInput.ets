@@ -124,7 +124,7 @@ export struct ChatInput {
         // 右侧：发送按钮
         Button() {
           SymbolGlyph($r("sys.symbol.arrowshape_up_fill"))
-            .fontSize(18)
+            .fontSize(FONT_SIZES.ICON_XL)
             .fontColor([Color.White])
         }
         .width(32)

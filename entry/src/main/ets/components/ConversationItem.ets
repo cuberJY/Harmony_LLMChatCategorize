@@ -9,49 +9,46 @@ import { COLORS, FONT_SIZES, SPACING } from "../common/AppConstants";
 @Component
 export struct ConversationItem {
   /** 对话数据（由父组件传入） */
-  @Prop conversation: Conversation;
+  @ObjectLink conversation: Conversation;
   @Prop isEditMode: boolean = false; // 是否多选编辑模式
   @Prop isSelected: boolean = false; // 当前项是否被选中
 
   onClickItem?: (conv: Conversation) => void; // 点击进入（非编辑模式）
   onMenuDelete?: (conv: Conversation) => void; // 长按菜单-删除
+  onMenuRename?: (conv: Conversation) => void; // 长按菜单-重命名
   onMenuSelect?: (conv: Conversation) => void; // 长按菜单-多选
   onSelectChange?: (conv: Conversation, checked: boolean) => void; // 勾选变化
+  onMenuMove?: (conv: Conversation) => void; // 长按菜单-移动到文件夹
 
   build() {
     Row() {
-      // 编辑模式：左侧勾选圆圈
-      if (this.isEditMode) {
-        Stack() {
-          if (this.isSelected) {
-            Text("✓").fontSize(12).fontColor(Color.White).fontWeight(FontWeight.Bold);
-          }
-        }
-        .width(22)
-        .height(22)
-        .borderRadius(11)
-        .border({ width: 1.5, color: this.isSelected ? COLORS.PRIMARY : "#CCCCCC" })
-        .backgroundColor(this.isSelected ? COLORS.PRIMARY : Color.Transparent)
-        .margin({ right: SPACING.MD });
-      }
-      // 左侧：对话标题（无标题时显示"新对话"）
+      // 对话标题（无标题时显示"新对话"）
       Column() {
         Text(this.conversation.title.length > 0 ? this.conversation.title : "新对话")
-          .fontSize(FONT_SIZES.BODY)
+          .fontSize(FONT_SIZES.NAME)
           .fontColor(COLORS.TEXT_PRIMARY)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width("100%")
-
-        // 时间：第二行，靠左对齐
-        Text(this.formatConvTime(this.conversation.updatedAt))
-          .fontSize(FONT_SIZES.TIME)
-          .fontColor(COLORS.TEXT_SECONDARY)
-          .margin({ top: SPACING.XS })
-          .width("100%")
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
+
+      // 编辑模式：右侧勾选圆圈
+      if (this.isEditMode) {
+        Stack() {
+          if (this.isSelected) {
+            SymbolGlyph($r("sys.symbol.checkmark")) // 对勾
+            .fontSize(FONT_SIZES.ICON_LG)
+            .fontColor([Color.White]);
+          }
+        }
+        .width(24)
+        .height(24)
+        .borderRadius(12)
+        .border({ width: 1.5, color: this.isSelected ? COLORS.PRIMARY : "#CCCCCC" })
+        .backgroundColor(this.isSelected ? COLORS.PRIMARY : Color.Transparent)
+      }
     }
     .width("100%")
     .padding({
@@ -83,7 +80,7 @@ export struct ConversationItem {
             .fontColor(COLORS.TEXT_PRIMARY)
         }
         .width("100%")
-        .height(40)
+        .height(36)
         .justifyContent(FlexAlign.Center)
         .onClick(() => {
           if (this.onMenuSelect) this.onMenuSelect(this.conversation);
@@ -92,6 +89,35 @@ export struct ConversationItem {
           .strokeWidth(0.5)
           .color(COLORS.DIVIDER)
 
+        // 重命名
+        Row() {
+          Text("重命名")
+            .fontSize(FONT_SIZES.BUTTON)
+            .fontColor(COLORS.TEXT_PRIMARY)
+        }
+        .width("100%")
+        .height(36)
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          if (this.onMenuRename) this.onMenuRename(this.conversation);
+        })
+        Divider()
+          .strokeWidth(0.5)
+          .color(COLORS.DIVIDER)
+
+        // 移动到文件夹
+        Row() {
+          Text("移动")
+            .fontSize(FONT_SIZES.BUTTON)
+            .fontColor(COLORS.TEXT_PRIMARY)
+        }
+        .width("100%")
+        .height(36)
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          if (this.onMenuMove) this.onMenuMove(this.conversation);
+        })
+
         // 删除
         Row() {
           Text("删除")
@@ -99,15 +125,15 @@ export struct ConversationItem {
             .fontColor(COLORS.TEXT_DANGER)
         }
         .width("100%")
-        .height(40)
+        .height(36)
         .justifyContent(FlexAlign.Center)
         .onClick(() => {
           if (this.onMenuDelete) this.onMenuDelete(this.conversation);
         })
       }
-      .width(100)
+      .width(160)
       .borderRadius(10)
-      .backgroundColor(COLORS.MENU_BG)
+      .backgroundColor(COLORS.MENU_BG);
     }
   }
 

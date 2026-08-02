@@ -64,7 +64,7 @@ struct ChatPage {
   @State isAtBottom: boolean = true;
   @State title: string = "新对话"; // 顶部标题（显示当前对话标题）
   @State modelName: string = "";
-  
+
   private edgeDownX: number = 0; // 触摸按下时的 X 坐标（用于判断是否从左边缘右滑）
 
   private currentConversation: Conversation = new Conversation(); // 当前对话对象
@@ -111,6 +111,9 @@ struct ChatPage {
       // 消费掉标记，避免重复加载
       AppConfig.getInstance().selectedConversation = undefined;
       this.loadConversation(selected);
+    } else {
+      // 无选中对话：可能从侧边栏重命名后返回 → 回读最新标题
+      this.syncTitleFromDb();
     }
   }
 
@@ -143,7 +146,7 @@ struct ChatPage {
         // 左侧：侧边栏入口
         Row() {
           // "三横线"图标，点击弹出侧边栏
-          SymbolGlyph($r("sys.symbol.space_enlarge"))
+          SymbolGlyph($r("sys.symbol.sort"))
             .fontSize(FONT_SIZES.ICON_XL)
             .fontWeight(700)
             .fontColor([Color.Black])
@@ -371,6 +374,19 @@ struct ChatPage {
 
     // 6. 调用 LLM
     AIService.getInstance().sendMessage(context, callbacks);
+  }
+
+  /**
+   * 按 id 从数据库拉取当前对话的最新标题并同步到标题栏
+   * （重命名发生在侧边栏，当前页对象与侧边栏对象不是同一个实例）
+   */
+  private async syncTitleFromDb(): Promise<void> {
+    if (this.currentConversationId.length === 0) return; // 空白新对话尚未入库，跳过
+    const conv = await DatabaseHelper.getInstance().getConversationById(this.currentConversationId);
+    if (conv) {
+      this.currentConversation.title = conv.title; // 同步内存对象（后续入库/比较用）
+      this.title = conv.title.length > 0 ? conv.title : "新对话"; // 同步标题栏
+    }
   }
 
   /**
