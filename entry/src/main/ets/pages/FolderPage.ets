@@ -211,6 +211,8 @@ struct FolderPage {
               ListItem() {
                 ConversationItem({
                   conversation: conv,
+                  // 文件夹页：不显示星标（该页全是已收藏对话）；保留"移动"菜单调整位置
+                  showFavoriteIcon: false,
                   onClickItem: (selected: Conversation) => {
                     // 选中对话 → 交给 ChatPage 加载（经由 SideBarPage 中转返回）
                     AppConfig.getInstance().selectedConversation = selected;
@@ -224,6 +226,9 @@ struct FolderPage {
                   },
                   onMenuDelete: (selected: Conversation) => {
                     this.confirmDeleteConv(selected);
+                  },
+                  onMenuFavorite: (selected: Conversation) => {
+                    this.doUnfavorite(selected);
                   },
                 })
               }.width("100%");
@@ -416,7 +421,7 @@ struct FolderPage {
     if (folderId !== this.folderId) {
       this.convs = this.convs.filter((c: Conversation) => c.id !== conv.id);
     }
-    promptAction.showToast({ message: folderId.length > 0 ? "已移动" : "已移出不分类" });
+    promptAction.showToast({ message: "移动成功" });
   }
 
   // 重命名对话
@@ -466,5 +471,16 @@ struct FolderPage {
     await DatabaseHelper.getInstance().deleteConversations([id]);
     this.convs = this.convs.filter((c: Conversation) => c.id !== id);
     promptAction.showToast({ message: "已删除" });
+  }
+
+  // 取消收藏：清空收藏标记与位置，并从当前文件夹移除（未收藏对话不参与文件夹分类）
+  private async doUnfavorite(conv: Conversation): Promise<void> {
+    await DatabaseHelper.getInstance().setFavorite(conv, false);
+    conv.isFavorite = false;
+    conv.categoryId = "";
+    // 从当前文件夹对话列表移除（对话不再属于任何文件夹）
+    this.convs = this.convs.filter((c: Conversation) => c.id !== conv.id);
+    this.listVersion++;
+    promptAction.showToast({ message: "已取消收藏" });
   }
 }

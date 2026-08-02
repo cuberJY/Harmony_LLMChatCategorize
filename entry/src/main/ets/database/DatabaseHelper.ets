@@ -21,8 +21,8 @@ import { Conversation } from "../model/Conversation";
 import { Category } from "../model/Category";
 
 export class DatabaseHelper {
-  // 当前数据库结构版本号
-  private static readonly DB_VERSION: number = 1;
+  // 当前数据库结构版本号（v2：conversation 增加 is_favorite 列）
+  private static readonly DB_VERSION: number = 2;
 
   // 单例实例
   private static instance: DatabaseHelper;
@@ -66,11 +66,30 @@ export class DatabaseHelper {
         `CREATE TABLE IF NOT EXISTS conversation (
       id TEXT PRIMARY KEY,              -- 对话 ID（UUID）
       title TEXT NOT NULL DEFAULT '',    -- 对话标题（首条用户消息截断）
-      category_id TEXT NOT NULL DEFAULT '', -- 所属分类 ID，空串表示未分类
+      category_id TEXT NOT NULL DEFAULT '', -- 收藏位置（文件夹）ID，空串 = 未放入文件夹
+      is_favorite INTEGER NOT NULL DEFAULT 0, -- 是否收藏：0 未收藏 / 1 已收藏
       created_at INTEGER NOT NULL,       -- 创建时间戳（毫秒）
       updated_at INTEGER NOT NULL        -- 最后更新时间戳（毫秒）
     )`,
       );
+
+      // 数据库结构升级（v1 → v2）：旧库 conversation 表没有 is_favorite 列
+      // 1. 检查列是否已存在：用 ALTER TABLE 尝试添加，列已存在时抛异常（catch 忽略）
+      // 2. 存量数据迁移：旧版已分类（category_id 非空）的对话视为已收藏，保证文件夹内容不丢
+      try {
+        await store.executeSql(
+          `ALTER TABLE conversation ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0`,
+        );
+      } catch (e) {
+        // 列已存在（新库或已升级过），忽略
+      }
+      try {
+        await store.executeSql(
+          `UPDATE conversation SET is_favorite = 1 WHERE category_id != ''`,
+        );
+      } catch (e) {
+        // 迁移失败不影响主流程
+      }
       await store.executeSql(
         `CREATE TABLE IF NOT EXISTS message (
       id TEXT PRIMARY KEY,               -- 消息 ID（UUID）
@@ -126,6 +145,7 @@ export class DatabaseHelper {
         id: conv.id,
         title: conv.title,
         category_id: conv.categoryId,
+        is_favorite: conv.isFavorite ? 1 : 0,
         created_at: conv.createdAt,
         updated_at: conv.updatedAt,
       };
@@ -146,6 +166,7 @@ export class DatabaseHelper {
       const values: relationalStore.ValuesBucket = {
         title: conv.title,
         category_id: conv.categoryId,
+        is_favorite: conv.isFavorite ? 1 : 0,
         updated_at: conv.updatedAt,
       };
       const predicates = new relationalStore.RdbPredicates("conversation");
@@ -238,6 +259,7 @@ export class DatabaseHelper {
   /**
    * 按文件夹查询对话（按更新时间倒序）
    * categoryId 传空串 = 查询未分类对话
+   * 仅返回已收藏对话：按新规则只有收藏的对话才参与文件夹分类
    * 用于：收藏 Tab 未分类列表、FolderPage 文件夹内对话列表
    * 失败时返回空数组，调用方无需感知异常
    */
@@ -248,6 +270,7 @@ export class DatabaseHelper {
     try {
       const predicates = new relationalStore.RdbPredicates("conversation");
       predicates.equalTo("category_id", categoryId); // 按分类过滤
+      predicates.equalTo("is_favorite", 1); // 只返回已收藏对话
       predicates.orderByDesc("updated_at"); // 最近更新的排最前
       resultSet = await this.store.query(predicates);
 
@@ -267,6 +290,79 @@ export class DatabaseHelper {
       }
     }
     return list;
+  }
+
+  /**
+   * 查询全部已收藏对话，按收藏时间倒序
+   * 用于：收藏 Tab 数据源（所有 is_favorite=1 的对话，含未放入文件夹的）
+   */
+  async getFavoriteConversations(): Promise<Conversation[]> {
+    if (!this.store) return [];
+    const list: Conversation[] = [];
+    let resultSet: relationalStore.ResultSet | undefined = undefined;
+    try {
+      const predicates = new relationalStore.RdbPredicates("conversation");
+      predicates.equalTo("is_favorite", 1); // 只查已收藏
+      predicates.orderByDesc("updated_at"); // 最近更新的排最前
+      resultSet = await this.store.query(predicates);
+
+      while (resultSet.goToNextRow()) {
+        list.push(this.conversationFromResultSet(resultSet));
+      }
+    } catch (e) {
+      console.error(`getFavoriteConversations failed: ${JSON.stringify(e)}`);
+    } finally {
+      if (resultSet) {
+        try {
+          resultSet.close();
+        } catch (e) {
+          // 关闭失败可忽略
+        }
+      }
+    }
+    return list;
+  }
+
+  /**
+   * 批量移动对话到文件夹（收藏 Tab 多选批量移动）
+   * @param ids 要移动的对话 ID 列表
+   * @param folderId 目标文件夹 ID，空串 = 移出文件夹（仍为已收藏）
+   * 仅更新 category_id：保持 is_favorite 不变
+   */
+  async moveConversations(ids: string[], folderId: string): Promise<void> {
+    if (!this.store || ids.length === 0) return;
+    try {
+      const values: relationalStore.ValuesBucket = {
+        category_id: folderId,
+      };
+      const predicates = new relationalStore.RdbPredicates("conversation");
+      predicates.in("id", ids); // IN 条件批量更新
+      await this.store.update(values, predicates);
+    } catch (e) {
+      console.error(`moveConversations failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  /**
+   * 设置对话收藏状态（收藏/取消收藏）
+   * @param conv 目标对话
+   * @param isFavorite true=收藏 / false=取消收藏
+   * 取消收藏时自动清空收藏位置（categoryId），保证未收藏对话不参与文件夹分类
+   */
+  async setFavorite(conv: Conversation, isFavorite: boolean): Promise<void> {
+    if (!this.store) return;
+    try {
+      const values: relationalStore.ValuesBucket = {
+        is_favorite: isFavorite ? 1 : 0,
+        category_id: isFavorite ? conv.categoryId : "", // 取消收藏 → 移出文件夹
+      };
+      const predicates = new relationalStore.RdbPredicates("conversation");
+      predicates.equalTo("id", conv.id);
+      await this.store.update(values, predicates);
+      conv.isFavorite = isFavorite; // 同步内存对象
+    } catch (e) {
+      console.error(`setFavorite failed: ${JSON.stringify(e)}`);
+    }
   }
 
   // Message表
@@ -501,6 +597,7 @@ export class DatabaseHelper {
       conv.id = rs.getString(rs.getColumnIndex("id"));
       conv.title = rs.getString(rs.getColumnIndex("title"));
       conv.categoryId = rs.getString(rs.getColumnIndex("category_id"));
+      conv.isFavorite = rs.getLong(rs.getColumnIndex("is_favorite")) === 1;
       conv.createdAt = rs.getLong(rs.getColumnIndex("created_at"));
       conv.updatedAt = rs.getLong(rs.getColumnIndex("updated_at"));
     } catch (e) {

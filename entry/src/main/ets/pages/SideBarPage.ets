@@ -132,10 +132,12 @@ struct SideBarPage {
 
   onPageShow(): void {
     /**
-     * 从 FolderPage 等页面返回时重新可见，收藏数据可能已变化（对话/文件夹移动），刷新
+     * 从 FolderPage 等页面返回时重新可见，收藏数据可能已变化（对话/文件夹移动、取消收藏），刷新
+     * 历史列表也需刷新：取消收藏后星标、菜单文案要同步
      * 注：首次进入也会触发，此时数据库 init 可能未完成，查询返回空；
      * 随后 aboutToAppear 中的 init.then 会再次加载出正确数据，最终显示不受影响
      */
+    this.loadConversations();
     this.loadFavorites();
   }
 
@@ -297,6 +299,8 @@ struct SideBarPage {
                           conversation: conv,
                           isEditMode: this.isEditMode,
                           isSelected: this.selectedIds.indexOf(conv.id) >= 0,
+                          // 历史页：星标显示在行尾；不显示"移动"（未收藏对话不参与文件夹分类）
+                          showMoveMenu: false,
 
                           onClickItem: (selected: Conversation) => {
                             this.selectConversation(selected);
@@ -310,11 +314,11 @@ struct SideBarPage {
                           onMenuDelete: (selected: Conversation) => {
                             this.confirmDeleteSingle(selected);
                           },
-                          onMenuMove: (selected: Conversation) => {
-                            this.openConvPicker(selected);
-                          },
                           onMenuSelect: (selected: Conversation) => {
                             this.enterEditMode(selected.id);
+                          },
+                          onMenuFavorite: (selected: Conversation) => {
+                            this.onFavoriteAction(selected);
                           },
                         })
                       }.width("100%");
@@ -399,6 +403,8 @@ struct SideBarPage {
                       conversation: conv,
                       isEditMode: this.isEditMode,
                       isSelected: this.selectedIds.indexOf(conv.id) >= 0,
+                      // 收藏页：不显示星标（该页全是已收藏对话）；保留"移动"菜单调整位置
+                      showFavoriteIcon: false,
 
                       onClickItem: (selected: Conversation) => {
                         this.selectConversation(selected); // 直接进入对话
@@ -417,6 +423,9 @@ struct SideBarPage {
                       },
                       onMenuSelect: (selected: Conversation) => {
                         this.enterEditMode(selected.id);
+                      },
+                      onMenuFavorite: (selected: Conversation) => {
+                        this.onFavoriteAction(selected);
                       },
                     })
                   }.width("100%");
@@ -484,6 +493,18 @@ struct SideBarPage {
               .onClick(() => {
                 if (this.selectedIds.length > 0) this.confirmBatchDelete();
               })
+            // 批量移动到文件夹：仅收藏 Tab 显示（收藏对话才参与文件夹分类）
+            if (this.currentTab === 1) {
+              Text("移动")
+                .fontSize(FONT_SIZES.BUTTON)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.selectedIds.length > 0 ? COLORS.TOGGLE_TEXT_ACTIVE : COLORS.TEXT_SECONDARY)
+                .layoutWeight(1)
+                .textAlign(TextAlign.Center)
+                .onClick(() => {
+                  if (this.selectedIds.length > 0) this.openBatchMovePicker();
+                })
+            }
             Text(this.isAllSelected() ? "取消全选" : "全选")
               .fontSize(FONT_SIZES.BUTTON)
               .fontColor(COLORS.TOGGLE_TEXT_ACTIVE)
@@ -685,12 +706,75 @@ struct SideBarPage {
   private folderDialogController: CustomDialogController | null = null;
   private pickerController: CustomDialogController | null = null; // 移动文件夹选择器控制器
 
-  // 加载收藏 Tab 数据：顶级文件夹 + 未分类对话
+  // 加载收藏 Tab 数据：顶级文件夹 + 已收藏但未放入文件夹的对话
   private async loadFavorites(): Promise<void> {
     // 顶级文件夹：parent_id 为空
     this.topFolders = await DatabaseHelper.getInstance().getCategoriesByParent("");
-    // 未分类对话：category_id 为空
-    this.uncategorizedConvs = await DatabaseHelper.getInstance().getConversationsByCategory("");
+    // 未分类收藏对话：已收藏（is_favorite=1）且 category_id 为空
+    const favorites = await DatabaseHelper.getInstance().getFavoriteConversations();
+    this.uncategorizedConvs = favorites.filter((c: Conversation) => c.categoryId.length === 0);
+  }
+
+  /**
+   * 长按菜单-收藏/取消收藏（历史 Tab 与收藏 Tab 共用）
+   * 未收藏 → 弹出选择收藏位置；已收藏 → 直接取消收藏
+   */
+  private onFavoriteAction(conv: Conversation): void {
+    if (conv.isFavorite) {
+      this.doUnfavorite(conv);
+    } else {
+      this.openFavoritePicker(conv);
+    }
+  }
+
+  // 收藏：弹出收藏位置选择器（复用 FolderPickerDialog）
+  private async openFavoritePicker(conv: Conversation): Promise<void> {
+    const allFolders = await DatabaseHelper.getInstance().getCategories();
+    this.pickerController = new CustomDialogController({
+      builder: FolderPickerDialog({
+        title: "选择收藏位置",
+        folders: allFolders,
+        onSelect: (folderId: string) => {
+          this.doFavorite(conv, folderId);
+        },
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      customStyle: true,
+    });
+    this.pickerController.open();
+  }
+
+  // 执行收藏：置 is_favorite=1 并写入收藏位置
+  private async doFavorite(conv: Conversation, folderId: string): Promise<void> {
+    // 历史列表中的对应实例同步更新（列表数据源可能是另一批实例）
+    const hist = this.conversations.find((c: Conversation) => c.id === conv.id);
+    if (hist) {
+      hist.isFavorite = true;
+      hist.categoryId = folderId;
+    }
+    conv.isFavorite = true;
+    conv.categoryId = folderId;
+    await DatabaseHelper.getInstance().setFavorite(conv, true);
+    await this.loadFavorites(); // 刷新收藏 Tab（对话可能进入文件夹或未分类）
+    this.listVersion++; // 刷新历史列表：星标出现、菜单变为"取消收藏"
+    promptAction.showToast({ message: "已收藏" });
+  }
+
+  // 执行取消收藏：置 is_favorite=0、清空收藏位置，并从收藏列表移除
+  private async doUnfavorite(conv: Conversation): Promise<void> {
+    await DatabaseHelper.getInstance().setFavorite(conv, false); // 同时清空 categoryId
+    // 历史列表中的对应实例同步更新（收藏 Tab 与历史列表可能是不同实例）
+    const hist = this.conversations.find((c: Conversation) => c.id === conv.id);
+    if (hist) {
+      hist.isFavorite = false;
+      hist.categoryId = "";
+    }
+    conv.isFavorite = false;
+    conv.categoryId = "";
+    await this.loadFavorites(); // 刷新收藏 Tab（未分类收藏可能变化）
+    this.listVersion++; // 刷新历史列表：星标消失、菜单变回"收藏"
+    promptAction.showToast({ message: "已取消收藏" });
   }
 
   // 新建顶级文件夹对话框（复用 EditFolderDialog：名称 + 颜色）
@@ -798,7 +882,33 @@ struct SideBarPage {
     await DatabaseHelper.getInstance().updateConversation(conv);
     // 收藏 Tab 的未分类列表可能因分类变化而增删，重新加载刷新
     await this.loadFavorites();
-    promptAction.showToast({ message: folderId.length > 0 ? "已移动" : "已移出不分类" });
+    promptAction.showToast({ message: "移动成功" });
+  }
+
+  // 批量移动：弹出文件夹选择器（收藏 Tab 多选模式）
+  private async openBatchMovePicker(): Promise<void> {
+    const allFolders = await DatabaseHelper.getInstance().getCategories();
+    this.pickerController = new CustomDialogController({
+      builder: FolderPickerDialog({
+        folders: allFolders,
+        onSelect: (folderId: string) => {
+          this.doBatchMove(folderId);
+        },
+      }),
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      customStyle: true,
+    });
+    this.pickerController.open();
+  }
+
+  // 执行批量移动：选中对话统一移入目标文件夹，然后退出编辑模式并刷新
+  private async doBatchMove(folderId: string): Promise<void> {
+    const ids = this.selectedIds.slice(); // 先拷贝，避免退出编辑模式时被清空
+    await DatabaseHelper.getInstance().moveConversations(ids, folderId);
+    this.exitEditMode();
+    await this.loadFavorites(); // 移入文件夹后从"未分类"消失
+    promptAction.showToast({ message: folderId.length > 0 ? `已移动 ${ids.length} 个对话` : "已移出不分类" });
   }
 
   // 删除文件夹（二次确认 + 级联）

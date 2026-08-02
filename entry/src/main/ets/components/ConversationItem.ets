@@ -12,6 +12,8 @@ export struct ConversationItem {
   @ObjectLink conversation: Conversation;
   @Prop isEditMode: boolean = false; // 是否多选编辑模式
   @Prop isSelected: boolean = false; // 当前项是否被选中
+  @Prop showFavoriteIcon: boolean = true; // 是否显示收藏星标（历史页显示，收藏页关闭）
+  @Prop showMoveMenu: boolean = true; // 是否显示"移动"菜单项（收藏页显示，历史页关闭）
 
   onClickItem?: (conv: Conversation) => void; // 点击进入（非编辑模式）
   onMenuDelete?: (conv: Conversation) => void; // 长按菜单-删除
@@ -19,6 +21,7 @@ export struct ConversationItem {
   onMenuSelect?: (conv: Conversation) => void; // 长按菜单-多选
   onSelectChange?: (conv: Conversation, checked: boolean) => void; // 勾选变化
   onMenuMove?: (conv: Conversation) => void; // 长按菜单-移动到文件夹
+  onMenuFavorite?: (conv: Conversation) => void; // 长按菜单-收藏/取消收藏
 
   build() {
     Row() {
@@ -33,6 +36,14 @@ export struct ConversationItem {
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
+
+      // 已收藏对话：行尾显示金色星标（历史页展示；收藏页 showFavoriteIcon=false 关闭）
+      if (this.showFavoriteIcon && this.conversation.isFavorite) {
+        SymbolGlyph($r("sys.symbol.star_fill"))
+          .fontSize(FONT_SIZES.ICON_LG)
+          .fontColor(["#FFB800"]) // 金色星标
+          .margin({ left: SPACING.SM })
+      }
 
       // 编辑模式：右侧勾选圆圈
       if (this.isEditMode) {
@@ -89,6 +100,22 @@ export struct ConversationItem {
           .strokeWidth(0.5)
           .color(COLORS.DIVIDER)
 
+        // 收藏 / 取消收藏（动态切换：未收藏→蓝色"收藏"，已收藏→红色"取消收藏"）
+        Row() {
+          Text(this.conversation.isFavorite ? "取消收藏" : "收藏")
+            .fontSize(FONT_SIZES.BUTTON)
+            .fontColor(this.conversation.isFavorite ? COLORS.TEXT_DANGER : COLORS.PRIMARY)
+        }
+        .width("100%")
+        .height(36)
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          if (this.onMenuFavorite) this.onMenuFavorite(this.conversation);
+        })
+        Divider()
+          .strokeWidth(0.5)
+          .color(COLORS.DIVIDER)
+
         // 重命名
         Row() {
           Text("重命名")
@@ -101,22 +128,24 @@ export struct ConversationItem {
         .onClick(() => {
           if (this.onMenuRename) this.onMenuRename(this.conversation);
         })
-        Divider()
-          .strokeWidth(0.5)
-          .color(COLORS.DIVIDER)
 
-        // 移动到文件夹
-        Row() {
-          Text("移动")
-            .fontSize(FONT_SIZES.BUTTON)
-            .fontColor(COLORS.TEXT_PRIMARY)
+        // 移动到文件夹（历史页 showMoveMenu=false 隐藏：未收藏对话不参与文件夹分类）
+        if (this.showMoveMenu) {
+          Divider()
+            .strokeWidth(0.5)
+            .color(COLORS.DIVIDER)
+          Row() {
+            Text("移动")
+              .fontSize(FONT_SIZES.BUTTON)
+              .fontColor(COLORS.TEXT_PRIMARY)
+          }
+          .width("100%")
+          .height(36)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            if (this.onMenuMove) this.onMenuMove(this.conversation);
+          })
         }
-        .width("100%")
-        .height(36)
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          if (this.onMenuMove) this.onMenuMove(this.conversation);
-        })
 
         // 删除
         Row() {
