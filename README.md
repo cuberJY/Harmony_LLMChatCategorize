@@ -5,7 +5,7 @@
 ## 技术栈
 
 - **平台**: HarmonyOS NEXT (API 20 / 6.0.0)
-- **语言**: ArkTS (TypeScript 严格模式)
+- **语言**: ArkTS
 - **UI 框架**: ArkUI 声明式开发（LazyForEach 懒加载）
 - **数据持久化**: `@kit.ArkData` relationalStore 关系型数据库 + Preferences 配置存储
 - **网络**: `@kit.NetworkKit` (HTTP SSE 流式请求 / Web Search API)
@@ -15,7 +15,7 @@
 ## 功能特性
 
 - **流式 AI 对话** — SSE 逐字输出，思考内容（reasoning_content）与正文分通道展示
-- **深度思考** — AI 推理过程可折叠展示，含思考耗时统计
+- **深度思考（可开关）** — DeepSeek 官方 thinking 格式（enabled/disabled），开启时 reasoning_effort=max，关闭时强制不思考（V4 默认会思考，必须显式控制）
 - **联网搜索** — 博查 Web Search 实时联网，结果作为参考资料驱动回答，失败自动降级
 - **设置页** — 应用内填写 API 地址 / Key / 模型，保存后持久化到 Preferences，重启不丢失
 - **多级文件夹分类** — 无限层级文件夹，收藏 Tab 显示顶级文件夹，支持进入下一级浏览
@@ -35,8 +35,11 @@
 ChatCategorize/
 ├── entry/src/main/
 │   ├── ets/
-│   │   ├── common/          # 全局常量（颜色、字号、间距）
-│   │   │   └── AppConstants.ets
+│   │   ├── common/          # 全局常量与公共工具
+│   │   │   ├── AppConstants.ets    # 颜色、字号、间距、提示文案
+│   │   │   ├── Utils.ets           # 通用工具（generateId / showToast / 删除二次确认）
+│   │   │   ├── TimeUtil.ets        # 时间分组与智能时间格式化
+│   │   │   └── FolderOps.ets       # 文件夹/对话公共操作（移动、编辑）
 │   │   ├── config/          # 应用配置（Preferences 持久化，启动时加载）
 │   │   │   └── AppConfig.ets
 │   │   ├── database/        # 关系型数据库（建表 + CRUD）
@@ -53,6 +56,7 @@ ChatCategorize/
 │   │   │   ├── ChatInput.ets          # 输入栏（深度思考/联网开关）
 │   │   │   ├── ConversationItem.ets   # 历史对话列表项（长按菜单）
 │   │   │   ├── FolderItem.ets         # 文件夹列表项（彩色图标）
+│   │   │   ├── RenameInputDialog.ets  # 通用文本输入对话框（重命名/新建）
 │   │   │   ├── EditFolderDialog.ets   # 编辑文件夹对话框（重命名+换色）
 │   │   │   └── FolderPickerDialog.ets # 文件夹选择器（移动对话/文件夹）
 │   │   ├── pages/           # 页面
@@ -77,13 +81,13 @@ ChatCategorize/
 
 应用内"设置"页填写（无需改代码，保存后持久化）：
 
-| 字段 | 说明 |
-|------|------|
-| API 地址 | 大模型接口，默认 `https://api.deepseek.com/chat/completions`，OpenAI 兼容格式 |
-| API Key | 大模型密钥（密码输入框） |
-| 模型名称 | 如 `deepseek-v4-flash` |
-| 搜索 API 地址 | 搜索渠道，默认 `https://api.bochaai.com/v1/web-search` |
-| 搜索 API 密钥 | 博查密钥，留空则不启用联网搜索 |
+| 字段          | 说明                                                                           |
+| ------------- | ------------------------------------------------------------------------------ |
+| API 地址      | 大模型接口，默认`https://api.deepseek.com/chat/completions`，OpenAI 兼容格式 |
+| API Key       | 大模型密钥（密码输入框）                                                       |
+| 模型名称      | 如`deepseek-v4-flash`                                                        |
+| 搜索 API 地址 | 搜索渠道，默认`https://api.bochaai.com/v1/web-search`                        |
+| 搜索 API 密钥 | 博查密钥，留空则不启用联网搜索                                                 |
 
 - 大模型默认使用 DeepSeek，也支持任何 OpenAI 兼容 API
 - 联网搜索基于博查 AI（[open.bochaai.com](https://open.bochaai.com) 注册获取 Key），国内直连免费
@@ -113,6 +117,7 @@ ChatCategorize/
 - SSE 不完整 chunk 缓冲处理
 - 防止重复回调（isFinished 标记）
 - 连接超时 15s，读取超时 60s
+- 深度思考走 DeepSeek 官方格式：`thinking.enabled/disabled` + `reasoning_effort=max`，`deepThinking` 开关由 ChatInput 传入，关闭时显式 disabled（V4 模型默认思考，必须显式控制）
 
 ### SearchService — 联网搜索
 
@@ -131,11 +136,11 @@ ChatCategorize/
 
 基于 `relationalStore`，三张表：
 
-| 表 | 字段 | 说明 |
-|------|------|------|
-| `conversation` | id, title, category_id, created_at, updated_at | 对话表 |
-| `message` | id, conversation_id, role, content, reasoning, created_at | 消息表（含思考内容） |
-| `category` | id, name, parent_id, color, sort_order, created_at | 文件夹/分类表（支持多级嵌套） |
+| 表               | 字段                                                      | 说明                          |
+| ---------------- | --------------------------------------------------------- | ----------------------------- |
+| `conversation` | id, title, category_id, created_at, updated_at            | 对话表                        |
+| `message`      | id, conversation_id, role, content, reasoning, created_at | 消息表（含思考内容）          |
+| `category`     | id, name, parent_id, color, sort_order, created_at        | 文件夹/分类表（支持多级嵌套） |
 
 - 单例模式，`init()` 幂等建表（IF NOT EXISTS）
 - 高频查询索引：`message(conversation_id)`、`conversation(updated_at DESC)`
@@ -153,8 +158,8 @@ ChatCategorize/
 
 ### 数据模型
 
-| 模型 | 说明 |
-|------|------|
-| `Message` | 单条消息（@Observed 可观察），含 reasoning/isThinking/isSearching 等状态 |
-| `Conversation` | 一个对话会话，可归属于某个 Category（文件夹） |
-| `Category` | 文件夹/分类（@Observed），含 parentId（多级嵌套）与 color（图标颜色） |
+| 模型             | 说明                                                                     |
+| ---------------- | ------------------------------------------------------------------------ |
+| `Message`      | 单条消息（@Observed 可观察），含 reasoning/isThinking/isSearching 等状态 |
+| `Conversation` | 一个对话会话，可归属于某个 Category（文件夹）                            |
+| `Category`     | 文件夹/分类（@Observed），含 parentId（多级嵌套）与 color（图标颜色）    |

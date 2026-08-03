@@ -35,6 +35,20 @@ interface ApiMessage {
   content: string;
 }
 
+// 深度思考配置（DeepSeek 官方格式）
+interface ThinkingConfig {
+  type: string; // "enabled" | "disabled"
+}
+
+// API 请求体结构
+interface ChatRequestBody {
+  model: string;
+  messages: ApiMessage[];
+  stream: boolean;
+  thinking?: ThinkingConfig; // 思考模式开关（默认 enabled）
+  reasoning_effort?: string; // 思考强度：high / max
+}
+
 // SSE 单行解析结果
 interface SSEResult {
   delta: string;
@@ -89,7 +103,7 @@ export class AIService {
    *     onError: (err) => { // 显示错误 },
    *   });
    */
-  sendMessage(messages: Message[], callbacks: StreamCallbacks): void {
+  sendMessage(messages: Message[], callbacks: StreamCallbacks, deepThinking?: boolean): void {
     // 未配置时提前拦截，提示用户前往设置
     if (!AppConfig.getInstance().isConfigured()) {
       callbacks.onError("尚未配置 API，请先前往「设置」填写 API 地址、Key 和模型");
@@ -164,11 +178,23 @@ export class AIService {
     const apiMessages: ApiMessage[] = messages.map((msg: Message): ApiMessage => {
       return { role: msg.role, content: msg.content };
     });
-    const requestBody = JSON.stringify({
+
+    // 请求体：DeepSeek 官方格式
+    const requestBodyObj: ChatRequestBody = {
       model: config.model,
       messages: apiMessages,
       stream: true,
-    });
+    };
+
+    // 深度思考开关（DeepSeek 官方：默认思考 enabled，所以必须显式控制）
+    // - 开启深度思考：thinking=enabled + 思考强度 max
+    // - 关闭深度思考：thinking=disabled（否则 V4 模型默认仍会思考）
+    requestBodyObj.thinking = { type: deepThinking ? "enabled" : "disabled" };
+    if (deepThinking) {
+      requestBodyObj.reasoning_effort = "max";
+    }
+
+    const requestBody = JSON.stringify(requestBodyObj);
 
     // 4. 发起请求
     httpRequest

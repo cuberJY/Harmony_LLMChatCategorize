@@ -6,9 +6,10 @@
  * 点击"保存"后持久化到 Preferences，返回主页面
  */
 
-import { router, promptAction, KeyboardAvoidMode } from "@kit.ArkUI";
+import { router, KeyboardAvoidMode } from "@kit.ArkUI";
 import { AppConfig } from "../config/AppConfig";
-import { COLORS, FONT_SIZES, SPACING } from "../common/AppConstants";
+import { COLORS, FONT_SIZES, SPACING, MESSAGES } from "../common/AppConstants";
+import { showToast } from "../common/Utils";
 
 @Entry
 @Component
@@ -19,13 +20,14 @@ struct SettingsPage {
   @State model: string = "";
   @State searchBaseUrl: string = "";
   @State searchApiKey: string = "";
+  private saveTimerId: number = -1; // 保存后返回的定时器，离开页面时清理
+  private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE;
 
   aboutToAppear(): void {
-    /**
-     *输入法避让：本页是表单页，切到"上抬"模式（键盘弹出时页面整体上抬，保证当前输入框不被遮挡）
-     *注：窗口全局为 RESIZE 压缩模式，只压缩 Scroll 高度、不会滚动到焦点输入框，底部输入框会被键盘盖住
-     */
+    // 输入法避让：本页是表单页，切到"上抬"模式（键盘弹出时页面整体上抬，保证当前输入框不被遮挡）
+    this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode(); // 记录进入前的模式
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
+    
     // 回显已保存的配置
     const config = AppConfig.getInstance().getConfig();
     this.baseUrl = config.baseUrl;
@@ -36,8 +38,13 @@ struct SettingsPage {
   }
 
   aboutToDisappear(): void {
-    // 离开页面时恢复全局压缩模式（聊天页底部输入栏依赖 RESIZE 模式）
-    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    // 离开页面时清理返回定时器，避免越层返回
+    if (this.saveTimerId !== -1) {
+      clearTimeout(this.saveTimerId);
+      this.saveTimerId = -1;
+    }
+    // 离开页面时恢复全局压缩模式
+    this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
   }
 
   build() {
@@ -56,7 +63,7 @@ struct SettingsPage {
         .onClick(() => {
           router.back();
         })
-        
+
         // 标题
         Text("设置")
           .fontSize(FONT_SIZES.TITLE)
@@ -66,8 +73,7 @@ struct SettingsPage {
           .textAlign(TextAlign.Center)
 
         // 右侧占位（保持对称）
-        Row()
-          .width(40)
+        Row().width(40)
       }
       .width("100%")
       .height(SPACING.TITLE_BAR_HEIGHT)
@@ -98,8 +104,10 @@ struct SettingsPage {
             .width("100%")
             .textAlign(TextAlign.Start)
             .margin({ bottom: SPACING.XS })
-
-          TextInput({ placeholder: "https://api.deepseek.com/chat/completions", text: this.baseUrl })
+          TextInput({
+            placeholder: "https://api.deepseek.com/chat/completions",
+            text: this.baseUrl,
+          })
             .fontSize(FONT_SIZES.INPUT)
             .fontColor(COLORS.TEXT_PRIMARY)
             .placeholderColor(COLORS.TEXT_SECONDARY)
@@ -120,7 +128,6 @@ struct SettingsPage {
             .width("100%")
             .textAlign(TextAlign.Start)
             .margin({ bottom: SPACING.XS })
-
           TextInput({ placeholder: "sk-xxxxxxxxxxxxxxxxxxxxxxxx", text: this.apiKey })
             .fontSize(FONT_SIZES.INPUT)
             .fontColor(COLORS.TEXT_PRIMARY)
@@ -131,7 +138,8 @@ struct SettingsPage {
             .borderColor(COLORS.INPUT_BORDER)
             .padding({ left: SPACING.MD, right: SPACING.MD })
             .margin({ bottom: SPACING.MD })
-            .type(InputType.Password) // 密码输入，防偷窥
+            .type(InputType.Password)
+            // 密码输入，防偷窥
             .onChange((value: string) => {
               this.apiKey = value;
             })
@@ -143,7 +151,6 @@ struct SettingsPage {
             .width("100%")
             .textAlign(TextAlign.Start)
             .margin({ bottom: SPACING.XS })
-
           TextInput({ placeholder: "deepseek-v4-flash", text: this.model })
             .fontSize(FONT_SIZES.INPUT)
             .fontColor(COLORS.TEXT_PRIMARY)
@@ -164,15 +171,16 @@ struct SettingsPage {
             .width("100%")
             .textAlign(TextAlign.Start)
             .margin({ top: SPACING.XL, bottom: SPACING.SM })
-
           Text("搜索 API 地址")
             .fontSize(FONT_SIZES.BODY)
             .fontColor(COLORS.TEXT_PRIMARY)
             .width("100%")
             .textAlign(TextAlign.Start)
             .margin({ bottom: SPACING.XS })
-
-          TextInput({ placeholder: "https://api.bochaai.com/v1/web-search", text: this.searchBaseUrl })
+          TextInput({
+            placeholder: "https://api.bochaai.com/v1/web-search",
+            text: this.searchBaseUrl,
+          })
             .fontSize(FONT_SIZES.INPUT)
             .fontColor(COLORS.TEXT_PRIMARY)
             .placeholderColor(COLORS.TEXT_SECONDARY)
@@ -185,14 +193,12 @@ struct SettingsPage {
             .onChange((value: string) => {
               this.searchBaseUrl = value;
             })
-
           Text("搜索 API 密钥")
             .fontSize(FONT_SIZES.BODY)
             .fontColor(COLORS.TEXT_PRIMARY)
             .width("100%")
             .textAlign(TextAlign.Start)
             .margin({ bottom: SPACING.XS })
-
           TextInput({ placeholder: "sk-xxxxxxxx（留空则不校验）", text: this.searchApiKey })
             .fontSize(FONT_SIZES.INPUT)
             .fontColor(COLORS.TEXT_PRIMARY)
@@ -238,10 +244,12 @@ struct SettingsPage {
     const config = AppConfig.getInstance();
 
     // 必填校验：AI 对话配置三项不能为空
-    if (this.baseUrl.trim().length === 0
-      || this.apiKey.trim().length === 0
-      || this.model.trim().length === 0) {
-      promptAction.showToast({ message: "请填写完整的 AI 对话配置" });
+    if (
+      this.baseUrl.trim().length === 0 ||
+      this.apiKey.trim().length === 0 ||
+      this.model.trim().length === 0
+    ) {
+      showToast(MESSAGES.CONFIG_INCOMPLETE);
       return;
     }
 
@@ -254,9 +262,10 @@ struct SettingsPage {
       this.searchApiKey.trim(),
     );
 
-    promptAction.showToast({ message: "保存成功" });
-    // 延时返回，让 Toast 可见
-    setTimeout(() => {
+    showToast(MESSAGES.SAVE_SUCCESS);
+    // 延时返回，让 Toast 可见（记录定时器便于离开页面时清理）
+    this.saveTimerId = setTimeout(() => {
+      this.saveTimerId = -1;
       router.back();
     }, 500);
   }

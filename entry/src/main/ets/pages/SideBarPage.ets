@@ -10,7 +10,7 @@
  *  底部    设置按钮（第六步接入）
  */
 
-import { router, promptAction, KeyboardAvoidMode } from "@kit.ArkUI";
+import { router, KeyboardAvoidMode } from "@kit.ArkUI";
 import { common } from "@kit.AbilityKit";
 import { Category } from "../model/Category";
 import { FolderItem } from "../components/FolderItem";
@@ -20,7 +20,11 @@ import { DatabaseHelper } from "../database/DatabaseHelper";
 import { Conversation } from "../model/Conversation";
 import { ConversationItem } from "../components/ConversationItem";
 import { AppConfig } from "../config/AppConfig";
-import { COLORS, FONT_SIZES, SPACING } from "../common/AppConstants";
+import { COLORS, FONT_SIZES, SPACING, MESSAGES } from "../common/AppConstants";
+import { RenameInputDialog } from "../components/RenameInputDialog";
+import { getGroupName } from "../common/TimeUtil";
+import { showToast, showDeleteConfirm } from "../common/Utils";
+import { getMoveFolderCandidates, moveCategoryTo, moveConversationTo, saveCategoryEdit } from "../common/FolderOps";
 
 // 时间分组项：一组对话
 interface GroupItem {
@@ -28,70 +32,6 @@ interface GroupItem {
   conversations: Conversation[]; // 该组下的对话列表
 }
 
-/**
- * 重命名对话对话框：预填原标题，确认后回调
- */
-@CustomDialog
-struct RenameDialog {
-  controller?: CustomDialogController;
-  oldTitle: string = ""; // 原标题（预填）
-  title: string = "重命名对话"; // 对话框标题（可传入覆盖）
-  onConfirm: (newTitle: string) => void = (newTitle: string) => {}; // 确认回调
-  @State inputValue: string = ""; // 输入框内容
-
-  aboutToAppear(): void {
-    this.inputValue = this.oldTitle; // 预填原标题，方便直接修改
-  }
-
-  build() {
-    Column({ space: SPACING.MD }) {
-      Text("重命名对话")
-        .fontSize(FONT_SIZES.BODY)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(COLORS.TEXT_PRIMARY)
-        .width("100%")
-        .textAlign(TextAlign.Start)
-      TextInput({ placeholder: "请输入对话标题", text: this.inputValue })
-        .defaultFocus(true)
-        .fontSize(FONT_SIZES.INPUT)
-        .fontColor(COLORS.TEXT_PRIMARY)
-        .backgroundColor(COLORS.PAGE_BG)
-        .borderRadius(8)
-        .borderWidth(1)
-        .borderColor(COLORS.INPUT_BORDER)
-        .padding({ left: SPACING.MD, right: SPACING.MD, top: SPACING.XS, bottom: SPACING.XS })
-        .width("100%")
-        .onChange((value: string) => {
-          this.inputValue = value;
-        })
-      Row() {
-        Text("取消")
-          .fontSize(FONT_SIZES.BUTTON)
-          .fontColor(COLORS.TEXT_SECONDARY)
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-          .padding({ top: SPACING.MD, bottom: SPACING.XS })
-          .onClick(() => {
-            this.controller?.close();
-          })
-        Text("确定")
-          .fontSize(FONT_SIZES.BUTTON)
-          .fontColor(COLORS.PRIMARY)
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-          .padding({ top: SPACING.MD, bottom: SPACING.XS })
-          .onClick(() => {
-            this.onConfirm(this.inputValue.trim());
-            this.controller?.close();
-          })
-      }.width("100%")
-    }
-    .padding(SPACING.LG)
-    .width("85%")
-    .borderRadius(16)
-    .backgroundColor(Color.White);
-  }
-}
 
 @Entry
 @Component
@@ -137,6 +77,8 @@ struct SideBarPage {
      * 注：首次进入也会触发，此时数据库 init 可能未完成，查询返回空；
      * 随后 aboutToAppear 中的 init.then 会再次加载出正确数据，最终显示不受影响
      */
+    // 兜底：任何上层页面改过全局键盘模式（如 SettingsPage 恢复时），回到本页都纠正为 NONE
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
     this.loadConversations();
     this.loadFavorites();
   }
@@ -212,7 +154,7 @@ struct SideBarPage {
 
           // 右侧：返回按钮
           Row() {
-            SymbolGlyph($r("sys.symbol.ellipsis_message"))
+            SymbolGlyph($r("sys.symbol.ellipsis_message "))
               .fontSize(FONT_SIZES.ICON_XXL)
               .fontWeight(700)
               .fontColor([Color.Black])
@@ -237,7 +179,7 @@ struct SideBarPage {
       // 内容区：Swiper 支持左右滑动切换 Tab（顺序与顶部 Tab 栏一致：历史在左、收藏在右）
       // 控制器作为构造参数传入：Tab 点击时通过 changeIndex 带动画切换
       Swiper(this.swiperController) {
-        // ===== 历史 Tab（index 0，默认页）=====
+        // 历史 Tab（index 0，默认页）
         Column() {
           // 搜索框
           if (this.conversations.length > 0) {
@@ -341,7 +283,7 @@ struct SideBarPage {
         .width("100%")
         .height("100%")
 
-        // ===== 收藏 Tab（index 1）=====
+        // 收藏 Tab（index 1）
         Stack() {
           if (this.topFolders.length === 0 && this.uncategorizedConvs.length === 0) {
             // 空态
@@ -451,7 +393,7 @@ struct SideBarPage {
           .height(32)
           .type(ButtonType.Circle)
           .backgroundColor(COLORS.PRIMARY)
-          .shadow({ radius: 8, color: "#662D65F8", offsetY: 2 })
+          .shadow({ radius: 8, color: COLORS.FAB_SHADOW, offsetY: 2 })
           .margin({ right: SPACING.XL, bottom: SPACING.XL })
           .onClick(() => {
             this.openNewFolderDialog();
@@ -578,7 +520,7 @@ struct SideBarPage {
     const result: GroupItem[] = [];
     const groupIndexMap: Map<string, number> = new Map(); // 组名 → 在 result 中的下标
     sorted.forEach((conv: Conversation) => {
-      const name = this.getGroupName(conv.updatedAt);
+      const name = getGroupName(conv.updatedAt);
       const idx = groupIndexMap.get(name);
       if (idx === undefined) {
         // 新组
@@ -668,18 +610,19 @@ struct SideBarPage {
 
   private renameDialogController: CustomDialogController | null = null; // 重命名对话框控制器
 
-  // 重命名：弹出输入对话框
+  // 重命名：弹出输入对话框（复用公共组件）
   private openRenameDialog(conv: Conversation): void {
     this.renameDialogController = new CustomDialogController({
-      builder: RenameDialog({
-        oldTitle: conv.title,
+      builder: RenameInputDialog({
+        title: "重命名对话",
+        oldValue: conv.title,
         onConfirm: (newTitle: string) => {
           this.doRename(conv.id, newTitle);
         },
       }),
       autoCancel: true, // 点击遮罩关闭
-      alignment: DialogAlignment.Top,
-      offset: { dx: 0, dy: 280 }, // 在 alignment 基础上再偏移（vp 单位）
+      alignment: DialogAlignment.Bottom,
+      offset: { dx: 0, dy: -360 }, // 在 alignment 基础上再偏移（vp 单位）
       customStyle: true, // 完全自定义样式
     });
     this.renameDialogController.open();
@@ -687,10 +630,6 @@ struct SideBarPage {
 
   // 执行重命名：更新内存 + 数据库
   private async doRename(id: string, newTitle: string): Promise<void> {
-    if (newTitle.length === 0) {
-      promptAction.showToast({ message: "标题不能为空" });
-      return;
-    }
     const conv = this.conversations.find((c: Conversation) => c.id === id);
     if (!conv) return;
     conv.title = newTitle; // 更新内存对象
@@ -699,7 +638,7 @@ struct SideBarPage {
     if (uc) uc.title = newTitle;
     await DatabaseHelper.getInstance().updateConversation(conv); // 持久化
     this.listVersion++; // 强制 ForEach 重建，刷新对话标题
-    promptAction.showToast({ message: "标题修改成功" });
+    showToast(MESSAGES.RENAME_SUCCESS);
   }
 
   // 文件夹对话框控制器
@@ -758,7 +697,7 @@ struct SideBarPage {
     await DatabaseHelper.getInstance().setFavorite(conv, true);
     await this.loadFavorites(); // 刷新收藏 Tab（对话可能进入文件夹或未分类）
     this.listVersion++; // 刷新历史列表：星标出现、菜单变为"取消收藏"
-    promptAction.showToast({ message: "已收藏" });
+    showToast(MESSAGES.FAVORITED);
   }
 
   // 执行取消收藏：置 is_favorite=0、清空收藏位置，并从收藏列表移除
@@ -774,7 +713,7 @@ struct SideBarPage {
     conv.categoryId = "";
     await this.loadFavorites(); // 刷新收藏 Tab（未分类收藏可能变化）
     this.listVersion++; // 刷新历史列表：星标消失、菜单变回"收藏"
-    promptAction.showToast({ message: "已取消收藏" });
+    showToast(MESSAGES.UNFAVORITED);
   }
 
   // 新建顶级文件夹对话框（复用 EditFolderDialog：名称 + 颜色）
@@ -785,19 +724,15 @@ struct SideBarPage {
         oldName: "",
         oldColor: "#FF9F0A",
         onConfirm: async (name: string, color: string) => {
-          if (name.length === 0) {
-            promptAction.showToast({ message: "名称不能为空" });
-            return;
-          }
           const cat = new Category(undefined, name, undefined, color); // 颜色一并入库
           await DatabaseHelper.getInstance().insertCategory(cat); // ← 等写入完成
           await this.loadFavorites(); // ← 再刷新
-          promptAction.showToast({ message: `已创建 ${name}` });
+          showToast(`已创建 ${name}`);
         },
       }),
       autoCancel: true,
-      alignment: DialogAlignment.Top,
-      offset: { dx: 0, dy: 280 },
+      alignment: DialogAlignment.Bottom,
+      offset: { dx: 0, dy: -360 },
       customStyle: true,
     });
     this.folderDialogController.open();
@@ -810,21 +745,15 @@ struct SideBarPage {
         oldName: cat.name,
         oldColor: cat.color,
         onConfirm: async (name: string, color: string) => {
-          if (name.length === 0) {
-            promptAction.showToast({ message: "名称不能为空" });
-            return;
-          }
-          cat.name = name;
-          cat.color = color; // 更新图标颜色
-          await DatabaseHelper.getInstance().updateCategory(cat);
+          await saveCategoryEdit(cat, name, color); // 更新名称与颜色并持久化
           await this.loadFavorites();
           this.listVersion++; // 强制 ForEach 重建，刷新名称/颜色
-          promptAction.showToast({ message: "已保存" });
+          showToast(MESSAGES.SAVED);
         },
       }),
       autoCancel: true,
-      alignment: DialogAlignment.Top,
-      offset: { dx: 0, dy: 280 },
+      alignment: DialogAlignment.Bottom,
+      offset: { dx: 0, dy: -360 },
       customStyle: true,
     });
     this.folderDialogController.open();
@@ -832,10 +761,8 @@ struct SideBarPage {
 
   // 移动文件夹：弹出目标选择器（排除自身及子孙，防止成环）
   private async openMoveFolder(cat: Category): Promise<void> {
-    const all = await DatabaseHelper.getInstance().getCategories();
-    const exclude = await DatabaseHelper.getInstance().getCategorySubtreeIds(cat.id);
     // 候选目标 = 全部文件夹 - 自身及子孙（空串"不分类"由选择器提供，表示移到顶级）
-    const candidates = all.filter((c: Category) => exclude.indexOf(c.id) < 0);
+    const candidates = await getMoveFolderCandidates(cat.id);
     this.pickerController = new CustomDialogController({
       builder: FolderPickerDialog({
         title: "移动到文件夹",
@@ -853,10 +780,9 @@ struct SideBarPage {
 
   // 执行移动：更新 parentId 并刷新列表
   private async doMoveFolder(cat: Category, targetId: string): Promise<void> {
-    cat.parentId = targetId; // 空串 = 移到顶级
-    await DatabaseHelper.getInstance().updateCategory(cat);
+    await moveCategoryTo(cat, targetId); // 空串 = 移到顶级
     await this.loadFavorites();
-    promptAction.showToast({ message: targetId.length > 0 ? "已移动" : "已移到顶级" });
+    showToast(targetId.length > 0 ? MESSAGES.MOVED : MESSAGES.MOVED_TO_TOP);
   }
 
   // 移动对话：弹出文件夹选择器（复用 FolderPickerDialog）
@@ -878,11 +804,10 @@ struct SideBarPage {
 
   // 执行移动对话：更新分类并刷新收藏列表
   private async doMoveConv(conv: Conversation, folderId: string): Promise<void> {
-    conv.categoryId = folderId;
-    await DatabaseHelper.getInstance().updateConversation(conv);
+    await moveConversationTo(conv, folderId);
     // 收藏 Tab 的未分类列表可能因分类变化而增删，重新加载刷新
     await this.loadFavorites();
-    promptAction.showToast({ message: "移动成功" });
+    showToast(MESSAGES.MOVED_OK);
   }
 
   // 批量移动：弹出文件夹选择器（收藏 Tab 多选模式）
@@ -908,57 +833,43 @@ struct SideBarPage {
     await DatabaseHelper.getInstance().moveConversations(ids, folderId);
     this.exitEditMode();
     await this.loadFavorites(); // 移入文件夹后从"未分类"消失
-    promptAction.showToast({ message: folderId.length > 0 ? `已移动 ${ids.length} 个对话` : "已移出不分类" });
+    showToast(folderId.length > 0 ? `已移动 ${ids.length} 个对话` : MESSAGES.MOVED_OUT);
   }
 
   // 删除文件夹（二次确认 + 级联）
   private confirmFolderDelete(cat: Category): void {
-    this.getUIContext().showAlertDialog({
-      title: "删除文件夹",
-      message: `确定删除文件夹“${cat.name}”吗？其下所有子文件夹及对话的分类关系将被移除，对话本身不会删除。`,
-      primaryButton: { value: "取消", action: () => {} },
-      secondaryButton: {
-        value: "删除",
-        fontColor: Color.Red,
-        action: async () => {
-          await DatabaseHelper.getInstance().deleteCategoryCascade(cat.id); // ← await
-          await this.loadFavorites(); // ← await
-          promptAction.showToast({ message: "文件夹已删除" });
-        },
+    showDeleteConfirm(
+      this.getUIContext(),
+      "删除文件夹",
+      `确定删除文件夹“${cat.name}”吗？其下所有子文件夹及对话的分类关系将被移除，对话本身不会删除。`,
+      () => {
+        this.doDeleteFolder(cat.id);
       },
-    });
+    );
   }
 
   // 单选删除确认（API 26 推荐 UIContext 弹窗）
   private confirmDeleteSingle(conv: Conversation): void {
-    this.getUIContext().showAlertDialog({
-      title: "删除对话",
-      message: `确定删除对话“${conv.title.length > 0 ? conv.title : "新对话"}”吗？删除后不可恢复。`,
-      primaryButton: { value: "取消", action: () => {} },
-      secondaryButton: {
-        value: "删除",
-        fontColor: Color.Red,
-        action: () => {
-          this.doDelete([conv.id]);
-        },
+    showDeleteConfirm(
+      this.getUIContext(),
+      "删除对话",
+      `确定删除对话“${conv.title.length > 0 ? conv.title : "新对话"}”吗？删除后不可恢复。`,
+      () => {
+        this.doDelete([conv.id]);
       },
-    });
+    );
   }
 
   private confirmBatchDelete(): void {
     if (this.selectedIds.length === 0) return;
-    this.getUIContext().showAlertDialog({
-      title: "删除对话",
-      message: `确定删除选中的 ${this.selectedIds.length} 个对话吗？删除后不可恢复。`,
-      primaryButton: { value: "取消", action: () => {} },
-      secondaryButton: {
-        value: "删除",
-        fontColor: Color.Red,
-        action: () => {
-          this.doDelete(this.selectedIds.slice());
-        },
+    showDeleteConfirm(
+      this.getUIContext(),
+      "删除对话",
+      `确定删除选中的 ${this.selectedIds.length} 个对话吗？删除后不可恢复。`,
+      () => {
+        this.doDelete(this.selectedIds.slice());
       },
-    });
+    );
   }
 
   // 执行删除：先拷贝 id，再删除 → 退出编辑模式 → 刷新
@@ -966,7 +877,14 @@ struct SideBarPage {
     this.removeConversationsLocally(ids); // 内存中移除
     this.exitEditMode();
     await DatabaseHelper.getInstance().deleteConversations(ids); // 删数据库
-    promptAction.showToast({ message: `已删除 ${ids.length} 个对话` });
+    showToast(`已删除 ${ids.length} 个对话`);
+  }
+
+  // 执行删除文件夹（级联），confirmFolderDelete 的 onConfirm 回调
+  private async doDeleteFolder(id: string): Promise<void> {
+    await DatabaseHelper.getInstance().deleteCategoryCascade(id);
+    await this.loadFavorites();
+    showToast(MESSAGES.FOLDER_DELETED);
   }
 
   // 从内存数据源移除指定对话，并同步渲染分组
@@ -988,39 +906,5 @@ struct SideBarPage {
     );
   }
 
-  /**
-   * 根据时间戳计算所属分组名
-   *   今天 → "今天"
-   *   昨天 → "昨天"
-   *   7天内 → "7天内"
-   *   30天内 → "30天内"
-   *   更早 → "2026年6月"
-   */
-  private getGroupName(timestamp: number): string {
-    const date = new Date(timestamp);
-    const now = new Date();
 
-    // 今天
-    if (date.toDateString() === now.toDateString()) {
-      return "今天";
-    }
-    // 昨天
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) {
-      return "昨天";
-    }
-    // 7天内 / 30天内
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const msgDayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-    const diffDays = Math.floor((todayStart - msgDayStart) / (1000 * 60 * 60 * 24));
-    if (diffDays < 7) {
-      return "7天内";
-    }
-    if (diffDays < 30) {
-      return "30天内";
-    }
-    // 更早 → 年月分组
-    return `${date.getFullYear()}年${date.getMonth() + 1}月`;
-  }
 }

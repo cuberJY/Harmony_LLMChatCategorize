@@ -7,9 +7,11 @@ import { Message } from "../model/Message";
 import { MessageBubble } from "../components/MessageBubble";
 import { ChatInput } from "../components/ChatInput";
 import { AppConfig } from "../config/AppConfig";
-import { COLORS, FONT_SIZES, SPACING } from "../common/AppConstants";
+import { COLORS, FONT_SIZES, SPACING, MESSAGES } from "../common/AppConstants";
 import { AIService, StreamCallbacks } from "../service/AIService";
 import { SearchService } from "../service/SearchService";
+import { formatSmartTime } from "../common/TimeUtil";
+import { showToast } from "../common/Utils";
 
 /**
  * 消息列表数据源（配合 LazyForEach 使用，方案 C）
@@ -65,7 +67,8 @@ struct ChatPage {
   @State title: string = "新对话"; // 顶部标题（显示当前对话标题）
   @State modelName: string = "";
 
-  private edgeDownX: number = 0; // 触摸按下时的 X 坐标（用于判断是否从左边缘右滑）
+  private isStreaming: boolean = false; // 是否正在流式回复中（防止连发/并发串写）
+  private dbInitPromise: Promise<void> = Promise.resolve(); // 数据库初始化完成信号
 
   private currentConversation: Conversation = new Conversation(); // 当前对话对象
   private currentConversationId: string = ""; // 当前对话id
@@ -86,10 +89,10 @@ struct ChatPage {
     // 初始化数据库（页面级 UIAbilityContext）
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     if (context) {
-      DatabaseHelper.getInstance()
+      // 保存 init promise：发送首条消息前 await，避免数据库未就绪时消息丢失
+      this.dbInitPromise = DatabaseHelper.getInstance()
         .init(context)
         .then(() => {
-          // 初始化成功 → 记录当前对话 id（不立即入库，等待首条用户消息）
           this.currentConversationId = this.currentConversation.id;
         });
     }
@@ -209,7 +212,7 @@ struct ChatPage {
               Column() {
                 // 判断是否需要时间分割线
                 if (this.shouldShowTimeDivider(index)) {
-                  Text(this.formatSmartTime(msg.createdAt))
+                  Text(formatSmartTime(msg.createdAt))
                     .fontSize(FONT_SIZES.TIME) // 11sp
                     .fontColor(COLORS.TEXT_SECONDARY) // #999999
                     .width("100%")
@@ -263,19 +266,14 @@ struct ChatPage {
 
       // 底部输入区域
       ChatInput({
-        modelName: this.modelName, // 从配置获取当前模型
-        onChange: (text: string, webSearch: boolean) => {
-          this.handleUserSend(text, webSearch);
+        modelName: this.modelName, // 从配置获取当前模型名称
+        onChange: (text: string, webSearch: boolean, deepThinking: boolean) => {
+          this.handleUserSend(text, webSearch, deepThinking);
         },
       })
     }
-    // 记录手指按下位置（用于边缘手势判断）
-    .onTouch((event: TouchEvent) => {
-      if (event.type === TouchType.Down) {
-        this.edgeDownX = event.touches[0].x;
-      }
-    })
-    // 从左向右滑（起始位置在屏幕左边缘 60px 内）→ 跳转历史页
+
+    // 从左向右滑→ 跳转历史页
     .gesture(
       PanGesture({ direction: PanDirection.Right, distance: 40 }).onActionStart(() => {
         router.pushUrl({ url: "pages/SideBarPage" });
@@ -291,7 +289,15 @@ struct ChatPage {
    * @param text 用户输入文本
    * @param webSearch 是否开启联网搜索
    */
-  private async handleUserSend(text: string, webSearch: boolean): Promise<void> {
+  private async handleUserSend(text: string, webSearch: boolean, deepThinking: boolean): Promise<void> {
+    // 流式进行中禁止连发：避免空 AI 占位污染上下文、共享缓冲被并发流串写
+    if (this.isStreaming) {
+      showToast(MESSAGES.STREAMING_BUSY);
+      return;
+    }
+    // 等待数据库初始化完成，确保首条消息正常入库
+    await this.dbInitPromise;
+    this.isStreaming = true;
     // 1. 创建用户消息
     this.addMessage("user", text);
     this.scrollToBottom();
@@ -302,6 +308,8 @@ struct ChatPage {
     aiMsg.thinkingStartTime = Date.now();
 
     // 3. 构造历史上下文（不含最后一条空 AI 消息）
+    // 捕获当前对话：防止流式回复期间切换/新建对话时，onComplete 写错 updatedAt
+    const targetConv = this.currentConversation;
     const context: Message[] = this.messageDataSource.getAll().slice(0, -1);
 
     // 4. 联网搜索（开关开启 且 渠道已配置，才显示搜索状态并真正发起）
@@ -356,24 +364,32 @@ struct ChatPage {
         this.clearFlushTimer();
         aiMsg.isThinking = false;
         aiMsg.content = fullText;
+        this.isStreaming = false;
 
         DatabaseHelper.getInstance().updateMessage(aiMsg); // 持久化：更新 AI 消息完整内容
-        this.currentConversation.updatedAt = aiMsg.createdAt; // 持久化：刷新对话的 updated_at
-        DatabaseHelper.getInstance().updateConversation(this.currentConversation);
-
-        this.scrollToBottom();
+        targetConv.updatedAt = aiMsg.createdAt; // 持久化：刷新捕获对话的 updated_at
+        DatabaseHelper.getInstance().updateConversation(targetConv);
+        // 仅在用户仍停留在原对话时滚动到底部，避免误滚其他对话
+        if (this.currentConversation.id === targetConv.id) {
+          this.scrollToBottom();
+        }
       },
       onError: (errorMessage: string) => {
         this.clearFlushTimer();
         aiMsg.isThinking = false;
-        aiMsg.content = `[错误] ${errorMessage}`;
+        this.isStreaming = false;
+        // 保留已接收的流式内容，末尾追加错误提示（不再整体覆盖）
+        const received = aiMsg.content;
+        aiMsg.content = received.length > 0 ? `${received}\n\n[错误] ${errorMessage}` : `[错误] ${errorMessage}`;
         DatabaseHelper.getInstance().updateMessage(aiMsg); // 错误消息也入库，方便用户从历史中复盘
-        this.scrollToBottom();
+        if (this.currentConversation.id === targetConv.id) {
+          this.scrollToBottom();
+        }
       },
     };
 
     // 6. 调用 LLM
-    AIService.getInstance().sendMessage(context, callbacks);
+    AIService.getInstance().sendMessage(context, callbacks, deepThinking);
   }
 
   /**
@@ -489,46 +505,5 @@ struct ChatPage {
     const current = this.messageDataSource.getData(index);
     const previous = this.messageDataSource.getData(index - 1);
     return current.createdAt - previous.createdAt > 10 * 60 * 1000; // 时间间隔 > 10 分钟（10 * 60 * 1000 毫秒）
-  }
-
-  /**
-   * 智能时间格式化
-   *   今天 → "14:30"
-   *   昨天 → "昨天 14:30"
-   *   本周 → "星期三 14:30"
-   *   同年 → "7/9 14:30"
-   *   跨年 → "2026/7/9 14:30"
-   */
-  private formatSmartTime(timestamp: number): string {
-    const date = new Date(timestamp);
-    const now = new Date();
-
-    // HH:MM 格式
-    const time = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
-    // 同一天
-    if (date.toDateString() === now.toDateString()) {
-      return time;
-    }
-    // 昨天
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) {
-      return `昨天 ${time}`;
-    }
-    // 7天内 将两个日期归零到当天 00:00:00，用日历日差比较
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const msgDayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-    const diffDays = Math.floor((todayStart - msgDayStart) / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 7 && diffDays >= 2) {
-      const weekdays = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
-      return `${weekdays[date.getDay()]} ${time}`;
-    }
-    // 同年
-    if (date.getFullYear() === now.getFullYear()) {
-      return `${date.getMonth() + 1}/${date.getDate()} ${time}`;
-    }
-    // 跨年
-    return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${time}`;
   }
 }

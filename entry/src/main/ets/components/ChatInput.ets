@@ -35,7 +35,7 @@ export struct ChatInput {
   @Prop modelName: string = "";
 
   // 发送回调
-  onChange?: (text: string, webSearch: boolean) => void;
+  onChange?: (text: string, webSearch: boolean, deepThinking: boolean) => void;
 
   build() {
     Column() {
@@ -136,8 +136,8 @@ export struct ChatInput {
         .enabled(this.inputText.trim().length > 0) // 空内容时不可点击
         .onClick(() => {
           if (this.inputText.trim().length > 0 && this.onChange) {
-            this.onChange(this.inputText.trim(), this.webSearch);
-            this.inputText = ""; // 发送后清空
+            this.onChange(this.inputText.trim(), this.webSearch, this.deepThinking);
+            this.inputText = ""; // 发送后清空输入框
           }
         })
       }

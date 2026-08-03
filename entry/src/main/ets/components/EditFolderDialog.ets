@@ -5,8 +5,8 @@
  * 用于：SideBarPage 收藏 Tab、FolderPage 子文件夹
  */
 
-import { promptAction } from "@kit.ArkUI";
-import { COLORS, FONT_SIZES, SPACING } from "../common/AppConstants";
+import { COLORS, FONT_SIZES, SPACING, FOLDER_COLORS, MESSAGES } from "../common/AppConstants";
+import { showToast } from "../common/Utils";
 
 @CustomDialog
 export struct EditFolderDialog {
@@ -17,18 +17,6 @@ export struct EditFolderDialog {
   onConfirm: (name: string, color: string) => void = (name: string, color: string) => {};
   @State inputValue: string = ""; // 名称输入内容
   @State selectedColor: string = "#FF9F0A"; // 当前选中的颜色
-
-  /** 可选颜色色板（预设 8 色） */
-  private colorPalette: string[] = [
-    "#FF9F0A", // 橙
-    "#FF3B30", // 红
-    "#FF2D55", // 粉
-    "#AF52DE", // 紫
-    "#0A84FF", // 蓝
-    "#5AC8FA", // 青
-    "#34C759", // 绿
-    "#8E8E93", // 灰
-  ];
 
   aboutToAppear(): void {
     this.inputValue = this.oldName;
@@ -95,7 +83,7 @@ export struct EditFolderDialog {
       // 8 个色块横向排列（超出可横向滚动）
       Scroll() {
         Row({ space: SPACING.XS }) {
-          ForEach(this.colorPalette, (color: string) => {
+          ForEach(FOLDER_COLORS, (color: string) => {
             this.colorChip(color)
           }, (color: string) => color)
         }
@@ -126,7 +114,7 @@ export struct EditFolderDialog {
             if (this.inputValue.trim().length > 0) {
               this.onConfirm(this.inputValue.trim(), this.selectedColor);
             } else {
-              promptAction.showToast({ message: "名称不能为空" });
+              showToast(MESSAGES.NAME_EMPTY);
             }
             this.controller?.close();
           })

@@ -34,6 +34,8 @@ export enum COLORS {
   TOGGLE_TEXT_INACTIVE = "#666666", // 切换按钮默认态文字
   // 悬浮菜单
   MENU_BG = "#CDFFFFFF", // 对话管理
+  STAR_GOLD = "#FFB800", // 收藏星标金色
+  FAB_SHADOW = "#662D65F8", // 悬浮按钮阴影
 };
 
 // 字号常量
@@ -77,3 +79,35 @@ export enum BUBBLE {
   PADDING_H = 14, // 水平内边距
   PADDING_V = 10, // 垂直内边距
 };
+
+// 文件夹图标色板（8 色预设，EditFolderDialog 与 Category 默认色共用）
+export const FOLDER_COLORS: string[] = [
+  "#FF9F0A", // 橙
+  "#FF3B30", // 红
+  "#FF2D55", // 粉
+  "#AF52DE", // 紫
+  "#0A84FF", // 蓝
+  "#5AC8FA", // 青
+  "#34C759", // 绿
+  "#8E8E93", // 灰
+];
+
+// 统一提示文案（集中管理静态 Toast 消息）
+export enum MESSAGES {
+  NAME_EMPTY = "名称不能为空", // 名称类输入为空
+  TITLE_EMPTY = "标题不能为空", // 对话标题为空
+  RENAME_SUCCESS = "标题修改成功", // 对话重命名成功
+  RENAME_CONV_SUCCESS = "重命名成功", // 文件夹内对话重命名成功
+  FAVORITED = "已收藏", // 收藏成功
+  UNFAVORITED = "已取消收藏", // 取消收藏成功
+  SAVED = "已保存", // 文件夹编辑保存成功
+  MOVED = "已移动", // 文件夹移动成功
+  MOVED_TO_TOP = "已移到顶级", // 文件夹移到顶级
+  MOVED_OK = "移动成功", // 对话移动成功
+  MOVED_OUT = "已移出不分类", // 批量移出不分类
+  FOLDER_DELETED = "文件夹已删除", // 文件夹删除成功
+  DELETED = "已删除", // 对话删除成功
+  STREAMING_BUSY = "正在回复中，请稍候", // 流式回复中禁止连发
+  CONFIG_INCOMPLETE = "请填写完整的 AI 对话配置", // 设置页必填校验
+  SAVE_SUCCESS = "保存成功", // 设置保存成功
+}

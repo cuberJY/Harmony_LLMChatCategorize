@@ -1,3 +1,5 @@
+import { generateId } from "../common/Utils";
+
 // 消息角色类型
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -21,15 +23,11 @@ export class Message {
   createdAt: number = 0; // 发送时间戳（毫秒）
 
   constructor(conversationId: string, role: MessageRole, content: string) {
-    this.id = this.generateId();
+    this.id = generateId();
     this.conversationId = conversationId;
     this.role = role;
     this.content = content;
     this.createdAt = Date.now();
-  }
-  // 生成唯一随机 UUID
-  private generateId(): string {
-    return `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
 
   // 是否为用户消息

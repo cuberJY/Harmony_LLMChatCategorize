@@ -49,8 +49,9 @@ export struct FolderPickerDialog {
           (cat: Category) => {
             ListItem() {
               Row() {
-                Text("📁")
+                SymbolGlyph($r("sys.symbol.folder"))
                   .fontSize(FONT_SIZES.ICON_MD)
+                  .fontColor([cat.color])
                   .margin({ right: SPACING.SM })
                 Text(cat.name)
                   .fontSize(FONT_SIZES.NAME)

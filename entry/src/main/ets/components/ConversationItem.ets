@@ -41,7 +41,7 @@ export struct ConversationItem {
       if (this.showFavoriteIcon && this.conversation.isFavorite) {
         SymbolGlyph($r("sys.symbol.star_fill"))
           .fontSize(FONT_SIZES.ICON_LG)
-          .fontColor(["#FFB800"]) // 金色星标
+          .fontColor([COLORS.STAR_GOLD]) // 金色星标
           .margin({ left: SPACING.SM })
       }
 
@@ -57,7 +57,7 @@ export struct ConversationItem {
         .width(24)
         .height(24)
         .borderRadius(12)
-        .border({ width: 1.5, color: this.isSelected ? COLORS.PRIMARY : "#CCCCCC" })
+        .border({ width: 1.5, color: this.isSelected ? COLORS.PRIMARY : COLORS.SEND_BTN_DISABLED })
         .backgroundColor(this.isSelected ? COLORS.PRIMARY : Color.Transparent)
       }
     }
@@ -164,43 +164,5 @@ export struct ConversationItem {
       .borderRadius(10)
       .backgroundColor(COLORS.MENU_BG);
     }
-  }
-
-  /**
-   * 对话列表时间格式化（比消息时间更简洁）
-   *   今天   → "14:30"
-   *   昨天   → "昨天"
-   *   7天内  → "星期三"
-   *   30天内 → "7/9"
-   *   更早   → "2026/6/9"
-   */
-  private formatConvTime(timestamp: number): string {
-    const date = new Date(timestamp);
-    const now = new Date();
-
-    // 今天 → HH:MM
-    if (date.toDateString() === now.toDateString()) {
-      return `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
-    }
-    // 昨天
-    const yesterday = new Date(now);
-    yesterday.setDate(now.getDate() - 1);
-    if (date.toDateString() === yesterday.toDateString()) {
-      return "昨天";
-    }
-    // 7天内 → 星期
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const msgDayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-    const diffDays = Math.floor((todayStart - msgDayStart) / (1000 * 60 * 60 * 24));
-    if (diffDays < 7) {
-      const weekdays = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"];
-      return weekdays[date.getDay()];
-    }
-    // 30天内 → M/D
-    if (diffDays < 30) {
-      return `${date.getMonth() + 1}/${date.getDate()}`;
-    }
-    // 更早 → YYYY/M/D
-    return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
   }
 }
