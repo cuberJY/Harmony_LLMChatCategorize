@@ -1,22 +1,25 @@
 /**
- * 编辑文件夹对话框
+ * 编辑文件夹对话框（状态管理 V2）
  * 可重命名文件夹 + 切换图标颜色
  * 颜色选择：一排色块，点击高亮边框，确认后回调
  * 用于：SideBarPage 收藏 Tab、FolderPage 子文件夹
+ *
+ * 打开方式：父页面通过 getPromptAction().openCustomDialog 打开；
+ * 关闭方式：组件通过 onRequestClose 回调通知父页面 closeCustomDialog(dialogId)
  */
 
-import { COLORS, FONT_SIZES, SPACING, FOLDER_COLORS, MESSAGES } from "../common/AppConstants";
+import { FOLDER_COLORS } from "../common/AppConstants";
 import { showToast } from "../common/Utils";
 
-@CustomDialog
+@ComponentV2
 export struct EditFolderDialog {
-  controller?: CustomDialogController;
-  title: string = "编辑文件夹";
-  oldName: string = ""; // 原文件夹名（预填）
-  oldColor: string = "#FF9F0A"; // 原图标颜色（高亮选中）
-  onConfirm: (name: string, color: string) => void = (name: string, color: string) => {};
-  @State inputValue: string = ""; // 名称输入内容
-  @State selectedColor: string = "#FF9F0A"; // 当前选中的颜色
+  @Param title: string = "编辑文件夹";
+  @Param oldName: string = ""; // 原文件夹名（预填）
+  @Param oldColor: string = "#FF9F0A"; // 原图标颜色（高亮选中）
+  @Event onConfirm: (name: string, color: string) => void = (name: string, color: string) => {};
+  @Event onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
+  @Local inputValue: string = ""; // 名称输入内容
+  @Local selectedColor: string = "#FF9F0A"; // 当前选中的颜色
 
   aboutToAppear(): void {
     this.inputValue = this.oldName;
@@ -40,7 +43,7 @@ export struct EditFolderDialog {
     .border({
       // 选中 → 主色边框；未选中 → 透明
       width: this.selectedColor === color ? 2 : 0,
-      color: COLORS.PRIMARY,
+      color: $r('app.color.primary'),
       radius: 18,
     })
     .onClick(() => {
@@ -49,25 +52,25 @@ export struct EditFolderDialog {
   }
 
   build() {
-    Column({ space: SPACING.MD }) {
+    Column({ space: $r('app.float.space_md') }) {
       // 标题
       Text(this.title)
-        .fontSize(FONT_SIZES.BODY)
+        .fontSize($r('app.float.font_body'))
         .fontWeight(FontWeight.Bold)
-        .fontColor(COLORS.TEXT_PRIMARY)
+        .fontColor($r('app.color.text_primary'))
         .width("100%")
         .textAlign(TextAlign.Start)
 
       // 名称输入
       TextInput({ placeholder: "请输入文件夹名称", text: this.inputValue })
         .defaultFocus(true)
-        .fontSize(FONT_SIZES.INPUT)
-        .fontColor(COLORS.TEXT_PRIMARY)
-        .backgroundColor(COLORS.PAGE_BG)
+        .fontSize($r('app.float.font_input'))
+        .fontColor($r('app.color.text_primary'))
+        .backgroundColor($r('app.color.page_bg'))
         .borderRadius(8)
         .borderWidth(1)
-        .borderColor(COLORS.INPUT_BORDER)
-        .padding({ left: SPACING.MD, right: SPACING.MD, top: SPACING.XS, bottom: SPACING.XS })
+        .borderColor($r('app.color.input_border'))
+        .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
         .width("100%")
         .onChange((value: string) => {
           this.inputValue = value;
@@ -75,19 +78,19 @@ export struct EditFolderDialog {
 
       // 颜色选择区
       Text("图标颜色")
-        .fontSize(FONT_SIZES.BODY)
-        .fontColor(COLORS.TEXT_PRIMARY)
+        .fontSize($r('app.float.font_body'))
+        .fontColor($r('app.color.text_primary'))
         .width("100%")
         .textAlign(TextAlign.Start)
 
       // 8 个色块横向排列（超出可横向滚动）
       Scroll() {
-        Row({ space: SPACING.XS }) {
+        Row({ space: $r('app.float.space_xs') }) {
           ForEach(FOLDER_COLORS, (color: string) => {
             this.colorChip(color)
           }, (color: string) => color)
         }
-        .padding({ top: SPACING.XS, bottom: SPACING.XS })
+        .padding({ top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
       }
       .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Off)
@@ -96,33 +99,33 @@ export struct EditFolderDialog {
       // 按钮区
       Row() {
         Text("取消")
-          .fontSize(FONT_SIZES.BUTTON)
-          .fontColor(COLORS.TEXT_SECONDARY)
+          .fontSize($r('app.float.font_button'))
+          .fontColor($r('app.color.text_secondary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
-          .padding({ top: SPACING.MD, bottom: SPACING.XS })
+          .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
           .onClick(() => {
-            this.controller?.close();
+            this.onRequestClose();
           })
         Text("确定")
-          .fontSize(FONT_SIZES.BUTTON)
-          .fontColor(COLORS.PRIMARY)
+          .fontSize($r('app.float.font_button'))
+          .fontColor($r('app.color.primary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
-          .padding({ top: SPACING.MD, bottom: SPACING.XS })
+          .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
           .onClick(() => {
             if (this.inputValue.trim().length > 0) {
               this.onConfirm(this.inputValue.trim(), this.selectedColor);
             } else {
-              showToast(MESSAGES.NAME_EMPTY);
+              showToast($r('app.string.name_empty'));
             }
-            this.controller?.close();
+            this.onRequestClose();
           })
       }.width("100%")
     }
-    .padding(SPACING.LG)
+    .padding($r('app.float.space_lg'))
     .width("85%")
     .borderRadius(16)
-    .backgroundColor(Color.White);
+    .backgroundColor($r('app.color.dialog_bg'));
   }
 }

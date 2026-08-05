@@ -11,6 +11,70 @@
     {
       "name": "EntryAbility_label",
       "value": "label"
+    },
+    {
+      "name": "name_empty",
+      "value": "名称不能为空"
+    },
+    {
+      "name": "title_empty",
+      "value": "标题不能为空"
+    },
+    {
+      "name": "rename_success",
+      "value": "标题修改成功"
+    },
+    {
+      "name": "rename_conv_success",
+      "value": "重命名成功"
+    },
+    {
+      "name": "favorited",
+      "value": "已收藏"
+    },
+    {
+      "name": "unfavorited",
+      "value": "已取消收藏"
+    },
+    {
+      "name": "saved",
+      "value": "已保存"
+    },
+    {
+      "name": "moved",
+      "value": "已移动"
+    },
+    {
+      "name": "moved_to_top",
+      "value": "已移到顶级"
+    },
+    {
+      "name": "moved_ok",
+      "value": "移动成功"
+    },
+    {
+      "name": "moved_out",
+      "value": "已移出不分类"
+    },
+    {
+      "name": "folder_deleted",
+      "value": "文件夹已删除"
+    },
+    {
+      "name": "deleted",
+      "value": "已删除"
+    },
+    {
+      "name": "streaming_busy",
+      "value": "正在回复中，请稍候"
+    },
+    {
+      "name": "config_incomplete",
+      "value": "请填写完整的 AI 对话配置"
+    },
+    {
+      "name": "save_success",
+      "value": "保存成功"
     }
   ]
 }

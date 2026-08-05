@@ -1,75 +1,77 @@
 /**
- * 通用文本输入确认对话框
+ * 通用文本输入确认对话框（状态管理 V2）
  * 用于：重命名对话、新建/重命名文件夹
  * 由 SideBarPage、FolderPage 复用，替代各自重复的 RenameDialog / NewFolderDialog
+ *
+ * 打开方式：父页面通过 getPromptAction().openCustomDialog 打开；
+ * 关闭方式：组件通过 onRequestClose 回调通知父页面 closeCustomDialog(dialogId)
  */
 
-import { COLORS, FONT_SIZES, SPACING, MESSAGES } from "../common/AppConstants";
 import { showToast } from "../common/Utils";
 
-@CustomDialog
+@ComponentV2
 export struct RenameInputDialog {
-  controller?: CustomDialogController;
-  title: string = "重命名"; // 对话框标题（可传入覆盖）
-  placeholder: string = "请输入内容"; // 输入框占位
-  oldValue: string = ""; // 预填值（重命名时使用）
-  onConfirm: (value: string) => void = (value: string) => {}; // 确认回调
-  @State inputValue: string = ""; // 输入框内容
+  @Param title: string = "重命名"; // 对话框标题（可传入覆盖）
+  @Param placeholder: string = "请输入内容"; // 输入框占位
+  @Param oldValue: string = ""; // 预填值（重命名时使用）
+  @Event onConfirm: (value: string) => void = (value: string) => {}; // 确认回调
+  @Event onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
+  @Local inputValue: string = ""; // 输入框内容
 
   aboutToAppear(): void {
     this.inputValue = this.oldValue; // 预填旧值，方便直接修改
   }
 
   build() {
-    Column({ space: SPACING.MD }) {
+    Column({ space: $r('app.float.space_md') }) {
       Text(this.title)
-        .fontSize(FONT_SIZES.BODY)
+        .fontSize($r('app.float.font_body'))
         .fontWeight(FontWeight.Bold)
-        .fontColor(COLORS.TEXT_PRIMARY)
+        .fontColor($r('app.color.text_primary'))
         .width("100%")
         .textAlign(TextAlign.Start)
       TextInput({ placeholder: this.placeholder, text: this.inputValue })
         .defaultFocus(true)
-        .fontSize(FONT_SIZES.INPUT)
-        .fontColor(COLORS.TEXT_PRIMARY)
-        .backgroundColor(COLORS.PAGE_BG)
+        .fontSize($r('app.float.font_input'))
+        .fontColor($r('app.color.text_primary'))
+        .backgroundColor($r('app.color.page_bg'))
         .borderRadius(8)
         .borderWidth(1)
-        .borderColor(COLORS.INPUT_BORDER)
-        .padding({ left: SPACING.MD, right: SPACING.MD, top: SPACING.XS, bottom: SPACING.XS })
+        .borderColor($r('app.color.input_border'))
+        .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
         .width("100%")
         .onChange((value: string) => {
           this.inputValue = value;
         })
       Row() {
         Text("取消")
-          .fontSize(FONT_SIZES.BUTTON)
-          .fontColor(COLORS.TEXT_SECONDARY)
+          .fontSize($r('app.float.font_button'))
+          .fontColor($r('app.color.text_secondary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
-          .padding({ top: SPACING.MD, bottom: SPACING.XS })
+          .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
           .onClick(() => {
-            this.controller?.close();
+            this.onRequestClose();
           })
         Text("确定")
-          .fontSize(FONT_SIZES.BUTTON)
-          .fontColor(COLORS.PRIMARY)
+          .fontSize($r('app.float.font_button'))
+          .fontColor($r('app.color.primary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
-          .padding({ top: SPACING.MD, bottom: SPACING.XS })
+          .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
           .onClick(() => {
             if (this.inputValue.trim().length > 0) {
               this.onConfirm(this.inputValue.trim());
             } else {
-              showToast(MESSAGES.NAME_EMPTY);
+              showToast($r('app.string.name_empty'));
             }
-            this.controller?.close();
+            this.onRequestClose();
           })
       }.width("100%")
     }
-    .padding(SPACING.LG)
+    .padding($r('app.float.space_lg'))
     .width("85%")
     .borderRadius(16)
-    .backgroundColor(Color.White);
+    .backgroundColor($r('app.color.dialog_bg'));
   }
 }

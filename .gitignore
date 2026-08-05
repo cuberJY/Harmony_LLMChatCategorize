@@ -20,3 +20,5 @@
 # 构建签名配置（本地保留，DevEco 会注入密钥，不入库）
 /build-profile.json5
 /entry/build-profile.json5
+# 构建日志
+*.log

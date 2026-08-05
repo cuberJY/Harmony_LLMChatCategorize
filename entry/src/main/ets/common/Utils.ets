@@ -21,7 +21,7 @@ export function generateId(): string {
  * 统一 Toast 提示（行为与直接调用 promptAction.showToast({ message }) 一致）
  * @param message 提示文案
  */
-export function showToast(message: string): void {
+export function showToast(message: string | Resource): void {
   promptAction.showToast({ message: message });
 }
 
@@ -35,8 +35,8 @@ export function showToast(message: string): void {
  */
 export function showDeleteConfirm(
   uiContext: UIContext,
-  title: string,
-  message: string,
+  title: string | Resource,
+  message: string | Resource,
   onConfirm: () => void,
 ): void {
   uiContext.showAlertDialog({

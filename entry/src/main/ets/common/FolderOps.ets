@@ -6,7 +6,8 @@
 
 import { Category } from "../model/Category";
 import { Conversation } from "../model/Conversation";
-import { DatabaseHelper } from "../database/DatabaseHelper";
+import { CategoryRepository } from "../database/RepositoryCategory";
+import { ConversationRepository } from "../database/RepositoryConversation";
 
 /**
  * 计算"移动文件夹"的候选目标列表
@@ -14,8 +15,8 @@ import { DatabaseHelper } from "../database/DatabaseHelper";
  * @param catId 被移动的文件夹 id
  */
 export async function getMoveFolderCandidates(catId: string): Promise<Category[]> {
-  const all = await DatabaseHelper.getInstance().getCategories();
-  const exclude = await DatabaseHelper.getInstance().getCategorySubtreeIds(catId);
+  const all = await CategoryRepository.getInstance().getAll();
+  const exclude = await CategoryRepository.getInstance().getSubtreeIds(catId);
   // 候选目标 = 全部文件夹 - 自身及子孙
   return all.filter((c: Category) => exclude.indexOf(c.id) < 0);
 }
@@ -27,7 +28,7 @@ export async function getMoveFolderCandidates(catId: string): Promise<Category[]
  */
 export async function moveCategoryTo(cat: Category, targetId: string): Promise<void> {
   cat.parentId = targetId; // 空串 = 移到顶级
-  await DatabaseHelper.getInstance().updateCategory(cat);
+  await CategoryRepository.getInstance().update(cat);
 }
 
 /**
@@ -37,7 +38,7 @@ export async function moveCategoryTo(cat: Category, targetId: string): Promise<v
  */
 export async function moveConversationTo(conv: Conversation, folderId: string): Promise<void> {
   conv.categoryId = folderId;
-  await DatabaseHelper.getInstance().updateConversation(conv);
+  await ConversationRepository.getInstance().update(conv);
 }
 
 /**
@@ -49,5 +50,5 @@ export async function moveConversationTo(conv: Conversation, folderId: string): 
 export async function saveCategoryEdit(cat: Category, name: string, color: string): Promise<void> {
   cat.name = name;
   cat.color = color; // 更新图标颜色
-  await DatabaseHelper.getInstance().updateCategory(cat);
+  await CategoryRepository.getInstance().update(cat);
 }

@@ -3,6 +3,106 @@
     {
       "name": "start_window_background",
       "value": "#FFFFFF"
+    },
+    {
+      "name": "primary",
+      "value": "#FF2D65F8"
+    },
+    {
+      "name": "page_bg",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "title_bar_bg",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "divider",
+      "value": "#EEEEEE"
+    },
+    {
+      "name": "send_btn_disabled",
+      "value": "#CCCCCC"
+    },
+    {
+      "name": "bubble_bg_user",
+      "value": "#E8F4FD"
+    },
+    {
+      "name": "bubble_bg_ai",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "bubble_bg_thinking",
+      "value": "#F7F7F8"
+    },
+    {
+      "name": "text_primary",
+      "value": "#1A1A1A"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#999999"
+    },
+    {
+      "name": "text_important",
+      "value": "#2D65F8"
+    },
+    {
+      "name": "text_user",
+      "value": "#1A1A1A"
+    },
+    {
+      "name": "text_ai",
+      "value": "#1A1A1A"
+    },
+    {
+      "name": "text_danger",
+      "value": "#FF4D4F"
+    },
+    {
+      "name": "input_bg",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "input_border",
+      "value": "#E0E0E0"
+    },
+    {
+      "name": "input_container_bg",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "toggle_bg_active",
+      "value": "#E8F4FD"
+    },
+    {
+      "name": "toggle_bg_inactive",
+      "value": "#F0F0F0"
+    },
+    {
+      "name": "toggle_text_active",
+      "value": "#2D65F8"
+    },
+    {
+      "name": "toggle_text_inactive",
+      "value": "#666666"
+    },
+    {
+      "name": "menu_bg",
+      "value": "#CDFFFFFF"
+    },
+    {
+      "name": "star_gold",
+      "value": "#FFB800"
+    },
+    {
+      "name": "fab_shadow",
+      "value": "#662D65F8"
+    },
+    {
+      "name": "dialog_bg",
+      "value": "#FFFFFF"
     }
   ]
 }

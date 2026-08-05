@@ -10,6 +10,7 @@
 import { preferences } from "@kit.ArkData";
 import { common } from "@kit.AbilityKit";
 import { Conversation } from "../model/Conversation";
+import { Logger } from "../common/Logger";
 
 // AI API 配置接口
 export interface ApiConfig {
@@ -75,7 +76,7 @@ export class AppConfig {
       this.loaded = true;
     } catch (e) {
       // 初始化失败：保持默认空配置，后续保存时重试
-      console.error(`AppConfig init failed: ${JSON.stringify(e)}`);
+      Logger.error(`AppConfig init failed: ${JSON.stringify(e)}`);
     }
   }
 
@@ -148,7 +149,7 @@ export class AppConfig {
         await this.prefs.put(KEY_SEARCH_API_KEY, searchApiKey);
         await this.prefs.flush(); // 立即落盘
       } catch (e) {
-        console.error(`AppConfig save failed: ${JSON.stringify(e)}`);
+        Logger.error(`AppConfig save failed: ${JSON.stringify(e)}`);
       }
     }
   }

@@ -8,18 +8,17 @@
 
 import { router, KeyboardAvoidMode } from "@kit.ArkUI";
 import { AppConfig } from "../config/AppConfig";
-import { COLORS, FONT_SIZES, SPACING, MESSAGES } from "../common/AppConstants";
 import { showToast } from "../common/Utils";
 
 @Entry
-@Component
+@ComponentV2
 struct SettingsPage {
   // 表单状态（初始值取自 AppConfig，保证编辑时能看到已保存的值）
-  @State baseUrl: string = "";
-  @State apiKey: string = "";
-  @State model: string = "";
-  @State searchBaseUrl: string = "";
-  @State searchApiKey: string = "";
+  @Local baseUrl: string = "";
+  @Local apiKey: string = "";
+  @Local model: string = "";
+  @Local searchBaseUrl: string = "";
+  @Local searchApiKey: string = "";
   private saveTimerId: number = -1; // 保存后返回的定时器，离开页面时清理
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE;
 
@@ -54,9 +53,9 @@ struct SettingsPage {
         // 返回按钮
         Row() {
           SymbolGlyph($r("sys.symbol.chevron_left"))
-            .fontSize(FONT_SIZES.ICON_XL)
+            .fontSize($r('app.float.font_icon_xl'))
             .fontWeight(700)
-            .fontColor([Color.Black])
+            .fontColor([$r('app.color.text_primary')])
         }
         .width(40)
         .justifyContent(FlexAlign.Start)
@@ -66,9 +65,9 @@ struct SettingsPage {
 
         // 标题
         Text("设置")
-          .fontSize(FONT_SIZES.TITLE)
+          .fontSize($r('app.float.font_title'))
           .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.TEXT_PRIMARY)
+          .fontColor($r('app.color.text_primary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
 
@@ -76,12 +75,12 @@ struct SettingsPage {
         Row().width(40)
       }
       .width("100%")
-      .height(SPACING.TITLE_BAR_HEIGHT)
-      .padding({ left: SPACING.XL, right: SPACING.XL })
-      .backgroundColor(COLORS.TITLE_BAR_BG)
+      .height($r('app.float.title_bar_height'))
+      .padding({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
+      .backgroundColor($r('app.color.title_bar_bg'))
       .border({
         width: { bottom: 1 },
-        color: { bottom: COLORS.DIVIDER },
+        color: { bottom: $r('app.color.divider') },
       })
       // 上抬避让时让标题栏保持原位，不被键盘顶出屏幕
       .expandSafeArea([SafeAreaType.KEYBOARD])
@@ -91,53 +90,53 @@ struct SettingsPage {
         Column() {
           // 必填区：AI 对话配置
           Text("AI 对话配置（必填）")
-            .fontSize(FONT_SIZES.MODEL_NAME)
-            .fontColor(COLORS.TEXT_SECONDARY)
+            .fontSize($r('app.float.font_model_name'))
+            .fontColor($r('app.color.text_secondary'))
             .width("100%")
             .textAlign(TextAlign.Start)
-            .margin({ top: SPACING.MD, bottom: SPACING.SM })
+            .margin({ top: $r('app.float.space_md'), bottom: $r('app.float.space_sm') })
 
           // API 地址
           Text("API 地址")
-            .fontSize(FONT_SIZES.BODY)
-            .fontColor(COLORS.TEXT_PRIMARY)
+            .fontSize($r('app.float.font_body'))
+            .fontColor($r('app.color.text_primary'))
             .width("100%")
             .textAlign(TextAlign.Start)
-            .margin({ bottom: SPACING.XS })
+            .margin({ bottom: $r('app.float.space_xs') })
           TextInput({
             placeholder: "https://api.deepseek.com/chat/completions",
             text: this.baseUrl,
           })
-            .fontSize(FONT_SIZES.INPUT)
-            .fontColor(COLORS.TEXT_PRIMARY)
-            .placeholderColor(COLORS.TEXT_SECONDARY)
-            .backgroundColor(COLORS.PAGE_BG)
+            .fontSize($r('app.float.font_input'))
+            .fontColor($r('app.color.text_primary'))
+            .placeholderColor($r('app.color.text_secondary'))
+            .backgroundColor($r('app.color.page_bg'))
             .borderRadius(10)
             .borderWidth(1)
-            .borderColor(COLORS.INPUT_BORDER)
-            .padding({ left: SPACING.MD, right: SPACING.MD })
-            .margin({ bottom: SPACING.MD })
+            .borderColor($r('app.color.input_border'))
+            .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
+            .margin({ bottom: $r('app.float.space_md') })
             .onChange((value: string) => {
               this.baseUrl = value;
             })
 
           // API Key
           Text("API Key")
-            .fontSize(FONT_SIZES.BODY)
-            .fontColor(COLORS.TEXT_PRIMARY)
+            .fontSize($r('app.float.font_body'))
+            .fontColor($r('app.color.text_primary'))
             .width("100%")
             .textAlign(TextAlign.Start)
-            .margin({ bottom: SPACING.XS })
+            .margin({ bottom: $r('app.float.space_xs') })
           TextInput({ placeholder: "sk-xxxxxxxxxxxxxxxxxxxxxxxx", text: this.apiKey })
-            .fontSize(FONT_SIZES.INPUT)
-            .fontColor(COLORS.TEXT_PRIMARY)
-            .placeholderColor(COLORS.TEXT_SECONDARY)
-            .backgroundColor(COLORS.PAGE_BG)
+            .fontSize($r('app.float.font_input'))
+            .fontColor($r('app.color.text_primary'))
+            .placeholderColor($r('app.color.text_secondary'))
+            .backgroundColor($r('app.color.page_bg'))
             .borderRadius(10)
             .borderWidth(1)
-            .borderColor(COLORS.INPUT_BORDER)
-            .padding({ left: SPACING.MD, right: SPACING.MD })
-            .margin({ bottom: SPACING.MD })
+            .borderColor($r('app.color.input_border'))
+            .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
+            .margin({ bottom: $r('app.float.space_md') })
             .type(InputType.Password)
             // 密码输入，防偷窥
             .onChange((value: string) => {
@@ -146,68 +145,68 @@ struct SettingsPage {
 
           // 模型名称
           Text("模型名称")
-            .fontSize(FONT_SIZES.BODY)
-            .fontColor(COLORS.TEXT_PRIMARY)
+            .fontSize($r('app.float.font_body'))
+            .fontColor($r('app.color.text_primary'))
             .width("100%")
             .textAlign(TextAlign.Start)
-            .margin({ bottom: SPACING.XS })
+            .margin({ bottom: $r('app.float.space_xs') })
           TextInput({ placeholder: "deepseek-v4-flash", text: this.model })
-            .fontSize(FONT_SIZES.INPUT)
-            .fontColor(COLORS.TEXT_PRIMARY)
-            .placeholderColor(COLORS.TEXT_SECONDARY)
-            .backgroundColor(COLORS.PAGE_BG)
+            .fontSize($r('app.float.font_input'))
+            .fontColor($r('app.color.text_primary'))
+            .placeholderColor($r('app.color.text_secondary'))
+            .backgroundColor($r('app.color.page_bg'))
             .borderRadius(10)
             .borderWidth(1)
-            .borderColor(COLORS.INPUT_BORDER)
-            .padding({ left: SPACING.MD, right: SPACING.MD })
+            .borderColor($r('app.color.input_border'))
+            .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
             .onChange((value: string) => {
               this.model = value;
             })
 
           // 可选区：联网搜索配置
           Text("联网搜索配置（可选）")
-            .fontSize(FONT_SIZES.MODEL_NAME)
-            .fontColor(COLORS.TEXT_SECONDARY)
+            .fontSize($r('app.float.font_model_name'))
+            .fontColor($r('app.color.text_secondary'))
             .width("100%")
             .textAlign(TextAlign.Start)
-            .margin({ top: SPACING.XL, bottom: SPACING.SM })
+            .margin({ top: $r('app.float.space_xl'), bottom: $r('app.float.space_sm') })
           Text("搜索 API 地址")
-            .fontSize(FONT_SIZES.BODY)
-            .fontColor(COLORS.TEXT_PRIMARY)
+            .fontSize($r('app.float.font_body'))
+            .fontColor($r('app.color.text_primary'))
             .width("100%")
             .textAlign(TextAlign.Start)
-            .margin({ bottom: SPACING.XS })
+            .margin({ bottom: $r('app.float.space_xs') })
           TextInput({
             placeholder: "https://api.bochaai.com/v1/web-search",
             text: this.searchBaseUrl,
           })
-            .fontSize(FONT_SIZES.INPUT)
-            .fontColor(COLORS.TEXT_PRIMARY)
-            .placeholderColor(COLORS.TEXT_SECONDARY)
-            .backgroundColor(COLORS.PAGE_BG)
+            .fontSize($r('app.float.font_input'))
+            .fontColor($r('app.color.text_primary'))
+            .placeholderColor($r('app.color.text_secondary'))
+            .backgroundColor($r('app.color.page_bg'))
             .borderRadius(10)
             .borderWidth(1)
-            .borderColor(COLORS.INPUT_BORDER)
-            .padding({ left: SPACING.MD, right: SPACING.MD })
-            .margin({ bottom: SPACING.MD })
+            .borderColor($r('app.color.input_border'))
+            .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
+            .margin({ bottom: $r('app.float.space_md') })
             .onChange((value: string) => {
               this.searchBaseUrl = value;
             })
           Text("搜索 API 密钥")
-            .fontSize(FONT_SIZES.BODY)
-            .fontColor(COLORS.TEXT_PRIMARY)
+            .fontSize($r('app.float.font_body'))
+            .fontColor($r('app.color.text_primary'))
             .width("100%")
             .textAlign(TextAlign.Start)
-            .margin({ bottom: SPACING.XS })
+            .margin({ bottom: $r('app.float.space_xs') })
           TextInput({ placeholder: "sk-xxxxxxxx（留空则不校验）", text: this.searchApiKey })
-            .fontSize(FONT_SIZES.INPUT)
-            .fontColor(COLORS.TEXT_PRIMARY)
-            .placeholderColor(COLORS.TEXT_SECONDARY)
-            .backgroundColor(COLORS.PAGE_BG)
+            .fontSize($r('app.float.font_input'))
+            .fontColor($r('app.color.text_primary'))
+            .placeholderColor($r('app.color.text_secondary'))
+            .backgroundColor($r('app.color.page_bg'))
             .borderRadius(10)
             .borderWidth(1)
-            .borderColor(COLORS.INPUT_BORDER)
-            .padding({ left: SPACING.MD, right: SPACING.MD })
+            .borderColor($r('app.color.input_border'))
+            .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
             .type(InputType.Password)
             .onChange((value: string) => {
               this.searchApiKey = value;
@@ -217,22 +216,22 @@ struct SettingsPage {
           Button("保存")
             .width("100%")
             .height(44)
-            .fontSize(FONT_SIZES.BUTTON)
+            .fontSize($r('app.float.font_button'))
             .fontColor(Color.White)
-            .backgroundColor(COLORS.PRIMARY)
+            .backgroundColor($r('app.color.primary'))
             .borderRadius(22)
-            .margin({ top: SPACING.XL })
+            .margin({ top: $r('app.float.space_xl') })
             .onClick(() => {
               this.handleSave();
             })
         }
         .width("100%")
-        .padding({ left: SPACING.LG, right: SPACING.LG })
+        .padding({ left: $r('app.float.space_lg'), right: $r('app.float.space_lg') })
         .alignItems(HorizontalAlign.Start)
       }
       .layoutWeight(1)
       .width("100%")
-      .backgroundColor(COLORS.PAGE_BG)
+      .backgroundColor($r('app.color.page_bg'))
     }
     .width("100%")
     .height("100%");
@@ -249,7 +248,7 @@ struct SettingsPage {
       this.apiKey.trim().length === 0 ||
       this.model.trim().length === 0
     ) {
-      showToast(MESSAGES.CONFIG_INCOMPLETE);
+      showToast($r('app.string.config_incomplete'));
       return;
     }
 
@@ -262,7 +261,7 @@ struct SettingsPage {
       this.searchApiKey.trim(),
     );
 
-    showToast(MESSAGES.SAVE_SUCCESS);
+    showToast($r('app.string.save_success'));
     // 延时返回，让 Toast 可见（记录定时器便于离开页面时清理）
     this.saveTimerId = setTimeout(() => {
       this.saveTimerId = -1;

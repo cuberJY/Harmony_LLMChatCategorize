@@ -13,7 +13,7 @@
  */
 
 import { router } from "@kit.ArkUI";
-import { DatabaseHelper } from "../database/DatabaseHelper";
+import { CategoryRepository } from "../database/RepositoryCategory";
 import { Category } from "../model/Category";
 import { Conversation } from "../model/Conversation";
 import { FolderItem } from "../components/FolderItem";
@@ -22,36 +22,30 @@ import { EditFolderDialog } from "../components/EditFolderDialog";
 import { FolderPickerDialog } from "../components/FolderPickerDialog";
 import { RenameInputDialog } from "../components/RenameInputDialog";
 import { AppConfig } from "../config/AppConfig";
-import { COLORS, FONT_SIZES, SPACING, MESSAGES } from "../common/AppConstants";
-import { showToast, showDeleteConfirm } from "../common/Utils";
-import { getMoveFolderCandidates, moveCategoryTo, moveConversationTo, saveCategoryEdit } from "../common/FolderOps";
+import { showDeleteConfirm } from "../common/Utils";
+import { getMoveFolderCandidates } from "../common/FolderOps";
+import { FolderViewModel } from "../viewmodel/FolderViewModel";
 
 
 @Entry
-@Component
+@ComponentV2
 struct FolderPage {
-  // 路由参数：当前文件夹 id 和名称（由 SideBarPage / 上级 FolderPage 传入）
-  @State folderId: string = "";
-  @State folderName: string = "";
-  @State subFolders: Category[] = []; // 子文件夹列表
-  @State convs: Conversation[] = []; // 该文件夹下的对话列表
-  @State listVersion: number = 0; // 列表刷新版本号：重命名/改色等键不变的内容变更后自增，强制 ForEach 重建
+  // 数据与业务逻辑（@Trace 状态 + 子文件夹/对话加载）全部收敛到 ViewModel，页面只保留 build / 路由 / 弹窗
+  private vm: FolderViewModel = new FolderViewModel();
 
-  private newFolderController: CustomDialogController | null = null; // 新建/重命名对话框控制器
-  private pickerController: CustomDialogController | null = null; // 移动选择器控制器
+  private dialogId: number = -1; // 当前打开的弹窗 ID（openCustomDialog 返回值，供 closeCustomDialog 使用）
 
   aboutToAppear(): void {
     // 1. 读取路由参数
     const params = router.getParams() as Record<string, string>;
     if (params) {
-      this.folderId = params.folderId ?? "";
-      this.folderName = params.folderName ?? "";
+      this.vm.setParams(params.folderId ?? "", params.folderName ?? "");
     }
   }
 
   // 首次进入与从子文件夹页面返回时刷新（子页可能移动/删除/重命名内容，返回需同步）
   onPageShow(): void {
-    this.loadData();
+    this.vm.loadData();
   }
 
   build() {
@@ -61,9 +55,9 @@ struct FolderPage {
         // 返回按钮
         Row() {
           SymbolGlyph($r("sys.symbol.chevron_left"))
-            .fontSize(FONT_SIZES.ICON_XL)
+            .fontSize($r('app.float.font_icon_xl'))
             .fontWeight(700)
-            .fontColor([Color.Black])
+            .fontColor([$r('app.color.text_primary')])
         }
         .width(40)
         .justifyContent(FlexAlign.Start)
@@ -72,10 +66,10 @@ struct FolderPage {
         })
 
         // 文件夹名称
-        Text(this.folderName.length > 0 ? this.folderName : "文件夹")
-          .fontSize(FONT_SIZES.TITLE)
+        Text(this.vm.folderName.length > 0 ? this.vm.folderName : "文件夹")
+          .fontSize($r('app.float.font_title'))
           .fontWeight(FontWeight.Bold)
-          .fontColor(COLORS.TEXT_PRIMARY)
+          .fontColor($r('app.color.text_primary'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
@@ -85,18 +79,18 @@ struct FolderPage {
         Row().width(40)
       }
       .width("100%")
-      .height(SPACING.TITLE_BAR_HEIGHT)
-      .padding({ left: SPACING.MD, right: SPACING.MD })
-      .backgroundColor(COLORS.TITLE_BAR_BG)
-      .border({ width: { bottom: 1 }, color: { bottom: COLORS.DIVIDER } })
+      .height($r('app.float.title_bar_height'))
+      .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
+      .backgroundColor($r('app.color.title_bar_bg'))
+      .border({ width: { bottom: 1 }, color: { bottom: $r('app.color.divider') } })
 
       // 内容区
-      if (this.subFolders.length === 0 && this.convs.length === 0) {
+      if (this.vm.subFolders.length === 0 && this.vm.convs.length === 0) {
         // 空态
         Column() {
           Text("此文件夹为空")
-            .fontSize(FONT_SIZES.REMIND)
-            .fontColor(COLORS.TEXT_SECONDARY)
+            .fontSize($r('app.float.font_remind'))
+            .fontColor($r('app.color.text_secondary'))
         }
         .width("100%")
         .layoutWeight(1)
@@ -105,7 +99,7 @@ struct FolderPage {
         List() {
           // 子文件夹列表
           ForEach(
-            this.subFolders,
+            this.vm.subFolders,
             (cat: Category) => {
               ListItem() {
                 FolderItem({
@@ -129,22 +123,22 @@ struct FolderPage {
                 })
               }.width("100%");
             },
-            (cat: Category) => `${cat.id}_${this.listVersion}`,
+            (cat: Category) => `${cat.id}_${this.vm.listVersion}`,
           )
 
           // 子文件夹与对话之间的分隔线（两者都有时才显示）
-          if (this.subFolders.length > 0 && this.convs.length > 0) {
+          if (this.vm.subFolders.length > 0 && this.vm.convs.length > 0) {
             ListItem() {
               Divider()
                 .strokeWidth(0.5)
-                .color(COLORS.DIVIDER)
-                .margin({ left: SPACING.XL, right: SPACING.XL })
+                .color($r('app.color.divider'))
+                .margin({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
             };
           }
 
           // 该文件夹下的对话
           ForEach(
-            this.convs,
+            this.vm.convs,
             (conv: Conversation) => {
               ListItem() {
                 ConversationItem({
@@ -166,23 +160,23 @@ struct FolderPage {
                     this.confirmDeleteConv(selected);
                   },
                   onMenuFavorite: (selected: Conversation) => {
-                    this.doUnfavorite(selected);
+                    this.vm.unfavorite(selected);
                   },
                 })
               }.width("100%");
             },
-            (conv: Conversation) => `${conv.id}_${this.listVersion}`,
+            (conv: Conversation) => `${conv.id}_${this.vm.listVersion}`,
           )
         }
         .width("100%")
         .layoutWeight(1)
-        .backgroundColor(COLORS.PAGE_BG)
+        .backgroundColor($r('app.color.page_bg'))
         .edgeEffect(EdgeEffect.Spring);
       }
     }
     .width("100%")
     .height("100%")
-    .backgroundColor(COLORS.PAGE_BG)
+    .backgroundColor($r('app.color.page_bg'))
     // 悬浮新建子文件夹按钮（右下角）
     .overlay(this.fabBuilder(), {
       align: Alignment.BottomEnd,
@@ -198,80 +192,81 @@ struct FolderPage {
     Stack() {
       Button() {
         Text("+")
-          .fontSize(FONT_SIZES.ICON_XXL)
+          .fontSize($r('app.float.font_icon_xxl'))
           .fontColor(Color.White)
           .fontWeight(FontWeight.Medium)
       }
       .width(32)
       .height(32)
       .type(ButtonType.Circle)
-      .backgroundColor(COLORS.PRIMARY)
-      .shadow({ radius: 8, color: COLORS.FAB_SHADOW, offsetY: 2 })
+      .backgroundColor($r('app.color.primary'))
+      .shadow({ radius: 8, color: $r('app.color.fab_shadow'), offsetY: 2 })
       .onClick(() => {
         this.openNewFolderDialog();
       })
     }
     .hitTestBehavior(HitTestMode.None)
-    .padding({ right: SPACING.XL, bottom: SPACING.XL });
+    .padding({ right: $r('app.float.space_xl'), bottom: $r('app.float.space_xl') });
   }
 
-  // 数据加载
-
-  /**
-   * 加载当前文件夹的数据：子文件夹 + 该文件夹下的对话
-   */
-  private async loadData(): Promise<void> {
-    this.subFolders = await DatabaseHelper.getInstance().getCategoriesByParent(this.folderId);
-    this.convs = await DatabaseHelper.getInstance().getConversationsByCategory(this.folderId);
+  // 关闭当前打开的弹窗（弹窗组件通过 onRequestClose 回调触发）
+  private closeDialog(): void {
+    if (this.dialogId >= 0) {
+      this.getUIContext().getPromptAction().closeCustomDialog(this.dialogId);
+      this.dialogId = -1;
+    }
   }
-
-  // 文件夹操作
 
   // 新建子文件夹
   private openNewFolderDialog(): void {
-    this.newFolderController = new CustomDialogController({
-      builder: RenameInputDialog({
-        title: "新建子文件夹",
-        placeholder: "请输入文件夹名称",
-        onConfirm: (name: string) => {
-          this.createSubFolder(name);
-        },
-      }),
+    this.getUIContext().getPromptAction().openCustomDialog({
+      builder: this.buildNewFolderDialog(),
       autoCancel: true,
       alignment: DialogAlignment.Top,
       offset: { dx: 0, dy: 280 },
-      customStyle: true,
+    }).then((id: number) => {
+      this.dialogId = id;
     });
-    this.newFolderController.open();
   }
 
-  // 执行新建子文件夹
-  private async createSubFolder(name: string): Promise<void> {
-    const cat = new Category(undefined, name, this.folderId);
-    await DatabaseHelper.getInstance().insertCategory(cat);
-    await this.loadData();
-    showToast(`已创建「${name}」`);
+  @Builder
+  buildNewFolderDialog() {
+    RenameInputDialog({
+      title: "新建子文件夹",
+      placeholder: "请输入文件夹名称",
+      onConfirm: (name: string) => {
+        this.vm.createSubFolder(name);
+      },
+      onRequestClose: () => {
+        this.closeDialog();
+      },
+    })
   }
 
   // 编辑子文件夹：重命名 + 切换图标颜色
   private openEditFolder(cat: Category): void {
-    this.newFolderController = new CustomDialogController({
-      builder: EditFolderDialog({
-        oldName: cat.name,
-        oldColor: cat.color,
-        onConfirm: async (name: string, color: string) => {
-          await saveCategoryEdit(cat, name, color); // 更新名称与颜色并持久化
-          await this.loadData();
-          this.listVersion++; // 强制 ForEach 重建，刷新名称/颜色
-          showToast(MESSAGES.SAVED);
-        },
-      }),
+    this.getUIContext().getPromptAction().openCustomDialog({
+      builder: this.buildEditFolderDialog(cat),
       autoCancel: true,
       alignment: DialogAlignment.Top,
       offset: { dx: 0, dy: 280 },
-      customStyle: true,
+    }).then((id: number) => {
+      this.dialogId = id;
     });
-    this.newFolderController.open();
+  }
+
+  @Builder
+  buildEditFolderDialog(cat: Category) {
+    EditFolderDialog({
+      oldName: cat.name,
+      oldColor: cat.color,
+      onConfirm: (name: string, color: string) => {
+        this.vm.saveEdit(cat, name, color);
+      },
+      onRequestClose: () => {
+        this.closeDialog();
+      },
+    })
   }
 
   // 删除子文件夹（二次确认 + 级联）
@@ -281,97 +276,87 @@ struct FolderPage {
       "删除文件夹",
       `确定删除文件夹“${cat.name}”吗？其下所有子文件夹及对话的分类关系将被移除，对话本身不会删除。`,
       () => {
-        this.doDeleteFolder(cat.id);
+        this.vm.deleteFolderCascade(cat.id);
       },
     );
-  }
-
-  // 执行删除文件夹（级联）
-  private async doDeleteFolder(id: string): Promise<void> {
-    await DatabaseHelper.getInstance().deleteCategoryCascade(id);
-    await this.loadData();
-    showToast(MESSAGES.FOLDER_DELETED);
   }
 
   // 移动文件夹：弹出目标选择器（排除自身及子孙，防止成环）
   private async openMoveFolder(cat: Category): Promise<void> {
     // 候选目标 = 全部文件夹 - 自身及子孙（空串"不分类"由选择器提供，表示移到顶级）
     const candidates = await getMoveFolderCandidates(cat.id);
-    this.pickerController = new CustomDialogController({
-      builder: FolderPickerDialog({
-        title: "移动到文件夹",
-        folders: candidates,
-        onSelect: (targetId: string) => {
-          this.doMoveFolder(cat, targetId);
-        },
-      }),
+    this.getUIContext().getPromptAction().openCustomDialog({
+      builder: this.buildMoveFolderPicker(cat, candidates),
       autoCancel: true,
       alignment: DialogAlignment.Center,
-      customStyle: true,
+    }).then((id: number) => {
+      this.dialogId = id;
     });
-    this.pickerController.open();
   }
 
-  // 执行移动：更新 parentId 并刷新列表
-  private async doMoveFolder(cat: Category, targetId: string): Promise<void> {
-    await moveCategoryTo(cat, targetId); // 空串 = 移到顶级
-    await this.loadData();
-    showToast(targetId.length > 0 ? MESSAGES.MOVED : MESSAGES.MOVED_TO_TOP);
+  @Builder
+  buildMoveFolderPicker(cat: Category, folders: Category[]) {
+    FolderPickerDialog({
+      title: "移动到文件夹",
+      folders: folders,
+      onSelect: (targetId: string) => {
+        this.vm.moveFolder(cat, targetId);
+      },
+      onRequestClose: () => {
+        this.closeDialog();
+      },
+    })
   }
-
-  // 对话操作
 
   // 移动到文件夹：弹出文件夹选择器
   private async openPicker(conv: Conversation): Promise<void> {
-    const allFolders = await DatabaseHelper.getInstance().getCategories();
-    this.pickerController = new CustomDialogController({
-      builder: FolderPickerDialog({
-        folders: allFolders,
-        onSelect: (folderId: string) => {
-          this.doMove(conv, folderId);
-        },
-      }),
+    const allFolders = await CategoryRepository.getInstance().getAll();
+    this.getUIContext().getPromptAction().openCustomDialog({
+      builder: this.buildConvPicker(conv, allFolders),
       autoCancel: true,
       alignment: DialogAlignment.Center,
-      customStyle: true,
+    }).then((id: number) => {
+      this.dialogId = id;
     });
-    this.pickerController.open();
   }
 
-  // 执行移动：更新对话分类
-  private async doMove(conv: Conversation, folderId: string): Promise<void> {
-    await moveConversationTo(conv, folderId);
-    // 若移出的目标不是当前文件夹 → 从当前列表移除
-    if (folderId !== this.folderId) {
-      this.convs = this.convs.filter((c: Conversation) => c.id !== conv.id);
-    }
-    showToast(MESSAGES.MOVED_OK);
+  @Builder
+  buildConvPicker(conv: Conversation, folders: Category[]) {
+    FolderPickerDialog({
+      folders: folders,
+      onSelect: (folderId: string) => {
+        this.vm.moveConv(conv, folderId);
+      },
+      onRequestClose: () => {
+        this.closeDialog();
+      },
+    })
   }
 
   // 重命名对话
   private openRenameConvDialog(conv: Conversation): void {
-    this.newFolderController = new CustomDialogController({
-      builder: RenameInputDialog({
-        title: "重命名对话",
-        oldValue: conv.title,
-        onConfirm: (name: string) => {
-          this.doRenameConv(conv, name);
-        },
-      }),
+    this.getUIContext().getPromptAction().openCustomDialog({
+      builder: this.buildRenameConvDialog(conv),
       autoCancel: true,
       alignment: DialogAlignment.Top,
       offset: { dx: 0, dy: 280 },
-      customStyle: true,
+    }).then((id: number) => {
+      this.dialogId = id;
     });
-    this.newFolderController.open();
   }
 
-  // 执行重命名对话
-  private async doRenameConv(conv: Conversation, name: string): Promise<void> {
-    conv.title = name;
-    await DatabaseHelper.getInstance().updateConversation(conv);
-    this.listVersion++; // 强制 ForEach 重建，刷新对话标题
-    showToast(MESSAGES.RENAME_CONV_SUCCESS);
+  @Builder
+  buildRenameConvDialog(conv: Conversation) {
+    RenameInputDialog({
+      title: "重命名对话",
+      oldValue: conv.title,
+      onConfirm: (name: string) => {
+        this.vm.renameConv(conv, name);
+      },
+      onRequestClose: () => {
+        this.closeDialog();
+      },
+    })
   }
 
   // 删除对话（二次确认）
@@ -381,26 +366,8 @@ struct FolderPage {
       "删除对话",
       `确定删除对话“${conv.title.length > 0 ? conv.title : "新对话"}”吗？删除后不可恢复。`,
       () => {
-        this.doDeleteConv(conv.id);
+        this.vm.deleteConv(conv.id);
       },
     );
-  }
-
-  // 执行删除对话
-  private async doDeleteConv(id: string): Promise<void> {
-    await DatabaseHelper.getInstance().deleteConversations([id]);
-    this.convs = this.convs.filter((c: Conversation) => c.id !== id);
-    showToast(MESSAGES.DELETED);
-  }
-
-  // 取消收藏：清空收藏标记与位置，并从当前文件夹移除（未收藏对话不参与文件夹分类）
-  private async doUnfavorite(conv: Conversation): Promise<void> {
-    await DatabaseHelper.getInstance().setFavorite(conv, false);
-    conv.isFavorite = false;
-    conv.categoryId = "";
-    // 从当前文件夹对话列表移除（对话不再属于任何文件夹）
-    this.convs = this.convs.filter((c: Conversation) => c.id !== conv.id);
-    this.listVersion++;
-    showToast(MESSAGES.UNFAVORITED);
   }
 }

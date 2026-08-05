@@ -3,6 +3,106 @@
     {
       "name": "page_text_font_size",
       "value": "42fp"
+    },
+    {
+      "name": "font_title",
+      "value": "18fp"
+    },
+    {
+      "name": "font_name",
+      "value": "16fp"
+    },
+    {
+      "name": "font_time",
+      "value": "11fp"
+    },
+    {
+      "name": "font_thinking",
+      "value": "13fp"
+    },
+    {
+      "name": "font_body",
+      "value": "15fp"
+    },
+    {
+      "name": "font_model_name",
+      "value": "12fp"
+    },
+    {
+      "name": "font_input",
+      "value": "15fp"
+    },
+    {
+      "name": "font_remind",
+      "value": "17fp"
+    },
+    {
+      "name": "font_button",
+      "value": "14fp"
+    },
+    {
+      "name": "font_toggle",
+      "value": "16fp"
+    },
+    {
+      "name": "font_icon_sm",
+      "value": "12fp"
+    },
+    {
+      "name": "font_icon_md",
+      "value": "14fp"
+    },
+    {
+      "name": "font_icon_lg",
+      "value": "16fp"
+    },
+    {
+      "name": "font_icon_xl",
+      "value": "20fp"
+    },
+    {
+      "name": "font_icon_xxl",
+      "value": "24fp"
+    },
+    {
+      "name": "space_xs",
+      "value": "4vp"
+    },
+    {
+      "name": "space_sm",
+      "value": "8vp"
+    },
+    {
+      "name": "space_md",
+      "value": "12vp"
+    },
+    {
+      "name": "space_lg",
+      "value": "16vp"
+    },
+    {
+      "name": "space_xl",
+      "value": "20vp"
+    },
+    {
+      "name": "space_xxl",
+      "value": "24vp"
+    },
+    {
+      "name": "title_bar_height",
+      "value": "60vp"
+    },
+    {
+      "name": "bubble_radius",
+      "value": "12vp"
+    },
+    {
+      "name": "bubble_padding_h",
+      "value": "14vp"
+    },
+    {
+      "name": "bubble_padding_v",
+      "value": "10vp"
     }
   ]
 }
