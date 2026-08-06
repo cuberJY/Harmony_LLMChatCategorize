@@ -34,11 +34,9 @@ export class ConversationRepository {
     return DatabaseHelper.getInstance().getStore();
   }
 
-  // ---------- 对话表 ----------
+  // 对话表
 
-  /**
-   * 查询全部对话，按最后更新时间倒序
-   */
+  // 查询全部对话，按最后更新时间倒序
   async getAll(): Promise<Conversation[]> {
     try {
       return await ConversationDao.getInstance().getAll();
@@ -48,9 +46,7 @@ export class ConversationRepository {
     }
   }
 
-  /**
-   * 按 id 查询单个对话；不存在时返回 undefined
-   */
+  // 按 id 查询单个对话；不存在时返回 undefined
   async getById(id: string): Promise<Conversation | undefined> {
     try {
       return await ConversationDao.getInstance().getById(id);
@@ -60,9 +56,7 @@ export class ConversationRepository {
     }
   }
 
-  /**
-   * 按文件夹查询对话（仅已收藏）；categoryId 传空串 = 未分类
-   */
+  // 按文件夹查询对话（仅已收藏）；categoryId 传空串 = 未分类
   async getByCategory(categoryId: string): Promise<Conversation[]> {
     try {
       return await ConversationDao.getInstance().getByCategory(categoryId);
@@ -72,9 +66,7 @@ export class ConversationRepository {
     }
   }
 
-  /**
-   * 查询全部已收藏对话，按更新时间倒序
-   */
+  // 查询全部已收藏对话，按更新时间倒序
   async getFavorites(): Promise<Conversation[]> {
     try {
       return await ConversationDao.getInstance().getFavorites();
@@ -84,9 +76,7 @@ export class ConversationRepository {
     }
   }
 
-  /**
-   * 新增对话
-   */
+  // 新增对话
   async insert(conv: Conversation): Promise<void> {
     try {
       await ConversationDao.getInstance().insert(conv);
@@ -95,9 +85,7 @@ export class ConversationRepository {
     }
   }
 
-  /**
-   * 更新对话（标题、分类、更新时间）
-   */
+  // 更新对话（标题、分类、更新时间）
   async update(conv: Conversation): Promise<void> {
     try {
       await ConversationDao.getInstance().update(conv);
@@ -106,9 +94,7 @@ export class ConversationRepository {
     }
   }
 
-  /**
-   * 设置对话收藏状态（取消收藏自动清空分类）
-   */
+  // 设置对话收藏状态（取消收藏自动清空分类）
   async setFavorite(conv: Conversation, isFavorite: boolean): Promise<void> {
     try {
       await ConversationDao.getInstance().setFavorite(conv, isFavorite);
@@ -134,9 +120,7 @@ export class ConversationRepository {
     }
   }
 
-  /**
-   * 删除对话及其全部消息（跨表事务：消息先行，中断自动回滚，无孤儿数据）
-   */
+  // 删除对话及其全部消息（跨表事务：消息先行，中断自动回滚，无孤儿数据）
   async deleteConversations(ids: string[]): Promise<void> {
     const store = this.store;
     if (!store || ids.length === 0) return;
@@ -154,9 +138,7 @@ export class ConversationRepository {
 
   // ---------- 消息表 ----------
 
-  /**
-   * 查询某对话下的全部消息，按发送时间升序
-   */
+  // 查询某对话下的全部消息，按发送时间升序
   async getMessages(conversationId: string): Promise<Message[]> {
     try {
       return await MessageDao.getInstance().getByConversation(conversationId);
@@ -166,9 +148,7 @@ export class ConversationRepository {
     }
   }
 
-  /**
-   * 新增一条消息
-   */
+  // 新增一条消息
   async insertMessage(msg: Message): Promise<void> {
     try {
       await MessageDao.getInstance().insert(msg);
@@ -177,9 +157,7 @@ export class ConversationRepository {
     }
   }
 
-  /**
-   * 更新一条消息（流式结束后回写完整内容 / 错误信息）
-   */
+  // 更新一条消息（流式结束后回写完整内容 / 错误信息）
   async updateMessage(msg: Message): Promise<void> {
     try {
       await MessageDao.getInstance().update(msg);

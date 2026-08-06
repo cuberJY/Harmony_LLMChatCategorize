@@ -14,7 +14,6 @@ import { ConversationRepository } from "../database/RepositoryConversation";
 import { CategoryRepository } from "../database/RepositoryCategory";
 import { Conversation } from "../model/Conversation";
 import { Category } from "../model/Category";
-import { AppConfig } from "../config/AppConfig";
 import { getGroupName } from "../common/TimeUtil";
 import { showToast } from "../common/Utils";
 import { moveCategoryTo, moveConversationTo, saveCategoryEdit } from "../common/FolderOps";
@@ -40,7 +39,7 @@ export class SideBarViewModel {
 
   // ===== 数据加载 =====
 
-  /** 从数据库查询全部对话（按更新时间倒序）并重新分组 */
+  // 从数据库查询全部对话（按更新时间倒序）并重新分组
   async loadConversations(): Promise<void> {
     const list = await ConversationRepository.getInstance().getAll();
     this.conversations = list;
@@ -81,7 +80,7 @@ export class SideBarViewModel {
     this.groups = result;
   }
 
-  /** 加载收藏 Tab 数据：顶级文件夹 + 已收藏但未放入文件夹的对话 */
+  // 加载收藏 Tab 数据：顶级文件夹 + 已收藏但未放入文件夹的对话
   async loadFavorites(): Promise<void> {
     // 顶级文件夹：parent_id 为空
     this.topFolders = await CategoryRepository.getInstance().getByParent("");
@@ -92,19 +91,14 @@ export class SideBarViewModel {
 
   // ===== Tab 与选中 =====
 
-  /** 顶部 Tab 点击：更新高亮状态（页面负责 Swiper 带动画切换） */
+  // 顶部 Tab 点击：更新高亮状态（页面负责 Swiper 带动画切换）
   setCurrentTab(index: number): void {
     this.currentTab = index;
   }
 
-  /** 用户选中某条历史对话：存入 AppConfig（页面负责 router.back() 返回） */
-  selectConversation(conv: Conversation): void {
-    AppConfig.getInstance().selectedConversation = conv;
-  }
-
   // ===== 多选编辑模式 =====
 
-  /** 进入多选模式（可预选长按的那一项） */
+  // 进入多选模式（可预选长按的那一项）
   enterEditMode(preSelectId: string): void {
     this.isEditMode = true;
     this.selectedIds = preSelectId.length > 0 ? [preSelectId] : [];
@@ -148,7 +142,7 @@ export class SideBarViewModel {
 
   // ===== 对话操作 =====
 
-  /** 执行重命名：更新内存 + 数据库 */
+  // 执行重命名：更新内存 + 数据库
   async doRename(id: string, newTitle: string): Promise<void> {
     const conv = this.conversations.find((c: Conversation) => c.id === id);
     if (!conv) return;
@@ -161,7 +155,7 @@ export class SideBarViewModel {
     showToast($r('app.string.rename_success'));
   }
 
-  /** 执行收藏：置 is_favorite=1 并写入收藏位置 */
+  // 执行收藏：置 is_favorite=1 并写入收藏位置
   async doFavorite(conv: Conversation, folderId: string): Promise<void> {
     // 历史列表中的对应实例同步更新（列表数据源可能是另一批实例）
     const hist = this.conversations.find((c: Conversation) => c.id === conv.id);
@@ -177,7 +171,7 @@ export class SideBarViewModel {
     showToast($r('app.string.favorited'));
   }
 
-  /** 执行取消收藏：置 is_favorite=0、清空收藏位置，并从收藏列表移除 */
+  // 执行取消收藏：置 is_favorite=0、清空收藏位置，并从收藏列表移除
   async doUnfavorite(conv: Conversation): Promise<void> {
     await ConversationRepository.getInstance().setFavorite(conv, false); // 同时清空 categoryId
     // 历史列表中的对应实例同步更新（收藏 Tab 与历史列表可能是不同实例）
@@ -193,14 +187,14 @@ export class SideBarViewModel {
     showToast($r('app.string.unfavorited'));
   }
 
-  /** 执行移动文件夹：更新 parentId 并刷新列表 */
+  // 执行移动文件夹：更新 parentId 并刷新列表
   async doMoveFolder(cat: Category, targetId: string): Promise<void> {
     await moveCategoryTo(cat, targetId); // 空串 = 移到顶级
     await this.loadFavorites();
     showToast(targetId.length > 0 ? $r('app.string.moved') : $r('app.string.moved_to_top'));
   }
 
-  /** 执行移动对话：更新分类并刷新收藏列表 */
+  // 执行移动对话：更新分类并刷新收藏列表
   async doMoveConv(conv: Conversation, folderId: string): Promise<void> {
     await moveConversationTo(conv, folderId);
     // 收藏 Tab 的未分类列表可能因分类变化而增删，重新加载刷新
@@ -208,7 +202,7 @@ export class SideBarViewModel {
     showToast($r('app.string.moved_ok'));
   }
 
-  /** 执行批量移动：选中对话统一移入目标文件夹，然后退出编辑模式并刷新 */
+  // 执行批量移动：选中对话统一移入目标文件夹，然后退出编辑模式并刷新
   async doBatchMove(folderId: string): Promise<void> {
     const ids = this.selectedIds.slice(); // 先拷贝，避免退出编辑模式时被清空
     await ConversationRepository.getInstance().move(ids, folderId);
@@ -217,7 +211,7 @@ export class SideBarViewModel {
     showToast(folderId.length > 0 ? `已移动 ${ids.length} 个对话` : $r('app.string.moved_out'));
   }
 
-  /** 执行删除：先拷贝 id，再删除 → 退出编辑模式 → 刷新 */
+  // 执行删除：先拷贝 id，再删除 → 退出编辑模式 → 刷新
   async doDelete(ids: string[]): Promise<void> {
     this.removeConversationsLocally(ids); // 内存中移除
     this.exitEditMode();
@@ -225,14 +219,14 @@ export class SideBarViewModel {
     showToast(`已删除 ${ids.length} 个对话`);
   }
 
-  /** 执行删除文件夹（级联） */
+  // 执行删除文件夹（级联）
   async doDeleteFolder(id: string): Promise<void> {
     await CategoryRepository.getInstance().deleteCategoryCascade(id);
     await this.loadFavorites();
     showToast($r('app.string.folder_deleted'));
   }
 
-  /** 执行新建顶级文件夹 */
+  // 执行新建顶级文件夹
   async createFolder(name: string, color: string): Promise<void> {
     const cat = new Category(undefined, name, undefined, color); // 颜色一并入库
     await CategoryRepository.getInstance().insert(cat);
@@ -240,7 +234,7 @@ export class SideBarViewModel {
     showToast(`已创建 ${name}`);
   }
 
-  /** 执行编辑文件夹：重命名 + 切换图标颜色 */
+  // 执行编辑文件夹：重命名 + 切换图标颜色
   async saveEdit(cat: Category, name: string, color: string): Promise<void> {
     await saveCategoryEdit(cat, name, color); // 更新名称与颜色并持久化
     await this.loadFavorites();
@@ -248,7 +242,7 @@ export class SideBarViewModel {
     showToast($r('app.string.saved'));
   }
 
-  /** 从内存数据源移除指定对话，并同步渲染分组 */
+  // 从内存数据源移除指定对话，并同步渲染分组
   private removeConversationsLocally(ids: string[]): void {
     // 从全量数据源移除：保证后续搜索/重新分组不会把已删项带回来
     this.conversations = this.conversations.filter((c: Conversation) => ids.indexOf(c.id) < 0);

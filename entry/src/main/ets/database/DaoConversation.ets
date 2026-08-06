@@ -25,9 +25,7 @@ export class ConversationDao {
     return DatabaseHelper.getInstance().getStore();
   }
 
-  /**
-   * 新增对话
-   */
+  // 新增对话
   async insert(conv: Conversation): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -48,9 +46,7 @@ export class ConversationDao {
     }
   }
 
-  /**
-   * 更新对话（标题、分类、更新时间），按 id 更新
-   */
+  // 更新对话（标题、分类、更新时间），按 id 更新
   async update(conv: Conversation): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -71,9 +67,7 @@ export class ConversationDao {
     }
   }
 
-  /**
-   * 按 id 批量删除对话（不含消息，消息由 Repository 事务内一并删除）
-   */
+  // 按 id 批量删除对话（不含消息，消息由 Repository 事务内一并删除）
   async deleteByIds(ids: string[]): Promise<void> {
     const store = this.store;
     if (!store || ids.length === 0) return;
@@ -88,9 +82,7 @@ export class ConversationDao {
     }
   }
 
-  /**
-   * 查询全部对话，按最后更新时间倒序（最新在前）
-   */
+  // 查询全部对话，按最后更新时间倒序（最新在前）
   async getAll(): Promise<Conversation[]> {
     const store = this.store;
     if (!store) return [];
@@ -119,9 +111,7 @@ export class ConversationDao {
     return list;
   }
 
-  /**
-   * 按 id 查询单个对话；不存在时返回 undefined
-   */
+  // 按 id 查询单个对话；不存在时返回 undefined
   async getById(id: string): Promise<Conversation | undefined> {
     const store = this.store;
     if (!store) return undefined;
@@ -183,9 +173,7 @@ export class ConversationDao {
     return list;
   }
 
-  /**
-   * 查询全部已收藏对话，按更新时间倒序
-   */
+  // 查询全部已收藏对话，按更新时间倒序
   async getFavorites(): Promise<Conversation[]> {
     const store = this.store;
     if (!store) return [];
@@ -236,9 +224,7 @@ export class ConversationDao {
     }
   }
 
-  /**
-   * 设置对话收藏状态；取消收藏时自动清空 categoryId（未收藏不参与文件夹分类）
-   */
+  // 设置对话收藏状态；取消收藏时自动清空 categoryId（未收藏不参与文件夹分类）
   async setFavorite(conv: Conversation, isFavorite: boolean): Promise<void> {
     const store = this.store;
     if (!store) return;

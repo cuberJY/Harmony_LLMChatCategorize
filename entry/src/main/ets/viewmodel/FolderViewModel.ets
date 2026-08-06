@@ -27,13 +27,13 @@ export class FolderViewModel {
 
   // ===== 路由参数与数据加载 =====
 
-  /** 设置路由参数（页面 aboutToAppear 调用） */
+  // 设置路由参数（页面 aboutToAppear 调用）
   setParams(folderId: string, folderName: string): void {
     this.folderId = folderId;
     this.folderName = folderName;
   }
 
-  /** 加载当前文件夹的数据：子文件夹 + 该文件夹下的对话 */
+  // 加载当前文件夹的数据：子文件夹 + 该文件夹下的对话
   async loadData(): Promise<void> {
     this.subFolders = await CategoryRepository.getInstance().getByParent(this.folderId);
     this.convs = await ConversationRepository.getInstance().getByCategory(this.folderId);
@@ -41,7 +41,7 @@ export class FolderViewModel {
 
   // ===== 文件夹操作 =====
 
-  /** 执行新建子文件夹 */
+  // 执行新建子文件夹
   async createSubFolder(name: string): Promise<void> {
     const cat = new Category(undefined, name, this.folderId);
     await CategoryRepository.getInstance().insert(cat);
@@ -49,7 +49,7 @@ export class FolderViewModel {
     showToast(`已创建「${name}」`);
   }
 
-  /** 执行编辑子文件夹：重命名 + 切换图标颜色 */
+  // 执行编辑子文件夹：重命名 + 切换图标颜色
   async saveEdit(cat: Category, name: string, color: string): Promise<void> {
     await saveCategoryEdit(cat, name, color); // 更新名称与颜色并持久化
     await this.loadData();
@@ -57,14 +57,14 @@ export class FolderViewModel {
     showToast($r('app.string.saved'));
   }
 
-  /** 执行删除文件夹（级联） */
+  // 执行删除文件夹（级联）
   async deleteFolderCascade(id: string): Promise<void> {
     await CategoryRepository.getInstance().deleteCategoryCascade(id);
     await this.loadData();
     showToast($r('app.string.folder_deleted'));
   }
 
-  /** 执行移动文件夹：更新 parentId 并刷新列表 */
+  // 执行移动文件夹：更新 parentId 并刷新列表
   async moveFolder(cat: Category, targetId: string): Promise<void> {
     await moveCategoryTo(cat, targetId); // 空串 = 移到顶级
     await this.loadData();
@@ -73,7 +73,7 @@ export class FolderViewModel {
 
   // ===== 对话操作 =====
 
-  /** 执行移动对话：更新分类，移出当前文件夹则从列表移除 */
+  // 执行移动对话：更新分类，移出当前文件夹则从列表移除
   async moveConv(conv: Conversation, folderId: string): Promise<void> {
     await moveConversationTo(conv, folderId);
     // 若移出的目标不是当前文件夹 → 从当前列表移除
@@ -83,7 +83,7 @@ export class FolderViewModel {
     showToast($r('app.string.moved_ok'));
   }
 
-  /** 执行重命名对话 */
+  // 执行重命名对话
   async renameConv(conv: Conversation, name: string): Promise<void> {
     conv.title = name;
     await ConversationRepository.getInstance().update(conv);
@@ -91,14 +91,14 @@ export class FolderViewModel {
     showToast($r('app.string.rename_conv_success'));
   }
 
-  /** 执行删除对话 */
+  // 执行删除对话
   async deleteConv(id: string): Promise<void> {
     await ConversationRepository.getInstance().deleteConversations([id]);
     this.convs = this.convs.filter((c: Conversation) => c.id !== id);
     showToast($r('app.string.deleted'));
   }
 
-  /** 取消收藏：清空收藏标记与位置，并从当前文件夹移除（未收藏对话不参与文件夹分类） */
+  // 取消收藏：清空收藏标记与位置，并从当前文件夹移除（未收藏对话不参与文件夹分类）
   async unfavorite(conv: Conversation): Promise<void> {
     await ConversationRepository.getInstance().setFavorite(conv, false);
     conv.isFavorite = false;

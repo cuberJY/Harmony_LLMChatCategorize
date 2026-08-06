@@ -25,9 +25,7 @@ export class CategoryDao {
     return DatabaseHelper.getInstance().getStore();
   }
 
-  /**
-   * 新增分类
-   */
+  // 新增分类
   async insert(cat: Category): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -48,9 +46,7 @@ export class CategoryDao {
     }
   }
 
-  /**
-   * 查询全部分类，按排序序号升序
-   */
+  // 查询全部分类，按排序序号升序
   async getAll(): Promise<Category[]> {
     const store = this.store;
     if (!store) return [];
@@ -79,9 +75,7 @@ export class CategoryDao {
     return list;
   }
 
-  /**
-   * 更新文件夹（名称、颜色、父文件夹、排序），按 id 更新
-   */
+  // 更新文件夹（名称、颜色、父文件夹、排序），按 id 更新
   async update(cat: Category): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -102,9 +96,7 @@ export class CategoryDao {
     }
   }
 
-  /**
-   * 按父文件夹查询子文件夹；parentId 传空串查顶级文件夹
-   */
+  // 按父文件夹查询子文件夹；parentId 传空串查顶级文件夹
   async getByParent(parentId: string): Promise<Category[]> {
     const store = this.store;
     if (!store) return [];
@@ -134,9 +126,7 @@ export class CategoryDao {
     return list;
   }
 
-  /**
-   * 按 id 批量删除文件夹（不含子孙收集与对话清理，由 Repository 事务内处理）
-   */
+  // 按 id 批量删除文件夹（不含子孙收集与对话清理，由 Repository 事务内处理）
   async deleteByIds(ids: string[]): Promise<void> {
     const store = this.store;
     if (!store || ids.length === 0) return;
@@ -151,9 +141,7 @@ export class CategoryDao {
     }
   }
 
-  /**
-   * 收集某文件夹及其全部子孙文件夹的 id（移动时排除循环目标 / 级联删除范围）
-   */
+  // 收集某文件夹及其全部子孙文件夹的 id（移动时排除循环目标 / 级联删除范围）
   async getSubtreeIds(id: string): Promise<string[]> {
     const result: string[] = [];
     await this.collectCategoryIds(id, result);

@@ -9,7 +9,6 @@
 
 import { preferences } from "@kit.ArkData";
 import { common } from "@kit.AbilityKit";
-import { Conversation } from "../model/Conversation";
 import { Logger } from "../common/Logger";
 
 // AI API 配置接口
@@ -29,7 +28,6 @@ const KEY_SEARCH_BASE_URL = "api_search_base_url";
 const KEY_SEARCH_API_KEY = "api_search_api_key";
 
 export class AppConfig {
-  selectedConversation?: Conversation = undefined; // 当前选中的对话（跨页面传值）
   private static instance: AppConfig; // 单例实例
   private prefs?: preferences.Preferences; // Preferences 实例（init 成功后赋值）
   private loaded: boolean = false; // 是否已从存储加载过配置

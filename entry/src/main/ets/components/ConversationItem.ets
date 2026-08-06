@@ -7,7 +7,7 @@
 import { Conversation } from "../model/Conversation";
 @ComponentV2
 export struct ConversationItem {
-  /** 对话数据（由父组件传入的 @ObservedV2 对象，@Trace 属性变化驱动列表项刷新） */
+  // 对话数据（由父组件传入的 @ObservedV2 对象，@Trace 属性变化驱动列表项刷新）
   @Param conversation: Conversation = new Conversation();
   @Param isEditMode: boolean = false; // 是否多选编辑模式
   @Param isSelected: boolean = false; // 当前项是否被选中

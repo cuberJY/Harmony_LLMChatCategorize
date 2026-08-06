@@ -32,9 +32,7 @@ export class CategoryRepository {
     return DatabaseHelper.getInstance().getStore();
   }
 
-  /**
-   * 查询全部分类，按排序序号升序
-   */
+  // 查询全部分类，按排序序号升序
   async getAll(): Promise<Category[]> {
     try {
       return await CategoryDao.getInstance().getAll();
@@ -44,9 +42,7 @@ export class CategoryRepository {
     }
   }
 
-  /**
-   * 按父文件夹查询子文件夹；parentId 传空串查顶级文件夹
-   */
+  // 按父文件夹查询子文件夹；parentId 传空串查顶级文件夹
   async getByParent(parentId: string): Promise<Category[]> {
     try {
       return await CategoryDao.getInstance().getByParent(parentId);
@@ -56,9 +52,7 @@ export class CategoryRepository {
     }
   }
 
-  /**
-   * 新增分类
-   */
+  // 新增分类
   async insert(cat: Category): Promise<void> {
     try {
       await CategoryDao.getInstance().insert(cat);
@@ -67,9 +61,7 @@ export class CategoryRepository {
     }
   }
 
-  /**
-   * 更新文件夹（名称、颜色、父文件夹、排序）
-   */
+  // 更新文件夹（名称、颜色、父文件夹、排序）
   async update(cat: Category): Promise<void> {
     try {
       await CategoryDao.getInstance().update(cat);
@@ -78,9 +70,7 @@ export class CategoryRepository {
     }
   }
 
-  /**
-   * 收集某文件夹及其全部子孙文件夹的 id（移动文件夹时排除循环目标）
-   */
+  // 收集某文件夹及其全部子孙文件夹的 id（移动文件夹时排除循环目标）
   async getSubtreeIds(id: string): Promise<string[]> {
     try {
       return await CategoryDao.getInstance().getSubtreeIds(id);

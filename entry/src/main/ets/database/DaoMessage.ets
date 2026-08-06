@@ -25,9 +25,7 @@ export class MessageDao {
     return DatabaseHelper.getInstance().getStore();
   }
 
-  /**
-   * 新增一条消息
-   */
+  // 新增一条消息
   async insert(msg: Message): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -48,9 +46,7 @@ export class MessageDao {
     }
   }
 
-  /**
-   * 更新一条消息（流式回复结束后，内容可能与流式过程不同），按 id 更新 content / reasoning
-   */
+  // 更新一条消息（流式回复结束后，内容可能与流式过程不同），按 id 更新 content / reasoning
   async update(msg: Message): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -69,9 +65,7 @@ export class MessageDao {
     }
   }
 
-  /**
-   * 查询某对话下的全部消息，按发送时间升序（时间正序）
-   */
+  // 查询某对话下的全部消息，按发送时间升序（时间正序）
   async getByConversation(conversationId: string): Promise<Message[]> {
     const store = this.store;
     if (!store) return [];
@@ -101,9 +95,7 @@ export class MessageDao {
     return list;
   }
 
-  /**
-   * 按所属对话批量删除消息（供删除对话时级联使用）
-   */
+  // 按所属对话批量删除消息（供删除对话时级联使用）
   async deleteByConversationIds(conversationIds: string[]): Promise<void> {
     const store = this.store;
     if (!store || conversationIds.length === 0) return;

@@ -7,12 +7,15 @@
  *   - 右下角：悬浮圆形 + 按钮 → 新建子文件夹
  * 交互：
  *   - 点击子文件夹 → 进入下一级 FolderPage
- *   - 点击对话 → 返回聊天页加载该对话
+ *   - 点击对话 → 返回聊天页加载该对话（pop 携带结果，经 SideBarPage 转发给 ChatPage）
  *   - 长按子文件夹 → 重命名 / 删除（删除二次确认 + 级联）
  *   - 长按对话 → 移动到文件夹 / 重命名 / 删除
+ *
+ * 阶段四：Navigation 路由重构
+ * - 不再作为 @Entry 页面，由 HomePage 的 Navigation 以 NavDestination 形式承载
+ * - 路由参数通过 @Param（HomePage pageMap 注入）接收，替代 router.getParams
  */
 
-import { router } from "@kit.ArkUI";
 import { CategoryRepository } from "../database/RepositoryCategory";
 import { Category } from "../model/Category";
 import { Conversation } from "../model/Conversation";
@@ -21,166 +24,170 @@ import { ConversationItem } from "../components/ConversationItem";
 import { EditFolderDialog } from "../components/EditFolderDialog";
 import { FolderPickerDialog } from "../components/FolderPickerDialog";
 import { RenameInputDialog } from "../components/RenameInputDialog";
-import { AppConfig } from "../config/AppConfig";
 import { showDeleteConfirm } from "../common/Utils";
 import { getMoveFolderCandidates } from "../common/FolderOps";
+import { FolderParams } from "../model/FolderParams";
 import { FolderViewModel } from "../viewmodel/FolderViewModel";
 
-
-@Entry
 @ComponentV2
-struct FolderPage {
+export struct FolderPage {
+  // 路由参数（HomePage pageMap 中 pushPathByName 时注入）：当前文件夹 id 与名称
+  @Param folderId: string = "";
+  @Param folderName: string = "";
+  // 路由栈（NavDestination.onReady 获取）：进入下一级 / 返回 / 携带选中对话返回
+  private pathStack: NavPathStack = new NavPathStack();
   // 数据与业务逻辑（@Trace 状态 + 子文件夹/对话加载）全部收敛到 ViewModel，页面只保留 build / 路由 / 弹窗
   private vm: FolderViewModel = new FolderViewModel();
 
   private dialogId: number = -1; // 当前打开的弹窗 ID（openCustomDialog 返回值，供 closeCustomDialog 使用）
 
   aboutToAppear(): void {
-    // 1. 读取路由参数
-    const params = router.getParams() as Record<string, string>;
-    if (params) {
-      this.vm.setParams(params.folderId ?? "", params.folderName ?? "");
-    }
-  }
-
-  // 首次进入与从子文件夹页面返回时刷新（子页可能移动/删除/重命名内容，返回需同步）
-  onPageShow(): void {
-    this.vm.loadData();
+    // 路由参数已由 @Param 注入（HomePage pageMap 初始化），直接传给 ViewModel
+    this.vm.setParams(this.folderId, this.folderName);
   }
 
   build() {
-    Column() {
-      // 顶部栏
-      Row() {
-        // 返回按钮
+    NavDestination() {
+      Column() {
+        // 顶部栏
         Row() {
-          SymbolGlyph($r("sys.symbol.chevron_left"))
-            .fontSize($r('app.float.font_icon_xl'))
-            .fontWeight(700)
-            .fontColor([$r('app.color.text_primary')])
+          // 返回按钮
+          Row() {
+            SymbolGlyph($r("sys.symbol.chevron_left"))
+              .fontSize($r('app.float.font_icon_xl'))
+              .fontWeight(700)
+              .fontColor([$r('app.color.text_primary')])
+          }
+          .width(40)
+          .justifyContent(FlexAlign.Start)
+          .onClick(() => {
+            this.pathStack.pop();
+          })
+
+          // 文件夹名称
+          Text(this.vm.folderName.length > 0 ? this.vm.folderName : "文件夹")
+            .fontSize($r('app.float.font_title'))
+            .fontWeight(FontWeight.Bold)
+            .fontColor($r('app.color.text_primary'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+
+          // 右侧占位（保持对称）
+          Row().width(40)
         }
-        .width(40)
-        .justifyContent(FlexAlign.Start)
-        .onClick(() => {
-          router.back();
-        })
+        .width("100%")
+        .height($r('app.float.title_bar_height'))
+        .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
+        .backgroundColor($r('app.color.title_bar_bg'))
+        .border({ width: { bottom: 1 }, color: { bottom: $r('app.color.divider') } })
 
-        // 文件夹名称
-        Text(this.vm.folderName.length > 0 ? this.vm.folderName : "文件夹")
-          .fontSize($r('app.float.font_title'))
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('app.color.text_primary'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        // 内容区
+        if (this.vm.subFolders.length === 0 && this.vm.convs.length === 0) {
+          // 空态
+          Column() {
+            Text("此文件夹为空")
+              .fontSize($r('app.float.font_remind'))
+              .fontColor($r('app.color.text_secondary'))
+          }
+          .width("100%")
           .layoutWeight(1)
-          .textAlign(TextAlign.Center)
+          .justifyContent(FlexAlign.Center);
+        } else {
+          List() {
+            // 子文件夹列表
+            ForEach(
+              this.vm.subFolders,
+              (cat: Category) => {
+                ListItem() {
+                  FolderItem({
+                    category: cat,
+                    onClickItem: (selected: Category) => {
+                      // 进入下一级子文件夹（同名路由再次入栈，参数为新文件夹）
+                      this.pathStack.pushPathByName(
+                        "FolderPage",
+                        new FolderParams(selected.id, selected.name),
+                      );
+                    },
+                    onMenuRename: (selected: Category) => {
+                      this.openEditFolder(selected);
+                    },
+                    onMenuMove: (selected: Category) => {
+                      this.openMoveFolder(selected);
+                    },
+                    onMenuDelete: (selected: Category) => {
+                      this.confirmDeleteFolder(selected);
+                    },
+                  })
+                }.width("100%");
+              },
+              (cat: Category) => `${cat.id}_${this.vm.listVersion}`,
+            )
 
-        // 右侧占位（保持对称）
-        Row().width(40)
+            // 子文件夹与对话之间的分隔线（两者都有时才显示）
+            if (this.vm.subFolders.length > 0 && this.vm.convs.length > 0) {
+              ListItem() {
+                Divider()
+                  .strokeWidth(0.5)
+                  .color($r('app.color.divider'))
+                  .margin({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
+              };
+            }
+
+            // 该文件夹下的对话
+            ForEach(
+              this.vm.convs,
+              (conv: Conversation) => {
+                ListItem() {
+                  ConversationItem({
+                    conversation: conv,
+                    // 文件夹页：不显示星标（该页全是已收藏对话）；保留"移动"菜单调整位置
+                    showFavoriteIcon: false,
+                    onClickItem: (selected: Conversation) => {
+                      // 选中对话 → pop 携带结果，逐层转发给 ChatPage 加载（SideBarPage 的 onPop 负责转发）
+                      this.pathStack.pop(selected);
+                    },
+                    onMenuMove: (selected: Conversation) => {
+                      this.openPicker(selected);
+                    },
+                    onMenuRename: (selected: Conversation) => {
+                      this.openRenameConvDialog(selected);
+                    },
+                    onMenuDelete: (selected: Conversation) => {
+                      this.confirmDeleteConv(selected);
+                    },
+                    onMenuFavorite: (selected: Conversation) => {
+                      this.vm.unfavorite(selected);
+                    },
+                  })
+                }.width("100%");
+              },
+              (conv: Conversation) => `${conv.id}_${this.vm.listVersion}`,
+            )
+          }
+          .width("100%")
+          .layoutWeight(1)
+          .backgroundColor($r('app.color.page_bg'))
+          .edgeEffect(EdgeEffect.Spring);
+        }
       }
       .width("100%")
-      .height($r('app.float.title_bar_height'))
-      .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
-      .backgroundColor($r('app.color.title_bar_bg'))
-      .border({ width: { bottom: 1 }, color: { bottom: $r('app.color.divider') } })
-
-      // 内容区
-      if (this.vm.subFolders.length === 0 && this.vm.convs.length === 0) {
-        // 空态
-        Column() {
-          Text("此文件夹为空")
-            .fontSize($r('app.float.font_remind'))
-            .fontColor($r('app.color.text_secondary'))
-        }
-        .width("100%")
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center);
-      } else {
-        List() {
-          // 子文件夹列表
-          ForEach(
-            this.vm.subFolders,
-            (cat: Category) => {
-              ListItem() {
-                FolderItem({
-                  category: cat,
-                  onClickItem: (selected: Category) => {
-                    // 进入下一级子文件夹
-                    router.pushUrl({
-                      url: "pages/FolderPage",
-                      params: { folderId: selected.id, folderName: selected.name },
-                    });
-                  },
-                  onMenuRename: (selected: Category) => {
-                    this.openEditFolder(selected);
-                  },
-                  onMenuMove: (selected: Category) => {
-                    this.openMoveFolder(selected);
-                  },
-                  onMenuDelete: (selected: Category) => {
-                    this.confirmDeleteFolder(selected);
-                  },
-                })
-              }.width("100%");
-            },
-            (cat: Category) => `${cat.id}_${this.vm.listVersion}`,
-          )
-
-          // 子文件夹与对话之间的分隔线（两者都有时才显示）
-          if (this.vm.subFolders.length > 0 && this.vm.convs.length > 0) {
-            ListItem() {
-              Divider()
-                .strokeWidth(0.5)
-                .color($r('app.color.divider'))
-                .margin({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
-            };
-          }
-
-          // 该文件夹下的对话
-          ForEach(
-            this.vm.convs,
-            (conv: Conversation) => {
-              ListItem() {
-                ConversationItem({
-                  conversation: conv,
-                  // 文件夹页：不显示星标（该页全是已收藏对话）；保留"移动"菜单调整位置
-                  showFavoriteIcon: false,
-                  onClickItem: (selected: Conversation) => {
-                    // 选中对话 → 直接返回 ChatPage 加载该对话（onPageShow 读取 AppConfig.selectedConversation）
-                    AppConfig.getInstance().selectedConversation = selected;
-                    router.back({ url: "pages/ChatPage" });
-                  },
-                  onMenuMove: (selected: Conversation) => {
-                    this.openPicker(selected);
-                  },
-                  onMenuRename: (selected: Conversation) => {
-                    this.openRenameConvDialog(selected);
-                  },
-                  onMenuDelete: (selected: Conversation) => {
-                    this.confirmDeleteConv(selected);
-                  },
-                  onMenuFavorite: (selected: Conversation) => {
-                    this.vm.unfavorite(selected);
-                  },
-                })
-              }.width("100%");
-            },
-            (conv: Conversation) => `${conv.id}_${this.vm.listVersion}`,
-          )
-        }
-        .width("100%")
-        .layoutWeight(1)
-        .backgroundColor($r('app.color.page_bg'))
-        .edgeEffect(EdgeEffect.Spring);
-      }
+      .height("100%")
+      .backgroundColor($r('app.color.page_bg'))
+      // 悬浮新建子文件夹按钮（右下角）
+      .overlay(this.fabBuilder(), {
+        align: Alignment.BottomEnd,
+      });
     }
-    .width("100%")
-    .height("100%")
-    .backgroundColor($r('app.color.page_bg'))
-    // 悬浮新建子文件夹按钮（右下角）
-    .overlay(this.fabBuilder(), {
-      align: Alignment.BottomEnd,
-    });
+    .hideTitleBar(true)
+    .onReady((context: NavDestinationContext) => {
+      this.pathStack = context.pathStack;
+    })
+    .onShown(() => {
+      // 首次进入与从子文件夹页面返回时刷新（子页可能移动/删除/重命名内容，返回需同步）
+      this.vm.loadData();
+    })
   }
 
   /**

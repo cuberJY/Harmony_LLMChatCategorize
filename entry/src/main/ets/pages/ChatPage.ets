@@ -1,10 +1,11 @@
 // 主聊天页面
-import { router } from "@kit.ArkUI";
 import { common } from "@kit.AbilityKit";
 import { Message } from "../model/Message";
+import { Conversation } from "../model/Conversation";
 import { MessageBubble } from "../components/MessageBubble";
 import { ChatInput } from "../components/ChatInput";
 import { formatSmartTime } from "../common/TimeUtil";
+import { NavTransitionManager } from "../common/NavTransitionManager";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";
 
 /**
@@ -12,9 +13,12 @@ import { ChatViewModel } from "../viewmodel/ChatViewModel";
  * 页面只保留 build 布局、路由跳转、页面过渡动画；
  * 数据与业务逻辑（消息列表、发送、流式回复、滚动控制）全部收敛到 ChatViewModel（@ObservedV2）
  */
-@Entry
 @ComponentV2
-struct ChatPage {
+export struct ChatPage {
+  // 路由栈（NavDestination.onReady 获取）：用于跳转侧边栏并接收返回结果
+  private pathStack: NavPathStack = new NavPathStack();
+  // 转场位移动画状态：百分比字符串，绑定 NavDestination.translate（由转场回调驱动）
+  @Local offsetX: string = "0%";
   // 业务状态与逻辑（@Trace 状态 + 数据源 + 滚动控制）
   private vm: ChatViewModel = new ChatViewModel();
 
@@ -22,22 +26,20 @@ struct ChatPage {
     // 初始化数据库（页面级 UIAbilityContext）
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.vm.aboutToAppear(context);
+    // 模型名/标题等显示期状态在 onShown 中刷新（首次与每次从其他页面返回都触发）
   }
 
   aboutToDisappear(): void {
     // 页面销毁时清理定时器，防止内存泄漏
     this.vm.aboutToDisappear();
-  }
-
-  /**
-   * 页面每次显示时触发（首次启动 + 从 SideBarPage 返回）
-   * 检查 AppConfig.selectedConversation：有值则加载该历史对话
-   */
-  onPageShow(): void {
-    this.vm.onPageShow();
+    // 注销转场动画回调（本页是路由栈首页，索引恒为 0）
+    NavTransitionManager.getInstance().unregister(0);
   }
 
   build() {
+    // 阶段四：ChatPage 作为 NavDestination 首页（HomePage 以 isEntry 方式入栈）
+    // 使自定义转场（customNavContentTransition）能同时驱动聊天页与侧边栏的位移动画
+    NavDestination() {
     Column() {
       // 顶部标题栏
       Row() {
@@ -53,7 +55,7 @@ struct ChatPage {
         // 固定宽度保持对称
         .justifyContent(FlexAlign.Start)
         .onClick(() => {
-          router.pushUrl({ url: "pages/SideBarPage" });
+          this.pushSideBar();
         })
 
         // 中间：APP 标题
@@ -167,23 +169,58 @@ struct ChatPage {
     // 从左向右滑→ 跳转历史页
     .gesture(
       PanGesture({ direction: PanDirection.Right, distance: 40 }).onActionStart(() => {
-        router.pushUrl({ url: "pages/SideBarPage" });
+        this.pushSideBar();
       }),
     )
     // Column 占满整个屏幕
     .width("100%")
     .height("100%");
+    }
+    .hideTitleBar(true)
+    // 转场位移：由 HomePage 的 customNavContentTransition 通过动画回调驱动（0% 时无偏移）
+    .translate({ x: this.offsetX })
+    .onReady((context: NavDestinationContext) => {
+      // 获取路由栈：用于跳转侧边栏并接收返回结果
+      this.pathStack = context.pathStack;
+      // 注册转场动画回调（ChatPage 是路由栈首页，索引恒为 0）
+      NavTransitionManager.getInstance().register(0, {
+        start: (isPush: boolean, isExit: boolean) => {
+          // 初始位置：作为 from（打开侧边栏）留在原位；作为 to（从侧边栏返回）先位于右侧屏外
+          this.offsetX = isExit ? "0%" : "100%";
+        },
+        finish: (isPush: boolean, isExit: boolean) => {
+          // 目标位置：作为 from 右移出屏让位；作为 to 右滑回原位
+          this.offsetX = isExit ? "100%" : "0%";
+        },
+        onFinish: () => {
+          // 动画结束重置，供下次转场使用
+          this.offsetX = "0%";
+        },
+      });
+    })
+    .onShown(() => {
+      // 每次显示（含从侧边栏/文件夹返回）时刷新模型名与标题
+      this.vm.onPageShow();
+    })
   }
 
-  // 对话页面过渡动画
-  pageTransition() {
-    // 打开（Push）：ChatPage 同时向右移动，把位置让给侧边栏
-    PageTransitionExit({ type: RouteType.Push, duration: 150, curve: Curve.EaseOut }).translate({
-      x: "100%",
-    });
-    // 返回（Pop）：ChatPage 从右侧滑回原位（向左移动）
-    PageTransitionEnter({ type: RouteType.Pop, duration: 150, curve: Curve.EaseOut }).translate({
-      x: "100%",
-    });
+  /**
+   * 跳转侧边栏（Navigation 方式）
+   * pushPathByName 的 onPop 回调在侧边栏/文件夹页面出栈返回时触发：
+   *   - 刷新模型名与标题（vm.onPageShow）
+   *   - 若返回时携带选中的对话（pop(conv)），则加载该对话
+   */
+  private pushSideBar(): void {
+    this.pathStack.pushPathByName(
+      "SideBarPage",
+      undefined,
+      (popInfo: PopInfo) => {
+        this.vm.onPageShow();
+        const conv = popInfo.result as Conversation | undefined;
+        if (conv && conv.id.length > 0) {
+          this.vm.loadConversation(conv);
+        }
+      },
+    );
   }
 }

@@ -70,17 +70,17 @@ export class MessageDataSource implements IDataSource {
 @ObservedV2
 export class ChatViewModel {
   // ===== UI 可观察状态（@Trace：页面 build 中读取，变化时自动刷新） =====
-  /** 是否自动跟随滚动到底部 */
+  // 是否自动跟随滚动到底部
   @Trace isAtBottom: boolean = true;
-  /** 顶部标题（显示当前对话标题） */
+  // 顶部标题（显示当前对话标题）
   @Trace title: string = "新对话";
-  /** 当前模型名称 */
+  // 当前模型名称
   @Trace modelName: string = "";
 
   // ===== 供页面 build 绑定的对象 =====
-  /** 消息列表滚动条 */
+  // 消息列表滚动条
   listScroller: Scroller = new Scroller();
-  /** LazyForEach 消息数据源 */
+  // LazyForEach 消息数据源
   messageDataSource: MessageDataSource = new MessageDataSource();
 
   // ===== 非状态成员（内部逻辑用） =====
@@ -96,7 +96,7 @@ export class ChatViewModel {
 
   // ===== 生命周期（由页面生命周期回调转发） =====
 
-  /** 页面 aboutToAppear：初始化数据库（页面级 UIAbilityContext） */
+  // 页面 aboutToAppear：初始化数据库（页面级 UIAbilityContext）
   aboutToAppear(context: common.UIAbilityContext): void {
     if (!context) return;
     // 保存 init promise：发送首条消息前 await，避免数据库未就绪时消息丢失
@@ -107,31 +107,25 @@ export class ChatViewModel {
       });
   }
 
-  /** 页面 aboutToDisappear：清理节流定时器，防止内存泄漏 */
+  // 页面 aboutToDisappear：清理节流定时器，防止内存泄漏
   aboutToDisappear(): void {
     this.clearFlushTimer();
   }
 
   /**
-   * 页面每次显示时触发（首次启动 + 从 SideBarPage 返回）
-   * 检查 AppConfig.selectedConversation：有值则加载该历史对话
+   * 页面每次显示时触发（首页首次进入 / 从侧边栏返回）
+   * - 刷新模型名（设置页可能已修改）
+   * - 回读最新标题（重命名可能发生在侧边栏，当前页对象与侧边栏对象不是同一个实例）
+   * 注：选中对话的加载由页面 Navigation onPop 回调调用 loadConversation 完成，不再走全局标记
    */
   onPageShow(): void {
     this.modelName = AppConfig.getInstance().getModel();
-    const selected = AppConfig.getInstance().selectedConversation;
-    if (selected) {
-      // 消费掉标记，避免重复加载
-      AppConfig.getInstance().selectedConversation = undefined;
-      this.loadConversation(selected);
-    } else {
-      // 无选中对话：可能从侧边栏重命名后返回 → 回读最新标题
-      this.syncTitleFromDb();
-    }
+    this.syncTitleFromDb();
   }
 
   // ===== 对话管理 =====
 
-  /** 新建对话：创建新对话对象、清空消息列表（不立即入库，等待首条用户消息） */
+  // 新建对话：创建新对话对象、清空消息列表（不立即入库，等待首条用户消息）
   newConversation(): void {
     this.messageDataSource.clear();
     this.currentConversation = new Conversation();
@@ -167,12 +161,13 @@ export class ChatViewModel {
    * （重命名发生在侧边栏，当前页对象与侧边栏对象不是同一个实例）
    */
   async syncTitleFromDb(): Promise<void> {
-    if (this.currentConversationId.length === 0) return; // 空白新对话尚未入库，跳过
-    const conv = await ConversationRepository.getInstance().getById(this.currentConversationId);
-    if (conv) {
-      this.currentConversation.title = conv.title; // 同步内存对象（后续入库/比较用）
-      this.title = conv.title.length > 0 ? conv.title : "新对话"; // 同步标题栏
-    }
+    const id = this.currentConversationId; // 捕获调用时的对话 id
+    if (id.length === 0) return; // 空白新对话尚未入库，跳过
+    const conv = await ConversationRepository.getInstance().getById(id);
+    // 查询期间对话可能已切换（如 onPop 中同步调用了 loadConversation），丢弃过期结果避免覆盖新标题
+    if (!conv || this.currentConversationId !== id) return;
+    this.currentConversation.title = conv.title; // 同步内存对象（后续入库/比较用）
+    this.title = conv.title.length > 0 ? conv.title : "新对话"; // 同步标题栏
   }
 
   // ===== 发送消息 + AI 流式回复 =====
@@ -347,17 +342,17 @@ export class ChatViewModel {
 
   // ===== 列表滚动控制（由页面 build 事件绑定） =====
 
-  /** 用户开始/停止滚动（onTouch / onScrollStop） */
+  // 用户开始/停止滚动（onTouch / onScrollStop）
   setUserScrolling(scrolling: boolean): void {
     this.isUserScrolling = scrolling;
   }
 
-  /** 自动跟随开关（onWillScroll 取消 / onReachEnd 恢复） */
+  // 自动跟随开关（onWillScroll 取消 / onReachEnd 恢复）
   setAtBottom(value: boolean): void {
     this.isAtBottom = value;
   }
 
-  /** 滚动到最底部（确保最新消息可见） */
+  // 滚动到最底部（确保最新消息可见）
   scrollToBottom(): void {
     // 不在最底部 或 用户正在操作 → 不回滚
     if (!this.isAtBottom || this.isUserScrolling) {
