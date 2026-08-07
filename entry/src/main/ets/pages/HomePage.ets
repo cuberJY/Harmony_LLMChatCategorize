@@ -4,9 +4,9 @@
  * - 唯一的 @Entry 入口页面（其余页面作为 NavDestination，不再单独注册）
  * - 持有 NavPathStack 统一管理页面路由：入栈 / 出栈 / 参数传递 / 返回结果
  * - ChatPage 作为路由栈首页（isEntry 入栈，不可出栈），其余为栈内 NavDestination
- * - customNavContentTransition 恢复原 ChatPage / SideBarPage 抽屉式切换动画（150ms EaseOut）：
- *     打开侧边栏（Push）：ChatPage 右移 100% 让位 + SideBarPage 从左侧 -100% 滑入
- *     关闭侧边栏（Pop）：SideBarPage 向左滑出 + ChatPage 从右侧 100% 滑回原位
+ * - customNavContentTransition 实现抽屉式覆盖切换动画（150ms EaseOut）：
+ *     打开侧边栏（Push）：ChatPage 保持原位 + SideBarPage 从左侧 -100% 滑入覆盖其上
+ *     关闭侧边栏（Pop）：SideBarPage 向左滑出 -100%，露出底层的 ChatPage
  *
  * 页面间传参约定（替代 router + AppConfig.selectedConversation）：
  *   - 正向传参：pushPathByName(name, param)，页面从 @Param 或 getParamByName 接收
@@ -74,7 +74,7 @@ struct HomePage {
     .hideTitleBar(true)
     .width("100%")
     .height("100%")
-    // 自定义页面切换转场：恢复原 ChatPage / SideBarPage 抽屉式平移动画
+    // 自定义页面切换转场：SideBarPage 抽屉式覆盖在 ChatPage 上
     .customNavContentTransition(
       (from: NavContentInfo, to: NavContentInfo, operation: NavigationOperation) => {
         // 仅处理「ChatPage ↔ SideBarPage」之间的转场；
@@ -97,12 +97,14 @@ struct HomePage {
               return;
             }
             const isPush = operation === NavigationOperation.PUSH;
+            // 打开侧边栏（滑入覆盖）用较慢时长，让用户看清侧边栏内容；关闭（滑出）保持原速
+            const transitionDuration = isPush ? 250 : 150;
             // 1. 同步设置进出场页面的初始位置（无动画，本帧直接生效）
             fromParam.start(isPush, true);
             toParam.start(isPush, false);
             // 2. animateTo 驱动页面状态变化：从初始位置动画到目标位置
             this.getUIContext().animateTo({
-              duration: 150,
+              duration: transitionDuration,
               curve: Curve.EaseOut,
               onFinish: () => {
                 // 3. 动画结束：重置状态 + 通知系统结束自定义转场

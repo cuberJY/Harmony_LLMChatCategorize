@@ -62,7 +62,7 @@
     },
     {
       "name": "input_bg",
-      "value": "#1C1C1E"
+      "value": "#171717"
     },
     {
       "name": "input_border",
@@ -70,7 +70,7 @@
     },
     {
       "name": "input_container_bg",
-      "value": "#1C1C1E"
+      "value": "#171717"
     },
     {
       "name": "toggle_bg_active",

@@ -69,7 +69,7 @@ export struct ChatInput {
           left: $r('app.float.space_xs'),
           right: $r('app.float.space_xs'),
           top: $r('app.float.space_xs'),
-          bottom: $r('app.float.space_xs'),
+          bottom: $r('app.float.space_md'),
         })
         .margin({
           top: $r('app.float.space_xs'),
@@ -128,10 +128,11 @@ export struct ChatInput {
           SymbolGlyph($r("sys.symbol.arrowshape_up_fill"))
             .fontSize($r('app.float.font_icon_xl'))
             .fontColor([Color.White])
+            .margin({ bottom: 1 })
         }
         .width(32)
         .height(32)
-        .borderRadius(16) // 宽度一半 = 圆形
+        .type(ButtonType.Circle)
         .backgroundColor(
           this.inputText.trim().length > 0 ? $r('app.color.primary') : $r('app.color.send_btn_disabled'),
         )

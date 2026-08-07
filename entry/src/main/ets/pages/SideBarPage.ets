@@ -15,17 +15,18 @@
  *  底部    设置按钮（第六步接入）
  */
 
-import { KeyboardAvoidMode } from "@kit.ArkUI";
+import { ComponentContent, KeyboardAvoidMode } from "@kit.ArkUI";
+import { BusinessError } from "@kit.BasicServicesKit";
 import { common } from "@kit.AbilityKit";
 import { Category } from "../model/Category";
 import { FolderItem } from "../components/FolderItem";
-import { EditFolderDialog } from "../components/EditFolderDialog";
-import { FolderPickerDialog } from "../components/FolderPickerDialog";
+import { EditFolderDialog, EditFolderDialogParams, buildEditFolderContent } from "../components/EditFolderDialog";
+import { FolderPickerDialog, FolderPickerDialogParams, buildFolderPickerContent } from "../components/FolderPickerDialog";
 import { DatabaseHelper } from "../database/DatabaseHelper";
 import { CategoryRepository } from "../database/RepositoryCategory";
 import { Conversation } from "../model/Conversation";
 import { ConversationItem } from "../components/ConversationItem";
-import { RenameInputDialog } from "../components/RenameInputDialog";
+import { RenameDialogParams, buildRenameDialog } from "../components/RenameInputDialog";
 import { showDeleteConfirm } from "../common/Utils";
 import { getMoveFolderCandidates } from "../common/FolderOps";
 import { NavTransitionManager } from "../common/NavTransitionManager";
@@ -44,6 +45,12 @@ export struct SideBarPage {
   private vm: SideBarViewModel = new SideBarViewModel();
 
   private dialogId: number = -1; // 当前打开的弹窗 ID（openCustomDialog 返回值，供 closeCustomDialog 使用）
+  // 重命名弹窗的内容节点（ComponentContent 方式）：非空表示已打开或残留待清理
+  private renameDialogNode: ComponentContent<RenameDialogParams> | null = null;
+  // 收藏位置选择弹窗的内容节点（ComponentContent 方式）
+  private favoritePickerNode: ComponentContent<FolderPickerDialogParams> | null = null;
+  // 新建文件夹弹窗的内容节点（ComponentContent 方式）
+  private newFolderDialogNode: ComponentContent<EditFolderDialogParams> | null = null;
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE; // 记录全局避让模式
   private swiperController: SwiperController = new SwiperController(); // Swiper 控制器：程序化带动画切换
 
@@ -389,8 +396,8 @@ export struct SideBarPage {
                 .fontColor(Color.White)
                 .fontWeight(FontWeight.Medium)
             }
-            .width(32)
-            .height(32)
+            .width(48)
+            .height(48)
             .type(ButtonType.Circle)
             .backgroundColor($r('app.color.primary'))
             .shadow({ radius: 8, color: $r('app.color.fab_shadow'), offsetY: 2 })
@@ -535,34 +542,70 @@ export struct SideBarPage {
     this.swiperController.changeIndex(index, true); // 带动画滑动到目标页
   }
 
-  // 重命名：弹出输入对话框（复用公共组件，openCustomDialog 方式）
+  // 重命名：弹出输入对话框（ComponentContent 方式，内容与页面解耦）
   private openRenameDialog(conv: Conversation): void {
-    this.getUIContext().getPromptAction().openCustomDialog({
-      builder: this.buildRenameDialog(conv),
+    // 上一次弹窗若通过点遮罩（autoCancel）自动关闭，节点会残留，先释放避免内存泄漏
+    if (this.renameDialogNode) {
+      this.renameDialogNode.dispose();
+      this.renameDialogNode = null;
+    }
+    // 组装弹窗参数与回调（onConfirm 在弹窗"确定"时回调，闭包内 this 仍指向本页面）
+    const params = new RenameDialogParams();
+    params.title = "重命名对话";
+    params.oldValue = conv.title;
+    params.onConfirm = (newTitle: string) => {
+      this.vm.doRename(conv.id, newTitle);
+    };
+    params.onRequestClose = () => {
+      this.closeDialog();
+    };
+
+    // ComponentContent：内容绑定本页面 UIContext，但组件实例独立，规避成员 @Builder 的时序/绑定问题
+    const node = new ComponentContent<RenameDialogParams>(this.getUIContext(),
+      wrapBuilder(buildRenameDialog), params);
+    this.renameDialogNode = node;
+    this.getUIContext().getPromptAction().openCustomDialog(node, {
       autoCancel: true,
       alignment: DialogAlignment.Bottom,
       offset: { dx: 0, dy: -360 }, // 在 alignment 基础上再偏移（vp 单位）
-    }).then((id: number) => {
-      this.dialogId = id; // 记录弹窗 ID，供 onRequestClose 关闭
+    }).catch((err: BusinessError) => {
+      // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
+      console.error(`openCustomDialog(重命名) 失败 code=${err.code} msg=${err.message}`);
+      this.renameDialogNode = null;
     });
   }
 
-  @Builder
-  buildRenameDialog(conv: Conversation) {
-    RenameInputDialog({
-      title: "重命名对话",
-      oldValue: conv.title,
-      onConfirm: (newTitle: string) => {
-        this.vm.doRename(conv.id, newTitle);
-      },
-      onRequestClose: () => {
-        this.closeDialog();
-      },
-    })
+  // 关闭一个 ComponentContent 弹窗节点并释放（关闭成功或已自动关闭都保证 dispose）
+  private closeContentNode<T extends Object>(node: ComponentContent<T>): void {
+    this.getUIContext().getPromptAction().closeCustomDialog(node)
+      .then(() => {
+        node.dispose(); // 关闭后释放内容节点，防止内存泄漏
+      })
+      .catch((err: BusinessError) => {
+        node.dispose(); // 弹窗可能已通过点遮罩自动关闭，close 会失败，直接释放节点即可
+        console.error(`closeCustomDialog 失败 code=${err.code} msg=${err.message}`);
+      });
   }
 
   // 关闭当前打开的弹窗（弹窗组件通过 onRequestClose 回调触发）
   private closeDialog(): void {
+    // 1) ComponentContent 方式的弹窗（重命名/收藏/新建文件夹，同一时刻只会有一个节点非空）
+    const renameNode = this.renameDialogNode;
+    if (renameNode) {
+      this.renameDialogNode = null;
+      this.closeContentNode(renameNode);
+    }
+    const favNode = this.favoritePickerNode;
+    if (favNode) {
+      this.favoritePickerNode = null;
+      this.closeContentNode(favNode);
+    }
+    const newFolderNode = this.newFolderDialogNode;
+    if (newFolderNode) {
+      this.newFolderDialogNode = null;
+      this.closeContentNode(newFolderNode);
+    }
+    // 2) 其余弹窗仍走 dialogId 方式
     if (this.dialogId >= 0) {
       this.getUIContext().getPromptAction().closeCustomDialog(this.dialogId);
       this.dialogId = -1;
@@ -581,57 +624,69 @@ export struct SideBarPage {
     }
   }
 
-  // 收藏：弹出收藏位置选择器（复用 FolderPickerDialog）
+  // 收藏：弹出收藏位置选择器（ComponentContent 方式，内容与页面解耦）
   private async openFavoritePicker(conv: Conversation): Promise<void> {
+    // 上一次弹窗若通过点遮罩（autoCancel）自动关闭，节点会残留，先释放避免内存泄漏
+    if (this.favoritePickerNode) {
+      this.favoritePickerNode.dispose();
+      this.favoritePickerNode = null;
+    }
     const allFolders = await CategoryRepository.getInstance().getAll();
-    this.getUIContext().getPromptAction().openCustomDialog({
-      builder: this.buildFavoritePicker(conv, allFolders),
+    // 组装弹窗参数与回调（onSelect 在弹窗选中"默认"或某个文件夹时回调）
+    const params = new FolderPickerDialogParams();
+    params.title = "选择收藏位置";
+    params.folders = allFolders;
+    params.onSelect = (folderId: string) => {
+      this.vm.doFavorite(conv, folderId);
+    };
+    params.onRequestClose = () => {
+      this.closeDialog();
+    };
+
+    const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
+      wrapBuilder(buildFolderPickerContent), params);
+    this.favoritePickerNode = node;
+    this.getUIContext().getPromptAction().openCustomDialog(node, {
       autoCancel: true,
       alignment: DialogAlignment.Center,
-    }).then((id: number) => {
-      this.dialogId = id;
+    }).catch((err: BusinessError) => {
+      // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
+      console.error(`openCustomDialog(收藏) 失败 code=${err.code} msg=${err.message}`);
+      this.favoritePickerNode = null;
     });
   }
 
-  @Builder
-  buildFavoritePicker(conv: Conversation, folders: Category[]) {
-    FolderPickerDialog({
-      title: "选择收藏位置",
-      folders: folders,
-      onSelect: (folderId: string) => {
-        this.vm.doFavorite(conv, folderId);
-      },
-      onRequestClose: () => {
-        this.closeDialog();
-      },
-    })
-  }
-
-  // 新建顶级文件夹对话框（复用 EditFolderDialog：名称 + 颜色）
+  // 新建顶级文件夹对话框（ComponentContent 方式，复用 EditFolderDialog：名称 + 颜色）
   private openNewFolderDialog(): void {
-    this.getUIContext().getPromptAction().openCustomDialog({
-      builder: this.buildNewFolderDialog(),
+    // 先释放上次点遮罩关闭后残留的节点
+    if (this.newFolderDialogNode) {
+      this.newFolderDialogNode.dispose();
+      this.newFolderDialogNode = null;
+    }
+    // 组装弹窗参数与回调（onConfirm 在弹窗"确定"时回调）
+    const params = new EditFolderDialogParams();
+    params.title = "新建文件夹"; // 覆盖默认标题
+    params.oldName = "";
+    params.oldColor = "#FF9F0A";
+    params.onConfirm = (name: string, color: string) => {
+      this.vm.createFolder(name, color);
+    };
+    params.onRequestClose = () => {
+      this.closeDialog();
+    };
+
+    const node = new ComponentContent<EditFolderDialogParams>(this.getUIContext(),
+      wrapBuilder(buildEditFolderContent), params);
+    this.newFolderDialogNode = node;
+    this.getUIContext().getPromptAction().openCustomDialog(node, {
       autoCancel: true,
       alignment: DialogAlignment.Bottom,
-      offset: { dx: 0, dy: -360 },
-    }).then((id: number) => {
-      this.dialogId = id;
+      offset: { dx: 0, dy: -360 }, // 在 alignment 基础上再偏移（vp 单位）
+    }).catch((err: BusinessError) => {
+      // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
+      console.error(`openCustomDialog(新建文件夹) 失败 code=${err.code} msg=${err.message}`);
+      this.newFolderDialogNode = null;
     });
-  }
-
-  @Builder
-  buildNewFolderDialog() {
-    EditFolderDialog({
-      title: "新建文件夹", // 覆盖默认标题
-      oldName: "",
-      oldColor: "#FF9F0A",
-      onConfirm: (name: string, color: string) => {
-        this.vm.createFolder(name, color);
-      },
-      onRequestClose: () => {
-        this.closeDialog();
-      },
-    })
   }
 
   // 编辑文件夹：重命名 + 切换图标颜色

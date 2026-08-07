@@ -75,3 +75,33 @@ export struct RenameInputDialog {
     .backgroundColor($r('app.color.dialog_bg'));
   }
 }
+
+/**
+ * 重命名弹窗的开放参数（ComponentContent 方式）
+ * 用于将弹窗内容与调用方组件解耦：初始值 + 回调均通过 params 传入
+ * 配合全局 @Builder buildRenameDialog 使用
+ */
+export class RenameDialogParams {
+  title: string = "重命名"; // 弹窗标题
+  placeholder: string = "请输入内容"; // 输入框占位
+  oldValue: string = ""; // 预填值（重命名时使用）
+  onConfirm: (value: string) => void = (value: string) => {}; // 确认回调
+  onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
+}
+
+// 全局 @Builder：包装 RenameInputDialog，供 openCustomDialog(ComponentContent) 使用
+// 注意：必须用全局函数而非组件成员 @Builder，才能规避成员 Builder 在弹窗场景的绑定/刷新问题
+@Builder
+export function buildRenameDialog(params: RenameDialogParams) {
+  RenameInputDialog({
+    title: params.title,
+    placeholder: params.placeholder,
+    oldValue: params.oldValue,
+    onConfirm: (value: string) => {
+      params.onConfirm(value);
+    },
+    onRequestClose: () => {
+      params.onRequestClose();
+    },
+  })
+}

@@ -83,3 +83,31 @@ export struct FolderPickerDialog {
     .backgroundColor($r('app.color.dialog_bg'));
   }
 }
+
+/**
+ * 文件夹选择器的开放参数（ComponentContent 方式）
+ * 用于将弹窗内容与调用方组件解耦：初始值 + 回调均通过 params 传入
+ * 配合全局 @Builder buildFolderPickerContent 使用
+ */
+export class FolderPickerDialogParams {
+  title: string = "移动到"; // 对话框标题（可传入覆盖）
+  folders: Category[] = []; // 候选文件夹列表（含各级，扁平展示）
+  onSelect: (folderId: string) => void = (folderId: string) => {}; // 选中回调
+  onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
+}
+
+// 全局 @Builder：包装 FolderPickerDialog，供 openCustomDialog(ComponentContent) 使用
+// 注意：必须用全局函数而非组件成员 @Builder，才能规避成员 Builder 在弹窗场景的绑定/刷新问题
+@Builder
+export function buildFolderPickerContent(params: FolderPickerDialogParams) {
+  FolderPickerDialog({
+    title: params.title,
+    folders: params.folders,
+    onSelect: (folderId: string) => {
+      params.onSelect(folderId);
+    },
+    onRequestClose: () => {
+      params.onRequestClose();
+    },
+  })
+}

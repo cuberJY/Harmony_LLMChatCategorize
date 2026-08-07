@@ -129,3 +129,33 @@ export struct EditFolderDialog {
     .backgroundColor($r('app.color.dialog_bg'));
   }
 }
+
+/**
+ * 编辑文件夹弹窗的开放参数（ComponentContent 方式）
+ * 用于将弹窗内容与调用方组件解耦：初始值 + 回调均通过 params 传入
+ * 配合全局 @Builder buildEditFolderContent 使用
+ */
+export class EditFolderDialogParams {
+  title: string = "编辑文件夹";
+  oldName: string = ""; // 原文件夹名（预填）
+  oldColor: string = "#FF9F0A"; // 原图标颜色（高亮选中）
+  onConfirm: (name: string, color: string) => void = (name: string, color: string) => {}; // 确认回调
+  onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
+}
+
+// 全局 @Builder：包装 EditFolderDialog，供 openCustomDialog(ComponentContent) 使用
+// 注意：必须用全局函数而非组件成员 @Builder，才能规避成员 Builder 在弹窗场景的绑定/刷新问题
+@Builder
+export function buildEditFolderContent(params: EditFolderDialogParams) {
+  EditFolderDialog({
+    title: params.title,
+    oldName: params.oldName,
+    oldColor: params.oldColor,
+    onConfirm: (name: string, color: string) => {
+      params.onConfirm(name, color);
+    },
+    onRequestClose: () => {
+      params.onRequestClose();
+    },
+  })
+}

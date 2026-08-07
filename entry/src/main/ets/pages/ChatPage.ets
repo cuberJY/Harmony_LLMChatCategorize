@@ -1,4 +1,4 @@
-// 主聊天页面
+// 主聊天页面x
 import { common } from "@kit.AbilityKit";
 import { Message } from "../model/Message";
 import { Conversation } from "../model/Conversation";
@@ -17,8 +17,7 @@ import { ChatViewModel } from "../viewmodel/ChatViewModel";
 export struct ChatPage {
   // 路由栈（NavDestination.onReady 获取）：用于跳转侧边栏并接收返回结果
   private pathStack: NavPathStack = new NavPathStack();
-  // 转场位移动画状态：百分比字符串，绑定 NavDestination.translate（由转场回调驱动）
-  @Local offsetX: string = "0%";
+  // 本页作为抽屉动画的底板：保持原位，不参与位移动画（SideBarPage 覆盖其上滑动）
   // 业务状态与逻辑（@Trace 状态 + 数据源 + 滚动控制）
   private vm: ChatViewModel = new ChatViewModel();
 
@@ -177,25 +176,16 @@ export struct ChatPage {
     .height("100%");
     }
     .hideTitleBar(true)
-    // 转场位移：由 HomePage 的 customNavContentTransition 通过动画回调驱动（0% 时无偏移）
-    .translate({ x: this.offsetX })
     .onReady((context: NavDestinationContext) => {
       // 获取路由栈：用于跳转侧边栏并接收返回结果
       this.pathStack = context.pathStack;
       // 注册转场动画回调（ChatPage 是路由栈首页，索引恒为 0）
+      // 本页作为底板不参与位移动画，但必须保留注册：
+      // HomePage 的 customNavContentTransition 需要 from/to 双方回调都存在，才能驱动 SideBarPage 的位移
       NavTransitionManager.getInstance().register(0, {
-        start: (isPush: boolean, isExit: boolean) => {
-          // 初始位置：作为 from（打开侧边栏）留在原位；作为 to（从侧边栏返回）先位于右侧屏外
-          this.offsetX = isExit ? "0%" : "100%";
-        },
-        finish: (isPush: boolean, isExit: boolean) => {
-          // 目标位置：作为 from 右移出屏让位；作为 to 右滑回原位
-          this.offsetX = isExit ? "100%" : "0%";
-        },
-        onFinish: () => {
-          // 动画结束重置，供下次转场使用
-          this.offsetX = "0%";
-        },
+        start: () => {},
+        finish: () => {},
+        onFinish: () => {},
       });
     })
     .onShown(() => {

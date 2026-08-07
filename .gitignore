@@ -22,3 +22,5 @@
 /entry/build-profile.json5
 # 构建日志
 *.log
+# 调试环境文件
+/.dbg
