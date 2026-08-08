@@ -8,16 +8,18 @@
 - **语言**: ArkTS
 - **UI 框架**: ArkUI 声明式开发（LazyForEach 懒加载）
 - **数据持久化**: `@kit.ArkData` relationalStore 关系型数据库 + Preferences 配置存储
+- **凭据安全**: `@kit.AssetStoreKit` 加密存储 API Key（AES256-GCM，密钥存于 TEE，不参与云同步）
 - **网络**: `@kit.NetworkKit` (HTTP SSE 流式请求 / Web Search API)
-- **大模型 API**: OpenAI 兼容接口（默认使用 DeepSeek）
-- **搜索 API**: 博查 AI Web Search API（国内直连）
+- **大模型 API**: OpenAI 兼容接口（默认 DeepSeek，Provider 工厂可扩展）
+- **搜索 API**: 博查 AI Web Search API（国内直连，Provider 工厂可扩展）
 
 ## 功能特性
 
 - **流式 AI 对话** — SSE 逐字输出，思考内容（reasoning_content）与正文分通道展示
 - **深度思考（可开关）** — DeepSeek 官方 thinking 格式（enabled/disabled），开启时 reasoning_effort=max，关闭时强制不思考（V4 默认会思考，必须显式控制）
 - **联网搜索** — 博查 Web Search 实时联网，结果作为参考资料驱动回答，失败自动降级
-- **设置页** — 应用内填写 API 地址 / Key / 模型，保存后持久化到 Preferences，重启不丢失
+- **设置页** — 应用内填写 API 地址 / Key / 模型，保存后持久化，重启不丢失
+- **密钥安全存储** — API Key 存入 Asset Store Kit（TEE 加密落盘，密文不写盘），旧版明文自动迁移并清除
 - **多级文件夹分类** — 无限层级文件夹，收藏 Tab 显示顶级文件夹，支持进入下一级浏览
 - **文件夹管理** — 新建 / 重命名 / 移动 / 删除（二次确认 + 级联移除分类关系），图标 8 色可选
 - **对话归档** — 对话可移动到任意文件夹或移出不分类，按文件夹维度浏览
@@ -39,35 +41,58 @@ ChatCategorize/
 │   │   │   ├── AppConstants.ets    # 颜色、字号、间距、提示文案
 │   │   │   ├── Utils.ets           # 通用工具（generateId / showToast / 删除二次确认）
 │   │   │   ├── TimeUtil.ets        # 时间分组与智能时间格式化
-│   │   │   └── FolderOps.ets       # 文件夹/对话公共操作（移动、编辑）
-│   │   ├── config/          # 应用配置（Preferences 持久化，启动时加载）
-│   │   │   └── AppConfig.ets
-│   │   ├── database/        # 关系型数据库（建表 + CRUD）
-│   │   │   └── DatabaseHelper.ets
-│   │   ├── service/         # 网络服务层
-│   │   │   ├── AIService.ets        # 大模型流式对话（SSE）
-│   │   │   └── SearchService.ets    # 联网搜索（博查 API）
+│   │   │   ├── Logger.ets          # 统一日志封装
+│   │   │   └── NavTransitionManager.ets  # 页面跳转过渡动画
+│   │   ├── config/          # 应用配置
+│   │   │   ├── AppConfig.ets       # 配置管理（Preferences + Asset Store 读写）
+│   │   │   └── SecureKeyStore.ets  # 密钥安全存储（Asset Store Kit 封装）
+│   │   ├── database/        # 关系型数据库（DAO + Repository 分层）
+│   │   │   ├── DatabaseHelper.ets          # 建表 + 共享 RdbStore
+│   │   │   ├── ConversationDao.ets         # 对话表单表 CRUD
+│   │   │   ├── MessageDao.ets              # 消息表单表 CRUD
+│   │   │   ├── CategoryDao.ets             # 文件夹表单表 CRUD
+│   │   │   ├── ConversationRepository.ets  # 对话+消息聚合 / 事务
+│   │   │   └── CategoryRepository.ets      # 文件夹树 + 级联删除
+│   │   ├── service/         # 服务层（Provider 工厂模式）
+│   │   │   ├── LLMProviderFactory.ets      # 大模型 Provider 工厂
+│   │   │   ├── SearchProviderFactory.ets   # 搜索 Provider 工厂
+│   │   │   └── provider/
+│   │   │       ├── LLMProvider.ets         # 大模型抽象接口（SSE 流式）
+│   │   │       ├── DeepSeekProvider.ets    # DeepSeek 实现（OpenAI 兼容）
+│   │   │       ├── SearchProvider.ets      # 搜索抽象接口
+│   │   │       └── BochaSearchProvider.ets # 博查搜索实现
+│   │   ├── viewmodel/       # 状态管理层
+│   │   │   ├── ChatViewModel.ets           # 聊天状态与消息流
+│   │   │   ├── FolderViewModel.ets         # 文件夹树状态
+│   │   │   └── SideBarViewModel.ets        # 侧边栏历史/收藏状态
 │   │   ├── model/           # 数据模型
 │   │   │   ├── Message.ets        # 消息模型（含思考/搜索状态）
 │   │   │   ├── Conversation.ets   # 对话模型
-│   │   │   └── Category.ets       # 分类模型
-│   │   ├── components/      # UI 组件
-│   │   │   ├── MessageBubble.ets      # 聊天气泡（含思考块）
-│   │   │   ├── ChatInput.ets          # 输入栏（深度思考/联网开关）
-│   │   │   ├── ConversationItem.ets   # 历史对话列表项（长按菜单）
-│   │   │   ├── FolderItem.ets         # 文件夹列表项（彩色图标）
-│   │   │   ├── RenameInputDialog.ets  # 通用文本输入对话框（重命名/新建）
-│   │   │   ├── EditFolderDialog.ets   # 编辑文件夹对话框（重命名+换色）
-│   │   │   └── FolderPickerDialog.ets # 文件夹选择器（移动对话/文件夹）
+│   │   │   ├── Category.ets       # 文件夹/分类模型
+│   │   │   └── FolderParams.ets   # 文件夹跳转参数
+│   │   ├── components/      # UI 组件（按职责分子目录）
+│   │   │   ├── chat/               # 聊天相关
+│   │   │   │   ├── MessageBubble.ets   # 聊天气泡（含思考块）
+│   │   │   │   └── ChatInput.ets       # 输入栏（深度思考/联网开关）
+│   │   │   ├── item/                # 列表项
+│   │   │   │   ├── ConversationItem.ets  # 历史对话列表项（长按菜单）
+│   │   │   │   └── FolderItem.ets        # 文件夹列表项（彩色图标）
+│   │   │   └── dialog/              # 对话框
+│   │   │       ├── RenameInputDialog.ets  # 通用文本输入对话框
+│   │   │       ├── EditFolderDialog.ets   # 编辑文件夹对话框
+│   │   │       └── FolderPickerDialog.ets # 文件夹选择器
 │   │   ├── pages/           # 页面
+│   │   │   ├── HomePage.ets       # 首页（导航入口）
 │   │   │   ├── ChatPage.ets       # 主聊天页
 │   │   │   ├── SideBarPage.ets    # 侧边栏（收藏/历史 Tab）
 │   │   │   ├── FolderPage.ets     # 文件夹页（子文件夹+对话，可多级）
 │   │   │   └── SettingsPage.ets   # 设置页（API 配置表单）
-│   │   └── entryability/    # Ability 入口
-│   │       └── EntryAbility.ets   # onCreate 预加载配置
+│   │   ├── entryability/    # Ability 入口
+│   │   │   └── EntryAbility.ets   # onCreate 预加载配置
+│   │   └── entrybackupability/    # 备份恢复能力
+│   │       └── EntryBackupAbility.ets
 │   └── module.json5         # 模块配置（含 INTERNET 权限）
-├── build-profile.json5      # 构建配置
+├── build-profile.json5      # 构建配置（本地签名，不入库）
 └── oh-package.json5         # 依赖管理
 ```
 
@@ -95,44 +120,53 @@ ChatCategorize/
 
 ## 核心设计
 
-### AppConfig — Preferences 持久化配置
+### AppConfig — 配置管理（Preferences + Asset Store）
 
 - 由 `EntryAbility.onCreate` 调用 `AppConfig.getInstance().init(context)` 幂等预加载
-- 配置保存在 `chatcategorize_config` 文件中，`updateConfig` 保存时 `flush()` 立即落盘
+- **非敏感项**（baseUrl / model / searchBaseUrl）→ Preferences 明文存储
+- **敏感项**（apiKey / searchApiKey）→ SecureKeyStore 加密存储，明文不写盘
+- 旧版本迁移：检测 Preferences 遗留明文 Key，自动迁入 Asset Store 并删除明文残留
 - `isConfigured()` 校验大模型三项是否齐全，未配置时聊天前拦截提示
 - 默认配置为空字符串，**不硬编码任何密钥**
 
-### AIService — SSE 流式对话
+### SecureKeyStore — 密钥安全存储
+
+- 基于 Asset Store Kit（类比 iOS Keychain / Android Keystore），密钥存入硬件安全区域（TEE）
+- AES256-GCM 密文落盘，应用数据即使被读取/备份也无法还原明文
+- `SyncType.NEVER`：不参与云同步 / 云备份，避免密钥随备份外泄
+- 提供 `save` / `get` / `remove` 三个静态方法，空串保存视为清除旧密钥
+
+### LLM Provider — SSE 流式对话（工厂模式）
 
 ```
-用户输入 → ChatPage 创建占位消息 → AIService.sendMessage()
-  → HTTP POST (stream: true)
+用户输入 → ChatViewModel → LLMProviderFactory.create()
+  → DeepSeekProvider.sendMessage()（HTTP POST, stream: true）
   → dataReceive 逐 chunk 解析 SSE
   → onReasoningChunk 输出思考内容（reasoning_content）
   → onChunk 输出正文
   → dataEnd / [DONE] 标记完成
 ```
 
-- 单例模式，全局唯一实例
-- SSE 不完整 chunk 缓冲处理
-- 防止重复回调（isFinished 标记）
+- `LLMProvider` 定义抽象接口（流式回调），`DeepSeekProvider` 实现 OpenAI 兼容调用
+- `LLMProviderFactory` 按渠道创建 Provider，新增模型只需实现接口并注册工厂
+- SSE 不完整 chunk 缓冲处理、防止重复回调（isFinished 标记）
 - 连接超时 15s，读取超时 60s
 - 深度思考走 DeepSeek 官方格式：`thinking.enabled/disabled` + `reasoning_effort=max`，`deepThinking` 开关由 ChatInput 传入，关闭时显式 disabled（V4 模型默认思考，必须显式控制）
 
-### SearchService — 联网搜索
+### Search Provider — 联网搜索（工厂模式）
 
 ```
-开启联网 → ChatPage 调 SearchService.search()
-  → 博查 Web Search API POST
+开启联网 → ChatViewModel → SearchProviderFactory.create()
+  → BochaSearchProvider.search()（博查 Web Search API POST）
   → 解析标题/URL/长摘要 → 拼接为 LLM 友好的 Markdown
   → 作为 system 消息插入上下文，驱动 LLM 基于资料回答
 ```
 
-- 与 LLM 完全解耦，换任何模型不影响搜索
+- `SearchProvider` 定义抽象接口，`BochaSearchProvider` 实现博查调用，与 LLM 完全解耦
 - 返回 5 条结果，每条摘要截断 800 字符控制 token
 - 搜索失败静默降级为普通对话，UI 显示降级提示
 
-### DatabaseHelper — 关系型数据库
+### DatabaseHelper — 关系型数据库（DAO + Repository 分层）
 
 基于 `relationalStore`，三张表：
 
@@ -142,6 +176,7 @@ ChatCategorize/
 | `message`      | id, conversation_id, role, content, reasoning, created_at | 消息表（含思考内容）          |
 | `category`     | id, name, parent_id, color, sort_order, created_at        | 文件夹/分类表（支持多级嵌套） |
 
+- 分层设计：`*Dao` 平铺单表 CRUD（异常上抛），`*Repository` 跨表聚合与事务（文件夹树、级联删除）
 - 单例模式，`init()` 幂等建表（IF NOT EXISTS）
 - 高频查询索引：`message(conversation_id)`、`conversation(updated_at DESC)`
 - 对话延迟入库：首条用户消息时才创建对话记录，避免空白对话污染历史
@@ -149,6 +184,13 @@ ChatCategorize/
 - 文件夹树：`parent_id` 空串为顶级，`getCategorySubtreeIds()` 收集子孙节点，移动文件夹时排除自身防止成环
 - 删除文件夹级联：`deleteCategoryCascade()` 先递归收集子孙，再移除其分类关系（对话本身不删除）
 - 所有 API 调用 try-catch 包裹，异常静默降级
+
+### ViewModel — 状态管理层
+
+- `ChatViewModel`：聊天消息流、流式回调驱动 UI 更新、智能滚动状态
+- `FolderViewModel`：文件夹树构建、多级导航、文件夹 CRUD 状态
+- `SideBarViewModel`：历史会话分组、收藏 Tab、批量选择状态
+- 页面与数据层解耦，通过 ViewModel 桥接 DAO/Repository 与 ArkUI 状态
 
 ### ChatPage — 渲染优化
 
