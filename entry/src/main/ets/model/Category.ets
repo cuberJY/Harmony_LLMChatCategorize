@@ -15,9 +15,10 @@ export class Category {
   @Trace parentId: string = ""; // 父文件夹 ID，空串 = 顶级文件夹
   @Trace color: string = "#FF9F0A"; // 文件夹图标颜色（默认橙色）
   @Trace sortOrder: number = 0; // 排序序号
+  @Trace isPinned: boolean = false; // 是否置顶
   @Trace createdAt: number = 0; // 创建时间戳（毫秒）
 
-  constructor(id?: string, name?: string, parentId?: string, color?: string, sortOrder?: number) {
+  constructor(id?: string, name?: string, parentId?: string, color?: string, sortOrder?: number, isPinned?: boolean) {
     this.id = id && id.length > 0 ? id : generateId();
     if (name) this.name = name;
     if (parentId) this.parentId = parentId;

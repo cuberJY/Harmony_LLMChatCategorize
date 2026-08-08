@@ -87,6 +87,28 @@ export class ConversationRepository {
     }
   }
 
+  // 设置对话收藏状态（取消收藏自动清空分类）（返回是否成功）
+  async setFavorite(conv: Conversation, isFavorite: boolean): Promise<boolean> {
+    try {
+      await ConversationDao.getInstance().setFavorite(conv, isFavorite);
+      return true;
+    } catch (e) {
+      Logger.error(`ConversationRepository.setFavorite failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
+  // 设置对话置顶状态（返回是否成功，失败由调用方提示）
+  async setPinned(conv: Conversation, pinned: boolean): Promise<boolean> {
+    try {
+      await ConversationDao.getInstance().setPinned(conv, pinned);
+      return true;
+    } catch (e) {
+      Logger.error(`ConversationRepository.setPinned failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
   // 更新对话（标题、分类、更新时间）（返回是否成功）
   async update(conv: Conversation): Promise<boolean> {
     try {
@@ -106,17 +128,6 @@ export class ConversationRepository {
   async moveTo(conv: Conversation, folderId: string): Promise<boolean> {
     conv.categoryId = folderId;
     return this.update(conv);
-  }
-
-  // 设置对话收藏状态（取消收藏自动清空分类）（返回是否成功）
-  async setFavorite(conv: Conversation, isFavorite: boolean): Promise<boolean> {
-    try {
-      await ConversationDao.getInstance().setFavorite(conv, isFavorite);
-      return true;
-    } catch (e) {
-      Logger.error(`ConversationRepository.setFavorite failed: ${JSON.stringify(e)}`);
-      return false;
-    }
   }
 
   /**

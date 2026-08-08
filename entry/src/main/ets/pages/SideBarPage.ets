@@ -266,7 +266,7 @@ export struct SideBarPage {
                       (conv: Conversation) => `${conv.id}_${this.vm.listVersion}`,
                     );
                   },
-                  (group: GroupItem) => group.name,
+                  (group: GroupItem) => `${group.name}_${this.vm.listVersion}`,
                 )
               }
               .width("100%")
@@ -319,6 +319,9 @@ export struct SideBarPage {
                         onMenuRename: (selected: Category) => {
                           this.openEditFolder(selected);
                         },
+                        onMenuPin: (selected: Category) => {
+                          this.vm.togglePinFolder(selected);
+                        },
                         onMenuMove: (selected: Category) => {
                           this.openMoveFolder(selected);
                         },
@@ -331,16 +334,6 @@ export struct SideBarPage {
                   (cat: Category) => `${cat.id}_${this.vm.listVersion}`,
                 )
 
-                // 文件夹与对话之间的分隔线（两者都有时才显示）
-                if (this.vm.topFolders.length > 0 && this.vm.uncategorizedConvs.length > 0) {
-                  ListItem() {
-                    Divider()
-                      .strokeWidth(0.5)
-                      .color($r('app.color.divider'))
-                      .margin({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
-                  };
-                }
-
                 // 未分类对话（category_id 为空）
                 ForEach(
                   this.vm.uncategorizedConvs,
@@ -352,6 +345,7 @@ export struct SideBarPage {
                         isSelected: this.vm.selectedIds.indexOf(conv.id) >= 0,
                         // 收藏页：不显示星标（该页全是已收藏对话）；保留"移动"菜单调整位置
                         showFavoriteIcon: false,
+                        showPinMenu: true,
 
                         onClickItem: (selected: Conversation) => {
                           // 直接进入对话 → pop 携带结果返回 ChatPage
@@ -362,6 +356,9 @@ export struct SideBarPage {
                         },
                         onMenuRename: (selected: Conversation) => {
                           this.openRenameDialog(selected);
+                        },
+                        onMenuPin: (selected: Conversation) => {
+                          this.vm.togglePinConv(selected);
                         },
                         onMenuDelete: (selected: Conversation) => {
                           this.confirmDeleteSingle(selected);
@@ -385,6 +382,11 @@ export struct SideBarPage {
               .height("100%")
               .padding({ top: $r('app.float.space_md') })
               .backgroundColor($r('app.color.page_bg'))
+              // 项间自动分割线（与历史 Tab 一致：文件夹/对话之间都有全宽分割线）
+              .divider({
+                strokeWidth: 0.5,
+                color: $r('app.color.divider'),
+              })
               .edgeEffect(EdgeEffect.Spring);
             }
 
@@ -417,6 +419,9 @@ export struct SideBarPage {
         .indicator(false) // 隐藏底部指示点（已有自己的 Tab 栏）
         .disableSwipe(this.vm.isEditMode) // 多选编辑模式下禁止滑动，避免误操作
         .onChange((index: number) => {
+          if (index === 0 && this.vm.currentTab !== 0) {
+            this.vm.listVersion++;
+          }
           this.vm.setCurrentTab(index); // 滑动后同步状态，Tab 栏高亮跟随变化
         })
 
@@ -525,8 +530,7 @@ export struct SideBarPage {
       this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
       this.vm.loadConversations();
       this.vm.loadFavorites();
-      // 注：首次进入也会触发，此时数据库 init 可能未完成，查询返回空；
-      // 随后 aboutToAppear 中的 init.then 会再次加载出正确数据，最终显示不受影响
+      this.vm.listVersion++;
     })
   }
 

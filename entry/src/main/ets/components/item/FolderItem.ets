@@ -14,6 +14,7 @@ export struct FolderItem {
   // 回调：点击进入 / 长按菜单操作（@Event：V2 允许父组件初始化的普通事件）
   @Event onClickItem: (cat: Category) => void = (cat: Category) => {}; // 点击文件夹
   @Event onMenuRename: (cat: Category) => void = (cat: Category) => {}; // 长按-编辑（重命名+改色）
+  @Event onMenuPin: (cat: Category) => void = (cat: Category) => {}; // 长按-置顶/取消置顶
   @Event onMenuMove: (cat: Category) => void = (cat: Category) => {}; // 长按-移动
   @Event onMenuDelete: (cat: Category) => void = (cat: Category) => {}; // 长按-删除
 
@@ -46,6 +47,7 @@ export struct FolderItem {
       top: $r('app.float.space_md'),
       bottom: $r('app.float.space_md')
     })
+    .backgroundColor(this.category.isPinned ? $r('app.color.item_pin_bg') : Color.Transparent)
     .onClick(() => {
       if (this.onClickItem) this.onClickItem(this.category);
     })
@@ -70,6 +72,7 @@ export struct FolderItem {
       Divider()
         .strokeWidth(0.5)
         .color($r('app.color.divider'))
+      
       Row() {
         Text("移动")
           .fontSize($r('app.float.font_button'))
@@ -84,6 +87,22 @@ export struct FolderItem {
       Divider()
         .strokeWidth(0.5)
         .color($r('app.color.divider'))
+
+      Row() {
+        Text(this.category.isPinned ? "取消置顶" : "置顶")
+          .fontSize($r('app.float.font_button'))
+          .fontColor(this.category.isPinned ? $r('app.color.text_danger') : $r('app.color.primary'))
+      }
+      .width("100%")
+      .height(36)
+      .justifyContent(FlexAlign.Center)
+      .onClick(() => {
+        if (this.onMenuPin) this.onMenuPin(this.category);
+      })
+      Divider()
+        .strokeWidth(0.5)
+        .color($r('app.color.divider'))
+      
       Row() {
         Text("删除")
           .fontSize($r('app.float.font_button'))

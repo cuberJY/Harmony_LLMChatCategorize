@@ -35,6 +35,7 @@ export class ConversationDao {
         title: conv.title,
         category_id: conv.categoryId,
         is_favorite: conv.isFavorite ? 1 : 0,
+        is_pinned: conv.isPinned ? 1 : 0,
         created_at: conv.createdAt,
         updated_at: conv.updatedAt,
       };
@@ -42,6 +43,22 @@ export class ConversationDao {
     } catch (e) {
       Logger.error(`ConversationDao.insert failed: ${JSON.stringify(e)}`);
       // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
+      throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // 设置对话置顶状态（失败上抛，由 Repository 捕获）
+  async setPinned(conv: Conversation, pinned: boolean): Promise<void> {
+    const store = this.store;
+    if (!store) return;
+    try {
+      const values: relationalStore.ValuesBucket = { is_pinned: pinned ? 1 : 0 };
+      const predicates = new relationalStore.RdbPredicates("conversation");
+      predicates.equalTo("id", conv.id);
+      await store.update(values, predicates);
+      conv.isPinned = pinned; // 同步内存对象
+    } catch (e) {
+      Logger.error(`ConversationDao.setPinned failed: ${JSON.stringify(e)}`);
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     }
   }
@@ -55,6 +72,7 @@ export class ConversationDao {
         title: conv.title,
         category_id: conv.categoryId,
         is_favorite: conv.isFavorite ? 1 : 0,
+        is_pinned: conv.isPinned ? 1 : 0,
         updated_at: conv.updatedAt,
       };
       const predicates = new relationalStore.RdbPredicates("conversation");
@@ -81,6 +99,7 @@ export class ConversationDao {
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     }
   }
+  
 
   // 查询全部对话，按最后更新时间倒序（最新在前）
   async getAll(): Promise<Conversation[]> {
@@ -152,7 +171,8 @@ export class ConversationDao {
       const predicates = new relationalStore.RdbPredicates("conversation");
       predicates.equalTo("category_id", categoryId);
       predicates.equalTo("is_favorite", 1); // 只返回已收藏对话
-      predicates.orderByDesc("updated_at");
+      predicates.orderByDesc("is_pinned"); // 置顶优先
+      predicates.orderByDesc("updated_at"); // 排序序号升序，最近更新的排最前
       resultSet = await store.query(predicates);
       while (resultSet.goToNextRow()) {
         list.push(this.conversationFromResultSet(resultSet));
@@ -182,7 +202,8 @@ export class ConversationDao {
     try {
       const predicates = new relationalStore.RdbPredicates("conversation");
       predicates.equalTo("is_favorite", 1);
-      predicates.orderByDesc("updated_at");
+      predicates.orderByDesc("is_pinned"); // 置顶优先
+      predicates.orderByDesc("updated_at"); // 排序序号升序，最近更新的排最前
       resultSet = await store.query(predicates);
       while (resultSet.goToNextRow()) {
         list.push(this.conversationFromResultSet(resultSet));
@@ -271,6 +292,7 @@ export class ConversationDao {
       conv.title = rs.getString(rs.getColumnIndex("title"));
       conv.categoryId = rs.getString(rs.getColumnIndex("category_id"));
       conv.isFavorite = rs.getLong(rs.getColumnIndex("is_favorite")) === 1;
+      conv.isPinned = rs.getLong(rs.getColumnIndex("is_pinned")) === 1;
       conv.createdAt = rs.getLong(rs.getColumnIndex("created_at"));
       conv.updatedAt = rs.getLong(rs.getColumnIndex("updated_at"));
     } catch (e) {

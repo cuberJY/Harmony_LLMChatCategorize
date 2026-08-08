@@ -12,6 +12,7 @@ export struct ConversationItem {
   @Param isEditMode: boolean = false; // 是否多选编辑模式
   @Param isSelected: boolean = false; // 当前项是否被选中
   @Param showFavoriteIcon: boolean = true; // 是否显示收藏星标（历史页显示，收藏页关闭）
+  @Param showPinMenu: boolean = false; // 是否显示置顶菜单与图标（收藏页/文件夹页开启，历史页关闭）
   @Param showMoveMenu: boolean = true; // 是否显示"移动"菜单项（收藏页显示，历史页关闭）
 
   // 回调（@Event：V2 允许父组件初始化的普通事件）
@@ -22,7 +23,8 @@ export struct ConversationItem {
   @Event onSelectChange: (conv: Conversation, checked: boolean) => void = (conv: Conversation, checked: boolean) => {}; // 勾选变化
   @Event onMenuMove: (conv: Conversation) => void = (conv: Conversation) => {}; // 长按菜单-移动到文件夹
   @Event onMenuFavorite: (conv: Conversation) => void = (conv: Conversation) => {}; // 长按菜单-收藏/取消收藏
-
+  @Event onMenuPin: (conv: Conversation) => void = (conv: Conversation) => {}; // 长按菜单-置顶/取消置顶
+  
   build() {
     Row() {
       // 对话标题（无标题时显示"新对话"）
@@ -51,7 +53,8 @@ export struct ConversationItem {
           if (this.isSelected) {
             SymbolGlyph($r("sys.symbol.checkmark")) // 对勾
             .fontSize($r('app.float.font_icon_lg'))
-            .fontColor([Color.White]);
+            .fontColor([Color.White])
+            .margin({ left: $r('app.float.space_sm') })
           }
         }
         .width(24)
@@ -68,6 +71,7 @@ export struct ConversationItem {
       top: $r('app.float.space_md'),
       bottom: $r('app.float.space_md'),
     })
+    .backgroundColor(this.conversation.isPinned ? $r('app.color.item_pin_bg') : Color.Transparent)
     .onClick(() => {
       // 点击 → 回调父组件，由父组件决定跳转逻辑
       if (this.isEditMode) {
@@ -100,6 +104,58 @@ export struct ConversationItem {
           .strokeWidth(0.5)
           .color($r('app.color.divider'))
 
+        // 重命名
+        Row() {
+          Text("重命名")
+            .fontSize($r('app.float.font_button'))
+            .fontColor($r('app.color.text_primary'))
+        }
+        .width("100%")
+        .height(36)
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          if (this.onMenuRename) this.onMenuRename(this.conversation);
+        })
+        Divider()
+          .strokeWidth(0.5)
+          .color($r('app.color.divider'))
+
+        // 移动到文件夹（历史页 showMoveMenu=false 隐藏：未收藏对话不参与文件夹分类）
+        if (this.showMoveMenu) {
+          Row() {
+            Text("移动")
+              .fontSize($r('app.float.font_button'))
+              .fontColor($r('app.color.text_primary'))
+          }
+          .width("100%")
+          .height(36)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            if (this.onMenuMove) this.onMenuMove(this.conversation);
+          })
+          Divider()
+            .strokeWidth(0.5)
+            .color($r('app.color.divider'))
+        }
+
+        // 置顶 / 取消置顶（动态切换：未置顶→蓝色"置顶"，已置顶→红色"取消置顶"）
+        if (this.showPinMenu) {
+          Row() {
+            Text(this.conversation.isPinned ? "取消置顶" : "置顶")
+              .fontSize($r('app.float.font_button'))
+              .fontColor(this.conversation.isPinned ? $r('app.color.text_danger') : $r('app.color.primary'))
+          }
+          .width("100%")
+          .height(36)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            if (this.onMenuPin) this.onMenuPin(this.conversation);
+          })
+          Divider()
+            .strokeWidth(0.5)
+            .color($r('app.color.divider'))
+        }
+
         // 收藏 / 取消收藏（动态切换：未收藏→蓝色"收藏"，已收藏→红色"取消收藏"）
         Row() {
           Text(this.conversation.isFavorite ? "取消收藏" : "收藏")
@@ -115,37 +171,6 @@ export struct ConversationItem {
         Divider()
           .strokeWidth(0.5)
           .color($r('app.color.divider'))
-
-        // 重命名
-        Row() {
-          Text("重命名")
-            .fontSize($r('app.float.font_button'))
-            .fontColor($r('app.color.text_primary'))
-        }
-        .width("100%")
-        .height(36)
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          if (this.onMenuRename) this.onMenuRename(this.conversation);
-        })
-
-        // 移动到文件夹（历史页 showMoveMenu=false 隐藏：未收藏对话不参与文件夹分类）
-        if (this.showMoveMenu) {
-          Divider()
-            .strokeWidth(0.5)
-            .color($r('app.color.divider'))
-          Row() {
-            Text("移动")
-              .fontSize($r('app.float.font_button'))
-              .fontColor($r('app.color.text_primary'))
-          }
-          .width("100%")
-          .height(36)
-          .justifyContent(FlexAlign.Center)
-          .onClick(() => {
-            if (this.onMenuMove) this.onMenuMove(this.conversation);
-          })
-        }
 
         // 删除
         Row() {

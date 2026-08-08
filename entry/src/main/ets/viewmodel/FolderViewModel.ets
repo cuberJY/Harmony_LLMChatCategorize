@@ -17,14 +17,14 @@ import { showToast } from "../common/Utils";
 
 @ObservedV2
 export class FolderViewModel {
-  // ===== UI 可观察状态（@Trace：页面 build 中读取，变化时自动刷新） =====
+  // UI 可观察状态（@Trace：页面 build 中读取，变化时自动刷新）
   @Trace folderId: string = ""; // 当前文件夹 id
   @Trace folderName: string = ""; // 当前文件夹名称
   @Trace subFolders: Category[] = []; // 子文件夹列表
   @Trace convs: Conversation[] = []; // 该文件夹下的对话列表
   @Trace listVersion: number = 0; // 列表刷新版本号：重命名/改色等键不变的内容变更后自增，强制 ForEach 重建
 
-  // ===== 路由参数与数据加载 =====
+  // 路由参数与数据加载
 
   // 设置路由参数（页面 aboutToAppear 调用）
   setParams(folderId: string, folderName: string): void {
@@ -66,6 +66,21 @@ export class FolderViewModel {
     await this.loadData();
     this.listVersion++; // 强制 ForEach 重建，刷新名称/颜色
     showToast($r('app.string.saved'));
+  }
+
+  // 执行置顶/取消置顶（文件夹）：切换标记、DB 持久化、失败回滚，重载排序（失败提示）
+  async togglePinFolder(cat: Category): Promise<void> {
+    const oldPin = cat.isPinned;
+    cat.isPinned = !oldPin;
+    const ok = await CategoryRepository.getInstance().setPinned(cat, cat.isPinned);
+    if (!ok) {
+      cat.isPinned = oldPin;
+      showToast("操作失败，请重试");
+      return;
+    }
+    await this.loadData(); // 重载：置顶文件夹排到当前文件夹列表顶部
+    this.listVersion++;
+    showToast(cat.isPinned ? "已置顶" : "已取消置顶");
   }
 
   // 执行删除文件夹（级联）（失败提示）
@@ -122,6 +137,21 @@ export class FolderViewModel {
     }
     this.listVersion++; // 强制 ForEach 重建，刷新对话标题
     showToast($r('app.string.rename_conv_success'));
+  }
+
+  // 执行置顶/取消置顶（对话）：切换标记、DB 持久化、失败回滚，重载排序（失败提示）
+  async togglePinConv(conv: Conversation): Promise<void> {
+    const oldPin = conv.isPinned;
+    conv.isPinned = !oldPin;
+    const ok = await ConversationRepository.getInstance().setPinned(conv, conv.isPinned);
+    if (!ok) {
+      conv.isPinned = oldPin;
+      showToast("操作失败，请重试");
+      return;
+    }
+    await this.loadData(); // 重载：置顶对话排到当前文件夹列表顶部
+    this.listVersion++;
+    showToast(conv.isPinned ? "已置顶" : "已取消置顶");
   }
 
   // 执行删除对话（失败提示）

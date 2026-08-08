@@ -97,6 +97,10 @@
       "value": "#FFD60A"
     },
     {
+      "name": "item_pin_bg",
+      "value": "#2A2A2C"
+    },
+    {
       "name": "fab_shadow",
       "value": "#664C8DFF"
     },

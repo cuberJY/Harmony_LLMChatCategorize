@@ -63,6 +63,17 @@ export class CategoryRepository {
     }
   }
 
+  // 设置文件夹置顶状态（返回是否成功，失败由调用方提示）
+  async setPinned(cat: Category, pinned: boolean): Promise<boolean> {
+    try {
+      await CategoryDao.getInstance().setPinned(cat, pinned);
+      return true;
+    } catch (e) {
+      Logger.error(`CategoryRepository.setPinned failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
   // 更新文件夹（名称、颜色、父文件夹、排序）（返回是否成功）
   async update(cat: Category): Promise<boolean> {
     try {

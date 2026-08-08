@@ -65,6 +65,7 @@ export class DatabaseHelper {
       title TEXT NOT NULL DEFAULT '',    -- 对话标题（首条用户消息截断）
       category_id TEXT NOT NULL DEFAULT '', -- 收藏位置（文件夹）ID，空串 = 未放入文件夹
       is_favorite INTEGER NOT NULL DEFAULT 0, -- 是否收藏：0 未收藏 / 1 已收藏
+      is_pinned INTEGER NOT NULL DEFAULT 0, -- 是否置顶
       created_at INTEGER NOT NULL,       -- 创建时间戳（毫秒）
       updated_at INTEGER NOT NULL        -- 最后更新时间戳（毫秒）
     )`,
@@ -86,7 +87,8 @@ export class DatabaseHelper {
       name TEXT NOT NULL,                -- 文件夹名称
       parent_id TEXT NOT NULL DEFAULT '',-- 父文件夹 ID，空串 = 顶级
       color TEXT NOT NULL DEFAULT '#FF9F0A', -- 文件夹图标颜色（默认橙色）
-      sort_order INTEGER NOT NULL DEFAULT 0, -- 排序序号
+      sort_order INTEGER NOT NULL DEFAULT 0, -- 排序序号（0 为置顶）
+      is_pinned INTEGER NOT NULL DEFAULT 0, -- 是否置顶
       created_at INTEGER NOT NULL        -- 创建时间戳（毫秒）
     )`,
       );

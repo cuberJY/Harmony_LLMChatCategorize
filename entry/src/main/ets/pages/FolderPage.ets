@@ -112,6 +112,9 @@ export struct FolderPage {
                     onMenuRename: (selected: Category) => {
                       this.openEditFolder(selected);
                     },
+                    onMenuPin: (selected: Category) => {
+                      this.vm.togglePinFolder(selected);
+                    },
                     onMenuMove: (selected: Category) => {
                       this.openMoveFolder(selected);
                     },
@@ -123,16 +126,6 @@ export struct FolderPage {
               },
               (cat: Category) => `${cat.id}_${this.vm.listVersion}`,
             )
-
-            // 子文件夹与对话之间的分隔线（两者都有时才显示）
-            if (this.vm.subFolders.length > 0 && this.vm.convs.length > 0) {
-              ListItem() {
-                Divider()
-                  .strokeWidth(0.5)
-                  .color($r('app.color.divider'))
-                  .margin({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
-              };
-            }
 
             // 该文件夹下的对话
             ForEach(
@@ -153,6 +146,9 @@ export struct FolderPage {
                     onMenuRename: (selected: Conversation) => {
                       this.openRenameConvDialog(selected);
                     },
+                    onMenuPin: (selected: Conversation) => {
+                      this.vm.togglePinConv(selected);
+                    },
                     onMenuDelete: (selected: Conversation) => {
                       this.confirmDeleteConv(selected);
                     },
@@ -168,6 +164,11 @@ export struct FolderPage {
           .width("100%")
           .layoutWeight(1)
           .backgroundColor($r('app.color.page_bg'))
+          // 项间自动分割线（与收藏 Tab 一致：文件夹/对话之间都有全宽分割线）
+          .divider({
+            strokeWidth: 0.5,
+            color: $r('app.color.divider'),
+          })
           .edgeEffect(EdgeEffect.Spring);
         }
       }

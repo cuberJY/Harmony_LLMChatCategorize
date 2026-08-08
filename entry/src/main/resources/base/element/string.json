@@ -22,11 +22,11 @@
     },
     {
       "name": "rename_success",
-      "value": "标题修改成功"
+      "value": "修改成功"
     },
     {
       "name": "rename_conv_success",
-      "value": "重命名成功"
+      "value": "修改成功"
     },
     {
       "name": "favorited",
@@ -34,7 +34,7 @@
     },
     {
       "name": "unfavorited",
-      "value": "已取消收藏"
+      "value": "已取消"
     },
     {
       "name": "saved",

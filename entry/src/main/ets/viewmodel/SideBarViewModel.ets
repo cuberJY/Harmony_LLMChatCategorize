@@ -197,6 +197,36 @@ export class SideBarViewModel {
     showToast($r('app.string.unfavorited'));
   }
 
+  // 执行置顶/取消置顶（对话）：切换标记、DB 持久化、失败回滚，重载排序（失败提示）
+  async togglePinConv(conv: Conversation): Promise<void> {
+    const oldPin = conv.isPinned;
+    conv.isPinned = !oldPin;
+    const ok = await ConversationRepository.getInstance().setPinned(conv, conv.isPinned);
+    if (!ok) {
+      conv.isPinned = oldPin; // 失败回滚内存
+      showToast("操作失败，请重试");
+      return;
+    }
+    await this.loadFavorites(); // DB 重载：置顶对话自动排到顶部
+    this.listVersion++; // 强制 ForEach 重建：置顶图标出现、菜单文案切换
+    showToast(conv.isPinned ? "已置顶" : "已取消置顶");
+  }
+
+  // 执行置顶/取消置顶（文件夹）：同上
+  async togglePinFolder(cat: Category): Promise<void> {
+    const oldPin = cat.isPinned;
+    cat.isPinned = !oldPin;
+    const ok = await CategoryRepository.getInstance().setPinned(cat, cat.isPinned);
+    if (!ok) {
+      cat.isPinned = oldPin;
+      showToast("操作失败，请重试");
+      return;
+    }
+    await this.loadFavorites();
+    this.listVersion++;
+    showToast(cat.isPinned ? "已置顶" : "已取消置顶");
+  }
+
   // 执行移动文件夹：更新 parentId 并刷新列表（失败回滚内存并提示）
   async doMoveFolder(cat: Category, targetId: string): Promise<void> {
     const oldParent = cat.parentId;
