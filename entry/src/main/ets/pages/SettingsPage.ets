@@ -263,7 +263,7 @@ export struct SettingsPage {
       return;
     }
 
-    // 保存（内部持久化到 Preferences）
+    // 保存（Key 加密入 Asset Store，其余配置入 Preferences）
     await config.updateConfig(
       this.baseUrl.trim(),
       this.apiKey.trim(),
