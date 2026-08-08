@@ -12,11 +12,12 @@
 
 import { common } from "@kit.AbilityKit";
 import { DatabaseHelper } from "../database/DatabaseHelper";
-import { ConversationRepository } from "../database/RepositoryConversation";
+import { ConversationRepository } from "../database/ConversationRepository";
 import { Conversation } from "../model/Conversation";
 import { Message } from "../model/Message";
-import { AIService, StreamCallbacks } from "../service/AIService";
-import { SearchService } from "../service/SearchService";
+import { StreamCallbacks } from "../service/provider/LLMProvider";
+import { LLMProviderFactory } from "../service/LLMProviderFactory";
+import { SearchProviderFactory } from "../service/SearchProviderFactory";
 import { AppConfig } from "../config/AppConfig";
 import { showToast } from "../common/Utils";
 
@@ -170,7 +171,7 @@ export class ChatViewModel {
     this.title = conv.title.length > 0 ? conv.title : "新对话"; // 同步标题栏
   }
 
-  // ===== 发送消息 + AI 流式回复 =====
+  // 发送消息 + AI 流式回复
 
   /**
    * 处理用户发送：可选联网搜索 + LLM 流式回复
@@ -202,13 +203,13 @@ export class ChatViewModel {
     const context: Message[] = this.messageDataSource.getAll().slice(0, -1);
 
     // 4. 联网搜索（开关开启 且 渠道已配置，才显示搜索状态并真正发起）
-    if (webSearch && SearchService.getInstance().isAvailable()) {
+    if (webSearch && SearchProviderFactory.create().isAvailable()) {
       // 4.1 显示"正在搜索"状态（isSearching 控制，不写入 content）
       //     @ObservedV2 + @Trace 自动感知属性变化，无需手动触发列表刷新
       aiMsg.isSearching = true;
 
       // 4.2 调用搜索服务（失败时返回空串，不阻断流程）
-      const searchResult = await SearchService.getInstance().search(text);
+      const searchResult = await SearchProviderFactory.create().search(text);
 
       // 4.3 结束搜索状态
       aiMsg.isSearching = false;
@@ -230,7 +231,7 @@ export class ChatViewModel {
       aiMsg.thinkingStartTime = Date.now();
     }
 
-    // 5. 构造回调并调用 AIService
+    // 5. 构造回调并调用 LLM Provider
     const callbacks: StreamCallbacks = {
       // 思考内容增量 → 先攒到缓冲区，节流刷新
       onReasoningChunk: (deltaReasoning: string) => {
@@ -277,8 +278,8 @@ export class ChatViewModel {
       },
     };
 
-    // 6. 调用 LLM
-    AIService.getInstance().sendMessage(context, callbacks, deepThinking);
+    // 6. 调用 LLM（通过工厂获取 Provider，业务层不依赖具体供应商）
+    LLMProviderFactory.create().sendMessage(context, callbacks, deepThinking);
   }
 
   /**
@@ -340,7 +341,7 @@ export class ChatViewModel {
     this.reasoningBuffer = "";
   }
 
-  // ===== 列表滚动控制（由页面 build 事件绑定） =====
+  // 列表滚动控制（由页面 build 事件绑定）
 
   // 用户开始/停止滚动（onTouch / onScrollStop）
   setUserScrolling(scrolling: boolean): void {

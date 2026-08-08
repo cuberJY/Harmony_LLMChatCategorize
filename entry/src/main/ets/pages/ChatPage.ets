@@ -2,8 +2,8 @@
 import { common } from "@kit.AbilityKit";
 import { Message } from "../model/Message";
 import { Conversation } from "../model/Conversation";
-import { MessageBubble } from "../components/MessageBubble";
-import { ChatInput } from "../components/ChatInput";
+import { MessageBubble } from "../components/chat/MessageBubble";
+import { ChatInput } from "../components/chat/ChatInput";
 import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";

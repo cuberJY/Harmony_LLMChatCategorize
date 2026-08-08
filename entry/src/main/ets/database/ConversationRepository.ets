@@ -13,8 +13,8 @@ import { relationalStore } from "@kit.ArkData";
 import { Conversation } from "../model/Conversation";
 import { Message } from "../model/Message";
 import { DatabaseHelper } from "./DatabaseHelper";
-import { ConversationDao } from "./DaoConversation";
-import { MessageDao } from "./DaoMessage";
+import { ConversationDao } from "./ConversationDao";
+import { MessageDao } from "./MessageDao";
 import { Logger } from "../common/Logger";
 
 export class ConversationRepository {
@@ -76,30 +76,46 @@ export class ConversationRepository {
     }
   }
 
-  // 新增对话
-  async insert(conv: Conversation): Promise<void> {
+  // 新增对话（返回是否成功，失败由调用方提示用户）
+  async insert(conv: Conversation): Promise<boolean> {
     try {
       await ConversationDao.getInstance().insert(conv);
+      return true;
     } catch (e) {
       Logger.error(`ConversationRepository.insert failed: ${JSON.stringify(e)}`);
+      return false;
     }
   }
 
-  // 更新对话（标题、分类、更新时间）
-  async update(conv: Conversation): Promise<void> {
+  // 更新对话（标题、分类、更新时间）（返回是否成功）
+  async update(conv: Conversation): Promise<boolean> {
     try {
       await ConversationDao.getInstance().update(conv);
+      return true;
     } catch (e) {
       Logger.error(`ConversationRepository.update failed: ${JSON.stringify(e)}`);
+      return false;
     }
   }
 
-  // 设置对话收藏状态（取消收藏自动清空分类）
-  async setFavorite(conv: Conversation, isFavorite: boolean): Promise<void> {
+  /**
+   * 移动对话：更新分类并持久化（阶段七：由 common/FolderOps.moveConversationTo 下沉）
+   * @param conv 被移动的对话（@Observed，直接改字段即可驱动 UI）
+   * @param folderId 目标文件夹 id，空串 = 移出不分类
+   */
+  async moveTo(conv: Conversation, folderId: string): Promise<boolean> {
+    conv.categoryId = folderId;
+    return this.update(conv);
+  }
+
+  // 设置对话收藏状态（取消收藏自动清空分类）（返回是否成功）
+  async setFavorite(conv: Conversation, isFavorite: boolean): Promise<boolean> {
     try {
       await ConversationDao.getInstance().setFavorite(conv, isFavorite);
+      return true;
     } catch (e) {
       Logger.error(`ConversationRepository.setFavorite failed: ${JSON.stringify(e)}`);
+      return false;
     }
   }
 
@@ -107,36 +123,40 @@ export class ConversationRepository {
    * 批量移动对话到文件夹（事务保证原子性）
    * @param folderId 目标文件夹 ID，空串 = 移出文件夹
    */
-  async move(ids: string[], folderId: string): Promise<void> {
+  async move(ids: string[], folderId: string): Promise<boolean> {
     const store = this.store;
-    if (!store || ids.length === 0) return;
+    if (!store || ids.length === 0) return true; // 无可操作项视为成功
     store.beginTransaction(); // 开启事务
     try {
       await ConversationDao.getInstance().move(ids, folderId);
       store.commit(); // 全部成功才提交
+      return true;
     } catch (e) {
       store.rollBack(); // 任一失败回滚，避免半完成状态
       Logger.error(`ConversationRepository.move failed: ${JSON.stringify(e)}`);
+      return false;
     }
   }
 
   // 删除对话及其全部消息（跨表事务：消息先行，中断自动回滚，无孤儿数据）
-  async deleteConversations(ids: string[]): Promise<void> {
+  async deleteConversations(ids: string[]): Promise<boolean> {
     const store = this.store;
-    if (!store || ids.length === 0) return;
+    if (!store || ids.length === 0) return true; // 无可删除项视为成功
     store.beginTransaction(); // 开启事务
     try {
       // 先删消息、再删对话，避免孤儿数据
       await MessageDao.getInstance().deleteByConversationIds(ids);
       await ConversationDao.getInstance().deleteByIds(ids);
       store.commit(); // 全部成功才提交
+      return true;
     } catch (e) {
       store.rollBack(); // 任一失败回滚，避免半删状态
       Logger.error(`ConversationRepository.deleteConversations failed: ${JSON.stringify(e)}`);
+      return false;
     }
   }
 
-  // ---------- 消息表 ----------
+  // 消息表
 
   // 查询某对话下的全部消息，按发送时间升序
   async getMessages(conversationId: string): Promise<Message[]> {
@@ -148,21 +168,25 @@ export class ConversationRepository {
     }
   }
 
-  // 新增一条消息
-  async insertMessage(msg: Message): Promise<void> {
+  // 新增一条消息（返回是否成功）
+  async insertMessage(msg: Message): Promise<boolean> {
     try {
       await MessageDao.getInstance().insert(msg);
+      return true;
     } catch (e) {
       Logger.error(`ConversationRepository.insertMessage failed: ${JSON.stringify(e)}`);
+      return false;
     }
   }
 
-  // 更新一条消息（流式结束后回写完整内容 / 错误信息）
-  async updateMessage(msg: Message): Promise<void> {
+  // 更新一条消息（流式结束后回写完整内容 / 错误信息）（返回是否成功）
+  async updateMessage(msg: Message): Promise<boolean> {
     try {
       await MessageDao.getInstance().update(msg);
+      return true;
     } catch (e) {
       Logger.error(`ConversationRepository.updateMessage failed: ${JSON.stringify(e)}`);
+      return false;
     }
   }
 }

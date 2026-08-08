@@ -16,16 +16,15 @@
  * - 路由参数通过 @Param（HomePage pageMap 注入）接收，替代 router.getParams
  */
 
-import { CategoryRepository } from "../database/RepositoryCategory";
+import { CategoryRepository } from "../database/CategoryRepository";
 import { Category } from "../model/Category";
 import { Conversation } from "../model/Conversation";
-import { FolderItem } from "../components/FolderItem";
-import { ConversationItem } from "../components/ConversationItem";
-import { EditFolderDialog } from "../components/EditFolderDialog";
-import { FolderPickerDialog } from "../components/FolderPickerDialog";
-import { RenameInputDialog } from "../components/RenameInputDialog";
+import { FolderItem } from "../components/item/FolderItem";
+import { ConversationItem } from "../components/item/ConversationItem";
+import { EditFolderDialog } from "../components/dialog/EditFolderDialog";
+import { FolderPickerDialog } from "../components/dialog/FolderPickerDialog";
+import { RenameInputDialog } from "../components/dialog/RenameInputDialog";
 import { showDeleteConfirm } from "../common/Utils";
-import { getMoveFolderCandidates } from "../common/FolderOps";
 import { FolderParams } from "../model/FolderParams";
 import { FolderViewModel } from "../viewmodel/FolderViewModel";
 
@@ -291,7 +290,7 @@ export struct FolderPage {
   // 移动文件夹：弹出目标选择器（排除自身及子孙，防止成环）
   private async openMoveFolder(cat: Category): Promise<void> {
     // 候选目标 = 全部文件夹 - 自身及子孙（空串"不分类"由选择器提供，表示移到顶级）
-    const candidates = await getMoveFolderCandidates(cat.id);
+    const candidates = await CategoryRepository.getInstance().getMoveCandidates(cat.id);
     this.getUIContext().getPromptAction().openCustomDialog({
       builder: this.buildMoveFolderPicker(cat, candidates),
       autoCancel: true,

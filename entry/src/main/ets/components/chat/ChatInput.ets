@@ -18,9 +18,9 @@ import { LengthMetrics } from "@kit.ArkUI";
 export struct ChatInput {
   // 输入文本
   @Local inputText: string = "";
-  // 深度思考开关（后续传给 AIService 切换模型）
+  // 深度思考开关（后续传给 LLM Provider 切换模型）
   @Local deepThinking: boolean = true;
-  // 联网搜索开关（后续传给 AIService 开启搜索）
+  // 联网搜索开关（后续传给 LLM Provider 开启搜索）
   @Local webSearch: boolean = true;
 
   // 输入框行高与行间距（用于精确计算最大高度）

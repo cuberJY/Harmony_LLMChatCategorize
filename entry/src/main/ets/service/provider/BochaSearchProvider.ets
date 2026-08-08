@@ -1,7 +1,8 @@
 /**
- * 联网搜索服务
+ * 博查 AI Web Search 搜索 Provider
  * 基于博查 AI Web Search API，国内直连、免费、无需服务器，
  * 仅测试用，后续改为可替换其他 API
+ * 阶段五：服务层接口抽象 — 实现 SearchProvider 接口
  *
  * 使用前提：open.bochaai.com 注册获取 Key，填入 AppConfig.searchApiKey
  * 返回结构：标题/链接/长摘要（summary），更适合 LLM 直接使用
@@ -10,7 +11,8 @@
  */
 
 import { http } from "@kit.NetworkKit";
-import { AppConfig } from "../config/AppConfig";
+import { AppConfig } from "../../config/AppConfig";
+import { SearchProvider } from "./SearchProvider";
 
 // 搜索结果条目
 interface BochaResult {
@@ -51,16 +53,16 @@ interface SearchBody {
   count: number;
 }
 
-export class SearchService {
-  private static instance: SearchService;
+export class BochaSearchProvider implements SearchProvider {
+  private static instance: BochaSearchProvider;
 
   private constructor() {}
 
-  static getInstance(): SearchService {
-    if (!SearchService.instance) {
-      SearchService.instance = new SearchService();
+  static getInstance(): BochaSearchProvider {
+    if (!BochaSearchProvider.instance) {
+      BochaSearchProvider.instance = new BochaSearchProvider();
     }
-    return SearchService.instance;
+    return BochaSearchProvider.instance;
   }
 
   /**

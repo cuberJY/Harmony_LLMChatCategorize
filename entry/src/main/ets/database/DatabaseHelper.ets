@@ -6,10 +6,10 @@
  *   2. 向各 DAO 提供共享的 RdbStore 实例（getStore）
  *
  * 具体表的 CRUD 已拆分到 database 目录下的三个 DAO：
- *   - DaoConversation / DaoMessage / DaoCategory（平铺，单表数据访问，异常上抛）
+ *   - ConversationDao / MessageDao / CategoryDao（平铺，单表数据访问，异常上抛）
  * 跨表聚合与事务操作由两个 Repository 承载：
- *   - RepositoryConversation（对话 + 消息）
- *   - RepositoryCategory（文件夹树 + 级联删除）
+ *   - ConversationRepository（对话 + 消息）
+ *   - CategoryRepository（文件夹树 + 级联删除）
  *
  * 开发阶段说明（用户决策）：不需要数据库版本迁移，结构直接按最新建表语句创建。
  * 若设备残留旧结构 db，卸载 App 或清除数据后重新创建即可。

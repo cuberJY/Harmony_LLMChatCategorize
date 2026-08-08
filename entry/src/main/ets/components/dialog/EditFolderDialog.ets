@@ -8,8 +8,8 @@
  * 关闭方式：组件通过 onRequestClose 回调通知父页面 closeCustomDialog(dialogId)
  */
 
-import { FOLDER_COLORS } from "../common/AppConstants";
-import { showToast } from "../common/Utils";
+import { FOLDER_COLORS } from "../../common/AppConstants";
+import { showToast } from "../../common/Utils";
 
 @ComponentV2
 export struct EditFolderDialog {

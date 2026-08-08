@@ -3,8 +3,8 @@
  * - 用户消息：右对齐，浅蓝背景
  * - AI 消息：左对齐，白色背景
  */
-import { Message } from "../model/Message";
-import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../common/AppConstants";
+import { Message } from "../../model/Message";
+import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../common/AppConstants";
 @ComponentV2
 export struct MessageBubble {
   /**

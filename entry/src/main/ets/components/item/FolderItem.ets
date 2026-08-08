@@ -5,7 +5,7 @@
  * 交互：点击进入 / 长按弹菜单（重命名、删除）
  */
 
-import { Category } from "../model/Category";
+import { Category } from "../../model/Category";
 @ComponentV2
 export struct FolderItem {
   // 文件夹数据（父组件传入的 @ObservedV2 对象，@Trace 属性变化驱动本项刷新）

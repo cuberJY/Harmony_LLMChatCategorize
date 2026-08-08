@@ -8,7 +8,7 @@
  * 关闭方式：组件通过 onRequestClose 回调通知父页面 closeCustomDialog(dialogId)
  */
 
-import { Category } from "../model/Category";
+import { Category } from "../../model/Category";
 
 @ComponentV2
 export struct FolderPickerDialog {

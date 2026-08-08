@@ -4,7 +4,7 @@
  * 显示：对话标题 + 最后更新时间
  */
 
-import { Conversation } from "../model/Conversation";
+import { Conversation } from "../../model/Conversation";
 @ComponentV2
 export struct ConversationItem {
   // 对话数据（由父组件传入的 @ObservedV2 对象，@Trace 属性变化驱动列表项刷新）

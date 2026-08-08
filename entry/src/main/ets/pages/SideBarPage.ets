@@ -19,16 +19,15 @@ import { ComponentContent, KeyboardAvoidMode } from "@kit.ArkUI";
 import { BusinessError } from "@kit.BasicServicesKit";
 import { common } from "@kit.AbilityKit";
 import { Category } from "../model/Category";
-import { FolderItem } from "../components/FolderItem";
-import { EditFolderDialog, EditFolderDialogParams, buildEditFolderContent } from "../components/EditFolderDialog";
-import { FolderPickerDialog, FolderPickerDialogParams, buildFolderPickerContent } from "../components/FolderPickerDialog";
+import { FolderItem } from "../components/item/FolderItem";
+import { EditFolderDialog, EditFolderDialogParams, buildEditFolderContent } from "../components/dialog/EditFolderDialog";
+import { FolderPickerDialog, FolderPickerDialogParams, buildFolderPickerContent } from "../components/dialog/FolderPickerDialog";
 import { DatabaseHelper } from "../database/DatabaseHelper";
-import { CategoryRepository } from "../database/RepositoryCategory";
+import { CategoryRepository } from "../database/CategoryRepository";
 import { Conversation } from "../model/Conversation";
-import { ConversationItem } from "../components/ConversationItem";
-import { RenameDialogParams, buildRenameDialog } from "../components/RenameInputDialog";
+import { ConversationItem } from "../components/item/ConversationItem";
+import { RenameDialogParams, buildRenameDialog } from "../components/dialog/RenameInputDialog";
 import { showDeleteConfirm } from "../common/Utils";
-import { getMoveFolderCandidates } from "../common/FolderOps";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { FolderParams } from "../model/FolderParams";
 import { SideBarViewModel, GroupItem } from "../viewmodel/SideBarViewModel";
@@ -718,7 +717,7 @@ export struct SideBarPage {
   // 移动文件夹：弹出目标选择器（排除自身及子孙，防止成环）
   private async openMoveFolder(cat: Category): Promise<void> {
     // 候选目标 = 全部文件夹 - 自身及子孙（空串"不分类"由选择器提供，表示移到顶级）
-    const candidates = await getMoveFolderCandidates(cat.id);
+    const candidates = await CategoryRepository.getInstance().getMoveCandidates(cat.id);
     this.getUIContext().getPromptAction().openCustomDialog({
       builder: this.buildMoveFolderPicker(cat, candidates),
       autoCancel: true,

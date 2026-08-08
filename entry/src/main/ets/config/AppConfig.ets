@@ -4,7 +4,7 @@
  *
  * 第六步：基于 @ohos.data.preferences 持久化存储
  *  - 默认配置为空字符串，用户需在设置页自行填写
- *  - 首次启动 / 未配置时，各字段为空，AIService 会提示用户前往设置
+ *  - 首次启动 / 未配置时，各字段为空，LLM Provider 会提示用户前往设置
  */
 
 import { preferences } from "@kit.ArkData";

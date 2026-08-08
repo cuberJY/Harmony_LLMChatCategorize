@@ -1,6 +1,7 @@
 /**
- * AI 对话服务
+ * DeepSeek（OpenAI 兼容）LLM Provider
  * 封装 OpenAI 兼容 API 的调用，支持 SSE 流式输出
+ * 阶段五：服务层接口抽象 — 实现 LLMProvider 接口
  *
  * 核心流程：
  *   1. 将 Message[] 转换为 API 请求格式
@@ -11,23 +12,9 @@
 
 import buffer from "@ohos.buffer";
 import { http } from "@kit.NetworkKit";
-import { Message } from "../model/Message";
-import { AppConfig } from "../config/AppConfig";
-
-/**
- * 流式回调接口
- * 调用方（ChatPage）实现这三个回调来驱动 UI 更新
- */
-export interface StreamCallbacks {
-  // 每收到一段思考内容增量时触发（逐字/逐词输出效果）
-  onReasoningChunk: (deltaReasoning: string) => void;
-  // 每收到一段增量文本时触发（逐字/逐词输出效果）
-  onChunk: (deltaText: string) => void;
-  // 全部文本接收完成时触发
-  onComplete: (fullText: string) => void;
-  // 发生错误时触发
-  onError: (errorMessage: string) => void;
-}
+import { Message } from "../../model/Message";
+import { AppConfig } from "../../config/AppConfig";
+import { LLMProvider, StreamCallbacks } from "./LLMProvider";
 
 // API 请求中的消息格式
 interface ApiMessage {
@@ -72,9 +59,9 @@ interface SSEResponse {
   choices: SSEChoice[];
 }
 
-export class AIService {
+export class DeepSeekProvider implements LLMProvider {
   // 单例实例
-  private static instance: AIService;
+  private static instance: DeepSeekProvider;
 
   // SSE 解析缓冲区（处理不完整的 chunk）
   private sseBuffer: string = "";
@@ -83,11 +70,16 @@ export class AIService {
   private constructor() {}
 
   // 获取单例实例
-  static getInstance(): AIService {
-    if (!AIService.instance) {
-      AIService.instance = new AIService();
+  static getInstance(): DeepSeekProvider {
+    if (!DeepSeekProvider.instance) {
+      DeepSeekProvider.instance = new DeepSeekProvider();
     }
-    return AIService.instance;
+    return DeepSeekProvider.instance;
+  }
+
+  // 渠道是否已配置（未配置时 sendMessage 会通过 onError 提示用户）
+  isConfigured(): boolean {
+    return AppConfig.getInstance().isConfigured();
   }
 
   /**
@@ -95,9 +87,10 @@ export class AIService {
    *
    * @param messages 历史消息列表（包含用户和 AI 的完整对话）
    * @param callbacks 流式回调
+   * @param deepThinking 是否开启深度思考
    *
    * 调用示例：
-   *   AIService.getInstance().sendMessage(messages, {
+   *   DeepSeekProvider.getInstance().sendMessage(messages, {
    *     onChunk: (delta) => { // 追加到最后一条 AI 消息 },
    *     onComplete: (full) => { // 标记完成 },
    *     onError: (err) => { // 显示错误 },
@@ -105,7 +98,7 @@ export class AIService {
    */
   sendMessage(messages: Message[], callbacks: StreamCallbacks, deepThinking?: boolean): void {
     // 未配置时提前拦截，提示用户前往设置
-    if (!AppConfig.getInstance().isConfigured()) {
+    if (!this.isConfigured()) {
       callbacks.onError("尚未配置 API，请先前往「设置」填写 API 地址、Key 和模型");
       return;
     }
