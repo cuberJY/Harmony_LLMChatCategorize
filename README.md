@@ -30,6 +30,7 @@
 - **流式节流** — 增量文本 50ms 节流合并刷新，高频流式更新降到 ~20fps
 - **多对话并发流式** — 每个对话独立 StreamTask，切换对话后原流在后台继续，互不串写
 - **流式中断** — 支持中断/取消进行中的流式回复，页面销毁时自动清理定时器防泄漏
+- **后台流式保活** — 退后台且流式进行中时申请 dataTransfer 长时任务，SSE 连接不被系统冻结
 - **键盘避让** — RESIZE 模式，键盘弹出自动钉底
 - **智能时间分割线** — 消息间隔超过 10 分钟自动显示
 
@@ -59,6 +60,7 @@ ChatCategorize/
 │   │   │   ├── LLMProviderFactory.ets      # 大模型 Provider 工厂
 │   │   │   ├── SearchProviderFactory.ets   # 搜索 Provider 工厂
 │   │   │   ├── StreamTask.ets              # 单个流式任务（缓冲/节流/占位消息隔离）
+│   │   │   ├── BackgroundRunGuardService.ets # 后台长时任务保活（流式不被冻结）
 │   │   │   └── provider/
 │   │   │       ├── LLMProvider.ets         # 大模型抽象接口（SSE 流式）
 │   │   │       ├── DeepSeekProvider.ets    # DeepSeek 实现（OpenAI 兼容）
@@ -203,6 +205,14 @@ ChatCategorize/
 - 连发限制按"对话"粒度判断（`isStreamingFor`），不同对话的流互不影响
 - 异步操作（加载对话/查标题）均带"过期结果守卫"：await 后校验对话 id 未变，防止快速切换导致 UI 错乱
 - 页面销毁时遍历任务 `clearTimer()` 清理定时器，防止残留定时器触发过期写入
+
+### BackgroundRunGuardService — 后台流式保活
+
+- 背景：系统对退后台应用约 2 秒冻结网络、约 12 秒释放资源，SSE 流式连接会被掐断
+- 解法：应用在后台**且**仍有流式任务时，申请 `dataTransfer` 长时任务（`backgroundTaskManager.startBackgroundRunning`），保持网络连接
+- 任务全部结束或回到前台时立即 `stopBackgroundRunning` 释放，避免资源占用
+- 前置配置：`ohos.permission.KEEP_BACKGROUND_RUNNING` 权限 + EntryAbility `backgroundModes: ["dataTransfer"]`
+- ChatViewModel 通过 `updateStreamingTaskCount` 同步任务数，EntryAbility 的 onForeground/onBackground 切换后台状态
 
 ### ChatPage — 渲染优化
 

@@ -21,6 +21,7 @@ import { LLMProviderFactory } from "../service/LLMProviderFactory";
 import { SearchProviderFactory } from "../service/SearchProviderFactory";
 import { AppConfig } from "../config/AppConfig";
 import { showToast } from "../common/Utils";
+import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
 
 /**
  * 消息列表数据源（配合 LazyForEach 使用）
@@ -256,6 +257,8 @@ export class ChatViewModel {
     // 4. 登记流式任务（替代原全局 isStreaming 标志，实现按对话隔离）
     const task = new StreamTask(sendConvId, aiMsg, targetConv);
     this.streamTasks.set(sendConvId, task);
+    // 同步进行中任务数到保活服务（退后台时据此决定是否申请长时任务）
+    this.syncBackgroundGuardCount();
 
     // 5. 联网搜索（开关开启 且 渠道已配置，才显示搜索状态并真正发起）
     if (webSearch && SearchProviderFactory.create().isAvailable()) {
@@ -314,6 +317,7 @@ export class ChatViewModel {
         aiMsg.isThinking = false;
         aiMsg.content = fullText;
         this.streamTasks.delete(task.conversationId); // 任务结束，从表中移除
+        this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
 
         // 持久化：更新 AI 消息完整内容
         ConversationRepository.getInstance().updateMessage(aiMsg);
@@ -333,6 +337,7 @@ export class ChatViewModel {
         task.isStreaming = false;
         aiMsg.isThinking = false;
         this.streamTasks.delete(task.conversationId);
+        this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
         // 保留已接收的流式内容，末尾追加错误提示（不再整体覆盖）
         const received = aiMsg.content;
         aiMsg.content =
@@ -380,6 +385,15 @@ export class ChatViewModel {
   private isStreamingFor(conversationId: string): boolean {
     const task = this.streamTasks.get(conversationId);
     return task !== undefined && task.isStreaming;
+  }
+
+  /**
+   * 同步进行中流式任务数到后台保活服务
+   * 任务数 > 0 且应用在后台时，保活服务会申请 dataTransfer 长时任务，
+   * 防止系统冻结网络导致 SSE 连接被掐断
+   */
+  private syncBackgroundGuardCount(): void {
+    BackgroundRunGuardService.getInstance().updateStreamingTaskCount(this.streamTasks.size);
   }
 
   /**
