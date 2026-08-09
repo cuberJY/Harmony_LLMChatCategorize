@@ -28,6 +28,7 @@ import { Conversation } from "../model/Conversation";
 import { ConversationItem } from "../components/item/ConversationItem";
 import { RenameDialogParams, buildRenameDialog } from "../components/dialog/RenameInputDialog";
 import { showDeleteConfirm } from "../common/Utils";
+import { DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { FolderParams } from "../model/FolderParams";
 import { SideBarViewModel, GroupItem } from "../viewmodel/SideBarViewModel";
@@ -674,7 +675,7 @@ export struct SideBarPage {
     const params = new EditFolderDialogParams();
     params.title = "新建文件夹"; // 覆盖默认标题
     params.oldName = "";
-    params.oldColor = "#FF9F0A";
+    params.oldColor = DEFAULT_FOLDER_COLOR;
     params.onConfirm = (name: string, color: string) => {
       this.vm.createFolder(name, color);
     };

@@ -14,6 +14,7 @@
 - **网络**: `@kit.NetworkKit` (HTTP SSE 流式请求 / Web Search API)
 - **大模型 API**: OpenAI 兼容接口（默认 DeepSeek，Provider 工厂可扩展）
 - **搜索 API**: 博查 AI Web Search API（国内直连，Provider 工厂可扩展）
+- **Markdown 渲染**: `@luvi/lv-markdown-in` 原生 Markdown 渲染（LaTeX 公式、代码高亮、Mermaid 图表）
 
 ## 功能特性
 

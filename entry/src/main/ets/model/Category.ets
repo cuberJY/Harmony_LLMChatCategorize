@@ -7,13 +7,14 @@
  * 重命名/改色等操作直接修改 @Trace 属性即可驱动列表项实时刷新（无需 listVersion 强刷）
  */
 import { generateId } from "../common/Utils";
+import { DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
 
 @ObservedV2
 export class Category {
   @Trace id: string = ""; // UUID 分类ID
   @Trace name: string = ""; // 文件夹名称
   @Trace parentId: string = ""; // 父文件夹 ID，空串 = 顶级文件夹
-  @Trace color: string = "#FF9F0A"; // 文件夹图标颜色（默认橙色）
+  @Trace color: string = DEFAULT_FOLDER_COLOR; // 文件夹图标颜色（默认取色板首色）
   @Trace sortOrder: number = 0; // 排序序号
   @Trace isPinned: boolean = false; // 是否置顶
   @Trace createdAt: number = 0; // 创建时间戳（毫秒）

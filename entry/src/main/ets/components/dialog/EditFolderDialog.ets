@@ -8,18 +8,18 @@
  * 关闭方式：组件通过 onRequestClose 回调通知父页面 closeCustomDialog(dialogId)
  */
 
-import { FOLDER_COLORS } from "../../common/AppConstants";
+import { FOLDER_COLORS, DEFAULT_FOLDER_COLOR } from "../../common/AppConstants";
 import { showToast } from "../../common/Utils";
 
 @ComponentV2
 export struct EditFolderDialog {
   @Param title: string = "编辑文件夹";
   @Param oldName: string = ""; // 原文件夹名（预填）
-  @Param oldColor: string = "#FF9F0A"; // 原图标颜色（高亮选中）
+  @Param oldColor: string = DEFAULT_FOLDER_COLOR; // 原图标颜色（高亮选中）
   @Event onConfirm: (name: string, color: string) => void = (name: string, color: string) => {};
   @Event onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
   @Local inputValue: string = ""; // 名称输入内容
-  @Local selectedColor: string = "#FF9F0A"; // 当前选中的颜色
+  @Local selectedColor: string = DEFAULT_FOLDER_COLOR; // 当前选中的颜色
 
   aboutToAppear(): void {
     this.inputValue = this.oldName;
@@ -138,7 +138,7 @@ export struct EditFolderDialog {
 export class EditFolderDialogParams {
   title: string = "编辑文件夹";
   oldName: string = ""; // 原文件夹名（预填）
-  oldColor: string = "#FF9F0A"; // 原图标颜色（高亮选中）
+  oldColor: string = DEFAULT_FOLDER_COLOR; // 原图标颜色（高亮选中）
   onConfirm: (name: string, color: string) => void = (name: string, color: string) => {}; // 确认回调
   onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
 }

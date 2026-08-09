@@ -247,6 +247,7 @@ export class ChatViewModel {
     // 2. 创建 AI 占位消息（保留引用，用于流式填充）
     const aiMsg = this.addMessage("assistant", "");
     aiMsg.isThinking = true;
+    aiMsg.isStreaming = true; // 流式进行中标记
     aiMsg.thinkingStartTime = Date.now();
 
     // 3. 构造历史上下文（不含最后一条空 AI 消息），并捕获目标对话
@@ -314,6 +315,7 @@ export class ChatViewModel {
         // 清除定时器并丢弃缓冲区（fullText 包含完整内容）
         task.clearTimer();
         task.isStreaming = false;
+        aiMsg.isStreaming = false; // 流式结束
         aiMsg.isThinking = false;
         aiMsg.content = fullText;
         this.streamTasks.delete(task.conversationId); // 任务结束，从表中移除
@@ -335,6 +337,7 @@ export class ChatViewModel {
       onError: (errorMessage: string) => {
         task.clearTimer();
         task.isStreaming = false;
+        aiMsg.isStreaming = false; // 异常结束同样退出流式态
         aiMsg.isThinking = false;
         this.streamTasks.delete(task.conversationId);
         this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务

@@ -5,15 +5,18 @@
  */
 import { Message } from "../../model/Message";
 import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../common/AppConstants";
+import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 @ComponentV2
 export struct MessageBubble {
   /**
    * @Param：父组件传入的 @ObservedV2 消息对象
-   * message 上的 @Trace 属性（content/reasoning/isThinking 等）变化时自动刷新本组件
+   * message 上的 @Trace 属性（content/reasoning/isThinking/isStreaming 等）变化时自动刷新本组件
    *（流式输出过程即依赖此机制实时重绘气泡）
    */
   @Param message: Message = new Message("", "user", "");
   @Local isReasoningExpanded: boolean = true; // 是否展开思考内容
+  // lv-markdown-in 的样式/拦截控制器（普通成员即可，无需响应式）
+  private mdController: MarkdownController = new MarkdownController();
 
   build() {
     Row() {
@@ -101,8 +104,8 @@ export struct MessageBubble {
 
   @Builder
   bubbleContent(fontColor: ResourceColor, bgColor: ResourceColor) {
-    // 用户消息 或 AI 已有正文：显示正文
-    if (this.message.isUser() || this.message.content.length > 0) {
+    // 用户消息：保持纯文本渲染（气泡宽度自适应）
+    if (this.message.isUser()) {
       Text(this.message.content)
         .fontSize($r('app.float.font_body'))
         .fontColor(fontColor)
@@ -117,6 +120,31 @@ export struct MessageBubble {
         .constraintSize({
           maxWidth: `${(this.message.isUser() ? BUBBLE_MAX_WIDTH_RATIO_USER : BUBBLE_MAX_WIDTH_RATIO_AI) * 100}%`,
         });
+    } else if (this.message.content.length > 0) {
+      // AI 消息（lv-markdown-in 原生渲染）：
+      //  - 全文直接交给 Markdown 组件，库内置支持 markdown 语法、LaTeX 公式、代码高亮
+      //  - mermaid 代码块由库内置的 Mermaid 渲染能力处理（自带 mermaid.main.js），无需自建 WebView
+      //  - 流式输出时 text 为 @Prop，chunk 增量自动重绘（库内部支持 streamingActive）
+      Column() {
+        Markdown({
+          text: this.message.content,
+          mode: "text",
+          controller: this.mdController,
+        })
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding({
+        left: $r('app.float.bubble_padding_h'),
+        right: $r('app.float.bubble_padding_h'),
+        top: $r('app.float.bubble_padding_v'),
+        bottom: $r('app.float.bubble_padding_v'),
+      })
+      .borderRadius($r('app.float.bubble_radius'))
+      .backgroundColor(bgColor)
+      .constraintSize({
+        maxWidth: `${(this.message.isUser() ? BUBBLE_MAX_WIDTH_RATIO_USER : BUBBLE_MAX_WIDTH_RATIO_AI) * 100}%`,
+      });
     } else {
       // AI 消息、正文为空：显示阶段状态（优先级：搜索 > 失败 > 思考中）
       if (this.message.isSearching) {

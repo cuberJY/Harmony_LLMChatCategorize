@@ -86,7 +86,7 @@ export class DatabaseHelper {
       id TEXT PRIMARY KEY,               -- 文件夹 ID（UUID）
       name TEXT NOT NULL,                -- 文件夹名称
       parent_id TEXT NOT NULL DEFAULT '',-- 父文件夹 ID，空串 = 顶级
-      color TEXT NOT NULL DEFAULT '#FF9F0A', -- 文件夹图标颜色（默认橙色）
+      color TEXT NOT NULL, -- 文件夹图标颜色（默认值由模型层 AppConstants.DEFAULT_FOLDER_COLOR 保证）
       sort_order INTEGER NOT NULL DEFAULT 0, -- 排序序号（0 为置顶）
       is_pinned INTEGER NOT NULL DEFAULT 0, -- 是否置顶
       created_at INTEGER NOT NULL        -- 创建时间戳（毫秒）

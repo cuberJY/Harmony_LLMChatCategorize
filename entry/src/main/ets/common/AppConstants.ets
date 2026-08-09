@@ -24,6 +24,9 @@ export const FOLDER_COLORS: string[] = [
   "#8E8E93", // 灰
 ];
 
+// 文件夹默认图标颜色（唯一真源，其余文件一律引用此常量，禁止再写 #FF9F0A 字面量）
+export const DEFAULT_FOLDER_COLOR: string = FOLDER_COLORS[0];
+
 // 用户气泡最大宽度占屏幕比例（constraintSize 需拼 "75%" 形式字符串，无法用资源表达）
 export const BUBBLE_MAX_WIDTH_RATIO_USER: number = 0.75;
 // AI 气泡最大宽度占屏幕比例（=100%，即不限制）
