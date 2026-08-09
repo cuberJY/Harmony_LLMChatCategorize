@@ -36,6 +36,8 @@ import { SideBarViewModel, GroupItem } from "../viewmodel/SideBarViewModel";
 export struct SideBarPage {
   // 路由栈（NavDestination.onReady 获取）：跳转 FolderPage/SettingsPage 并转发返回结果
   private pathStack: NavPathStack = new NavPathStack();
+  // 当前打开的对话 id（来自 ChatPage 路由参数，用于历史列表高亮当前对话）
+  @Param currentConversationId: string = "";
   // 转场位移动画状态：百分比字符串，绑定 NavDestination.translate（由转场回调驱动）
   @Local offsetX: string = "0%";
   // 本页在路由栈中的索引（注册/注销转场回调用，onReady 时确定）
@@ -238,6 +240,8 @@ export struct SideBarPage {
                             conversation: conv,
                             isEditMode: this.vm.isEditMode,
                             isSelected: this.vm.selectedIds.indexOf(conv.id) >= 0,
+                            // 是否为当前对话（高亮显示）
+                            isCurrent: conv.id === this.currentConversationId,
                             // 历史页：星标显示在行尾；不显示"移动"（未收藏对话不参与文件夹分类）
                             showMoveMenu: false,
 

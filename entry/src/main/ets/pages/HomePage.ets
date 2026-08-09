@@ -23,6 +23,8 @@ import { FolderPage } from "./FolderPage";
 import { SettingsPage } from "./SettingsPage";
 // FolderPage 路由参数（pushPathByName 的第二个参数）
 import { FolderParams } from "../model/FolderParams";
+// SideBarPage 路由参数
+import { SideBarParams } from "../model/SideBarParams";
 // 页面转场动画回调管理（配合 customNavContentTransition 驱动各页面自身的位移动画）
 import { NavTransitionManager } from "../common/NavTransitionManager";
 
@@ -51,7 +53,9 @@ struct HomePage {
     if (name === "ChatPage") {
       ChatPage()
     } else if (name === "SideBarPage") {
-      SideBarPage()
+      SideBarPage({
+        currentConversationId: (param as SideBarParams | undefined)?.currentConversationId ?? "",
+      })
     } else if (name === "FolderPage") {
       // FolderPage 的 @Param 由路由参数初始化（folderId / folderName）
       FolderPage({

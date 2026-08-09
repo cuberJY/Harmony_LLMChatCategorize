@@ -70,7 +70,8 @@ export class MessageDataSource implements IDataSource {
 
 @ObservedV2
 export class ChatViewModel {
-  // ===== UI 可观察状态（@Trace：页面 build 中读取，变化时自动刷新） =====
+  // UI 可观察状态（@Trace：页面 build 中读取，变化时自动刷新）
+
   // 是否自动跟随滚动到底部
   @Trace isAtBottom: boolean = true;
   // 顶部标题（显示当前对话标题）
@@ -78,13 +79,14 @@ export class ChatViewModel {
   // 当前模型名称
   @Trace modelName: string = "";
 
-  // ===== 供页面 build 绑定的对象 =====
+  // 供页面 build 绑定的对象
+
   // 消息列表滚动条
   listScroller: Scroller = new Scroller();
   // LazyForEach 消息数据源
   messageDataSource: MessageDataSource = new MessageDataSource();
 
-  // ===== 非状态成员（内部逻辑用） =====
+  // 非状态成员（内部逻辑用）
   private isStreaming: boolean = false; // 是否正在流式回复中（防止连发/并发串写）
   private dbInitPromise: Promise<void> = Promise.resolve(); // 数据库初始化完成信号
   private currentConversation: Conversation = new Conversation(); // 当前对话对象
@@ -95,7 +97,7 @@ export class ChatViewModel {
   private reasoningBuffer: string = ""; // 思考增量缓冲区
   private flushTimerId: number = -1; // 节流定时器 ID
 
-  // ===== 生命周期（由页面生命周期回调转发） =====
+  // 生命周期（由页面生命周期回调转发）
 
   // 页面 aboutToAppear：初始化数据库（页面级 UIAbilityContext）
   aboutToAppear(context: common.UIAbilityContext): void {
@@ -122,9 +124,21 @@ export class ChatViewModel {
   onPageShow(): void {
     this.modelName = AppConfig.getInstance().getModel();
     this.syncTitleFromDb();
+    this.verifyCurrentConversation();
   }
 
-  // ===== 对话管理 =====
+  // 当前对话已在数据库被删除（侧边栏删除后返回）→ 重置为新对话，避免残留消息
+  private async verifyCurrentConversation(): Promise<void> {
+    const id = this.currentConversationId;
+    if (id.length === 0) return; // 空白新对话尚未入库，跳过（避免误判为"已删除"）
+    const conv = await ConversationRepository.getInstance().getById(id);
+    if (this.currentConversationId !== id) return; // 查询期间对话已切换，丢弃过期结果
+    if (!conv) {
+      this.newConversation(); // 已删除 → 清空消息列表并进入"新对话"
+    }
+  }
+
+  // 对话管理
 
   // 新建对话：创建新对话对象、清空消息列表（不立即入库，等待首条用户消息）
   newConversation(): void {
@@ -182,7 +196,7 @@ export class ChatViewModel {
   async handleUserSend(text: string, webSearch: boolean, deepThinking: boolean): Promise<void> {
     // 流式进行中禁止连发：避免空 AI 占位污染上下文、共享缓冲被并发流串写
     if (this.isStreaming) {
-      showToast($r('app.string.streaming_busy'));
+      showToast($r("app.string.streaming_busy"));
       return;
     }
     // 等待数据库初始化完成，确保首条消息正常入库
@@ -270,7 +284,8 @@ export class ChatViewModel {
         this.isStreaming = false;
         // 保留已接收的流式内容，末尾追加错误提示（不再整体覆盖）
         const received = aiMsg.content;
-        aiMsg.content = received.length > 0 ? `${received}\n\n[错误] ${errorMessage}` : `[错误] ${errorMessage}`;
+        aiMsg.content =
+          received.length > 0 ? `${received}\n\n[错误] ${errorMessage}` : `[错误] ${errorMessage}`;
         ConversationRepository.getInstance().updateMessage(aiMsg); // 错误消息也入库，方便用户从历史中复盘
         if (this.currentConversation.id === targetConv.id) {
           this.scrollToBottom();
@@ -382,5 +397,10 @@ export class ChatViewModel {
     const current = this.messageDataSource.getData(index);
     const previous = this.messageDataSource.getData(index - 1);
     return current.createdAt - previous.createdAt > 10 * 60 * 1000; // 时间间隔 > 10 分钟（毫秒）
+  }
+
+  // 判断侧边栏是否标记"当前对话"高亮
+  getCurrentConversationId(): string {
+    return this.currentConversationId;
   }
 }

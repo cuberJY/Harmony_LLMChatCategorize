@@ -11,6 +11,7 @@ export struct ConversationItem {
   @Param conversation: Conversation = new Conversation();
   @Param isEditMode: boolean = false; // 是否多选编辑模式
   @Param isSelected: boolean = false; // 当前项是否被选中
+  @Param isCurrent: boolean = false; // 是否为当前打开的对话
   @Param showFavoriteIcon: boolean = true; // 是否显示收藏星标（历史页显示，收藏页关闭）
   @Param showPinMenu: boolean = false; // 是否显示置顶菜单与图标（收藏页/文件夹页开启，历史页关闭）
   @Param showMoveMenu: boolean = true; // 是否显示"移动"菜单项（收藏页显示，历史页关闭）
@@ -71,7 +72,10 @@ export struct ConversationItem {
       top: $r('app.float.space_md'),
       bottom: $r('app.float.space_md'),
     })
-    .backgroundColor(this.conversation.isPinned ? $r('app.color.item_pin_bg') : Color.Transparent)
+    .backgroundColor(
+      this.isCurrent ? $r('app.color.item_current_bg')
+        : (this.conversation.isPinned ? $r('app.color.item_pin_bg') : Color.Transparent),
+    )
     .onClick(() => {
       // 点击 → 回调父组件，由父组件决定跳转逻辑
       if (this.isEditMode) {

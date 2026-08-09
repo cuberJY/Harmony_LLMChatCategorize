@@ -2,6 +2,7 @@
 import { common } from "@kit.AbilityKit";
 import { Message } from "../model/Message";
 import { Conversation } from "../model/Conversation";
+import { SideBarParams } from "../model/SideBarParams";
 import { MessageBubble } from "../components/chat/MessageBubble";
 import { ChatInput } from "../components/chat/ChatInput";
 import { formatSmartTime } from "../common/TimeUtil";
@@ -200,10 +201,11 @@ export struct ChatPage {
    *   - 刷新模型名与标题（vm.onPageShow）
    *   - 若返回时携带选中的对话（pop(conv)），则加载该对话
    */
+
   private pushSideBar(): void {
     this.pathStack.pushPathByName(
       "SideBarPage",
-      undefined,
+      new SideBarParams(this.vm.getCurrentConversationId()),
       (popInfo: PopInfo) => {
         this.vm.onPageShow();
         const conv = popInfo.result as Conversation | undefined;

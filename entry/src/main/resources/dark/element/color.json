@@ -97,6 +97,10 @@
       "value": "#FFD60A"
     },
     {
+      "name": "item_current_bg",
+      "value": "#2D3A52"
+    },
+    {
       "name": "item_pin_bg",
       "value": "#2A2A2C"
     },
