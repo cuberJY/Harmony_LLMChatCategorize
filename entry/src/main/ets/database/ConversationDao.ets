@@ -85,6 +85,23 @@ export class ConversationDao {
     }
   }
 
+  // 仅更新对话的 updated_at（流式结束后刷新排序时间戳）
+  // 不整体 update：避免用捕获的旧对话对象覆盖流式期间的重命名/收藏等字段
+  async updateTimestampOnly(id: string, updatedAt: number): Promise<void> {
+    const store = this.store;
+    if (!store) return;
+    try {
+      const values: relationalStore.ValuesBucket = { updated_at: updatedAt };
+      const predicates = new relationalStore.RdbPredicates("conversation");
+      predicates.equalTo("id", id);
+      await store.update(values, predicates);
+    } catch (e) {
+      Logger.error(`ConversationDao.updateTimestampOnly failed: ${JSON.stringify(e)}`);
+      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
+      throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
+    }
+  }
+
   // 按 id 批量删除对话（不含消息，消息由 Repository 事务内一并删除）
   async deleteByIds(ids: string[]): Promise<void> {
     const store = this.store;

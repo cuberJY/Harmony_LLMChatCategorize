@@ -120,6 +120,17 @@ export class ConversationRepository {
     }
   }
 
+  // 仅更新对话的 updated_at（流式结束后刷新排序，避免整体 update 覆盖流式期间的其他字段）
+  async updateTimestampOnly(id: string, updatedAt: number): Promise<boolean> {
+    try {
+      await ConversationDao.getInstance().updateTimestampOnly(id, updatedAt);
+      return true;
+    } catch (e) {
+      Logger.error(`ConversationRepository.updateTimestampOnly failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
   /**
    * 移动对话：更新分类并持久化（阶段七：由 common/FolderOps.moveConversationTo 下沉）
    * @param conv 被移动的对话（@Observed，直接改字段即可驱动 UI）

@@ -16,6 +16,7 @@ import { ConversationRepository } from "../database/ConversationRepository";
 import { Conversation } from "../model/Conversation";
 import { Message } from "../model/Message";
 import { StreamCallbacks } from "../service/provider/LLMProvider";
+import { StreamTask } from "../service/StreamTask";
 import { LLMProviderFactory } from "../service/LLMProviderFactory";
 import { SearchProviderFactory } from "../service/SearchProviderFactory";
 import { AppConfig } from "../config/AppConfig";
@@ -87,15 +88,15 @@ export class ChatViewModel {
   messageDataSource: MessageDataSource = new MessageDataSource();
 
   // 非状态成员（内部逻辑用）
-  private isStreaming: boolean = false; // 是否正在流式回复中（防止连发/并发串写）
   private dbInitPromise: Promise<void> = Promise.resolve(); // 数据库初始化完成信号
   private currentConversation: Conversation = new Conversation(); // 当前对话对象
   private currentConversationId: string = ""; // 当前对话id
   private isFirstUserMsg: boolean = true; // 标记是否第一条用户消息（决定是否生成标题）
   private isUserScrolling: boolean = false; // 是否正在手动滚动
-  private streamBuffer: string = ""; // 正文增量缓冲区
-  private reasoningBuffer: string = ""; // 思考增量缓冲区
-  private flushTimerId: number = -1; // 节流定时器 ID
+  private isDestroyed: boolean = false; // 页面销毁标记（销毁后流回调跳过 UI 更新）
+  // 进行中的流式任务表：key = 对话 id，一个对话最多一个进行中的流
+  // 支持多对话并行流式：切走后原对话的流仍在后台推进，切回时由 loadConversation 重新挂载
+  private streamTasks: Map<string, StreamTask> = new Map();
 
   // 生命周期（由页面生命周期回调转发）
 
@@ -110,9 +111,12 @@ export class ChatViewModel {
       });
   }
 
-  // 页面 aboutToDisappear：清理节流定时器，防止内存泄漏
+  // 页面 aboutToDisappear：标记销毁并清理所有进行中任务的定时器，防止内存泄漏
   aboutToDisappear(): void {
-    this.clearFlushTimer();
+    this.isDestroyed = true;
+    this.streamTasks.forEach((task: StreamTask) => {
+      task.clearTimer();
+    });
   }
 
   /**
@@ -151,6 +155,9 @@ export class ChatViewModel {
 
   /**
    * 加载指定历史对话：替换消息列表 + 更新标题
+   * 并发要点：
+   *   - await 后校验"仍是该对话"，丢弃过期结果（快速连续切换不会显示错乱）
+   *   - 若该对话有进行中的流任务，用内存中的实时 aiMsg 替换 DB 里的空占位，恢复流式显示
    * @param conv 要加载的对话
    */
   async loadConversation(conv: Conversation): Promise<void> {
@@ -160,12 +167,31 @@ export class ChatViewModel {
     this.isFirstUserMsg = false; // 历史对话已有消息，不再生成标题
     this.title = conv.title.length > 0 ? conv.title : "新聊天";
 
-    // 2. 从数据库查询该对话的全部消息，替换列表
+    // 2. 从数据库查询该对话的全部消息
     const msgs = await ConversationRepository.getInstance().getMessages(conv.id);
-    this.messageDataSource.clear();
-    msgs.forEach((m: Message) => this.messageDataSource.push(m));
+    // 过期结果守卫：查询期间用户又切到了其他对话 → 丢弃本次结果，避免列表显示错乱
+    if (this.currentConversationId !== conv.id) {
+      return;
+    }
 
-    // 3. 渲染完成后滚动到底部
+    // 3. 替换列表；若有进行中的流任务，用实时 aiMsg 替换 DB 中的空占位消息（避免重复）
+    this.messageDataSource.clear();
+    const task = this.streamTasks.get(conv.id);
+    let attached = false; // 是否已把任务消息挂入列表
+    msgs.forEach((m: Message) => {
+      if (!attached && task !== undefined && task.isStreaming && m.id === task.aiMsg.id) {
+        this.messageDataSource.push(task.aiMsg);
+        attached = true;
+      } else {
+        this.messageDataSource.push(m);
+      }
+    });
+    // 兜底：任务消息不在 DB 结果中（异常情况），直接追加
+    if (!attached && task !== undefined && task.isStreaming) {
+      this.messageDataSource.push(task.aiMsg);
+    }
+
+    // 4. 渲染完成后滚动到底部
     setTimeout(() => {
       this.scrollToBottom();
     }, 100);
@@ -189,19 +215,30 @@ export class ChatViewModel {
 
   /**
    * 处理用户发送：可选联网搜索 + LLM 流式回复
+   *
+   * 并发要点：
+   *   - 捕获当前对话 id 作为任务归属，消息/占位/上下文/任务全部保持一致
+   *   - 连发限制按"对话"粒度判断（isStreamingFor），不同对话的流互不影响
+   *   - 每个对话一个 StreamTask，缓冲/节流/占位消息全部按任务隔离
+   *   - onComplete 只更新 updated_at（避免覆盖流式期间的重命名等字段）
+   *
    * @param text 用户输入文本
    * @param webSearch 是否开启联网搜索
    * @param deepThinking 是否开启深度思考
    */
   async handleUserSend(text: string, webSearch: boolean, deepThinking: boolean): Promise<void> {
-    // 流式进行中禁止连发：避免空 AI 占位污染上下文、共享缓冲被并发流串写
-    if (this.isStreaming) {
+    // 等待数据库初始化完成，确保首条消息正常入库
+    await this.dbInitPromise;
+    if (this.isDestroyed) return; // 页面已销毁，中止本次发送
+
+    // 捕获当前对话 id：后续统一用捕获值，保证消息/占位/上下文/任务归属一致
+    const sendConvId = this.currentConversationId;
+    // 连发限制按"对话"粒度判断（放在 await 之后，避免快速连点两次双双通过检查）
+    if (this.isStreamingFor(sendConvId)) {
       showToast($r("app.string.streaming_busy"));
       return;
     }
-    // 等待数据库初始化完成，确保首条消息正常入库
-    await this.dbInitPromise;
-    this.isStreaming = true;
+
     // 1. 创建用户消息
     this.addMessage("user", text);
     this.scrollToBottom();
@@ -211,26 +248,31 @@ export class ChatViewModel {
     aiMsg.isThinking = true;
     aiMsg.thinkingStartTime = Date.now();
 
-    // 3. 构造历史上下文（不含最后一条空 AI 消息）
-    // 捕获当前对话：防止流式回复期间切换/新建对话时，onComplete 写错 updatedAt
+    // 3. 构造历史上下文（不含最后一条空 AI 消息），并捕获目标对话
+    // 捕获当前对话：流式期间可能切换/新建对话，onComplete 只更新捕获对象，不污染其他对话
     const targetConv = this.currentConversation;
     const context: Message[] = this.messageDataSource.getAll().slice(0, -1);
 
-    // 4. 联网搜索（开关开启 且 渠道已配置，才显示搜索状态并真正发起）
+    // 4. 登记流式任务（替代原全局 isStreaming 标志，实现按对话隔离）
+    const task = new StreamTask(sendConvId, aiMsg, targetConv);
+    this.streamTasks.set(sendConvId, task);
+
+    // 5. 联网搜索（开关开启 且 渠道已配置，才显示搜索状态并真正发起）
     if (webSearch && SearchProviderFactory.create().isAvailable()) {
-      // 4.1 显示"正在搜索"状态（isSearching 控制，不写入 content）
-      //     @ObservedV2 + @Trace 自动感知属性变化，无需手动触发列表刷新
+      // 5.1 显示"正在搜索"状态（isSearching 控制，不写入 content）
       aiMsg.isSearching = true;
 
-      // 4.2 调用搜索服务（失败时返回空串，不阻断流程）
+      // 5.2 调用搜索服务（失败时返回空串，不阻断流程）
+      // 注意：await 期间可能切换对话，之后一律使用捕获的 sendConvId，不用 this.currentConversationId
       const searchResult = await SearchProviderFactory.create().search(text);
+      if (this.isDestroyed) return; // 页面已销毁，放弃后续流程
 
-      // 4.3 结束搜索状态
+      // 5.3 结束搜索状态
       aiMsg.isSearching = false;
       if (searchResult.length > 0) {
-        // 有结果：作为 system 消息插入上下文最前面
+        // 有结果：作为 system 消息插入上下文最前面（归属捕获的对话）
         const searchMsg = new Message(
-          this.currentConversationId,
+          sendConvId,
           "system",
           `以下是从网络搜索到的参考资料，请基于这些信息回答用户的问题：\n\n${searchResult}`,
         );
@@ -240,60 +282,70 @@ export class ChatViewModel {
         aiMsg.searchFailed = true;
       }
 
-      // 4.4 恢复"思考中"状态，重新计时
+      // 5.4 恢复"思考中"状态，重新计时
       aiMsg.isThinking = true;
       aiMsg.thinkingStartTime = Date.now();
     }
 
-    // 5. 构造回调并调用 LLM Provider
+    // 6. 构造回调并调用 LLM Provider（回调统一操作 task，实现按对话隔离）
     const callbacks: StreamCallbacks = {
-      // 思考内容增量 → 先攒到缓冲区，节流刷新
+      // 思考内容增量 → 攒到任务缓冲，节流刷新
       onReasoningChunk: (deltaReasoning: string) => {
-        this.reasoningBuffer += deltaReasoning;
-        this.scheduleFlush(aiMsg);
+        if (this.isDestroyed) return; // 页面已销毁：跳过 UI 更新
+        task.reasoningBuffer += deltaReasoning;
+        this.scheduleFlush(task);
       },
-      // 正文增量 → 先攒到缓冲区，节流刷新
+      // 正文增量 → 攒到任务缓冲，节流刷新
       onChunk: (deltaText: string) => {
+        if (this.isDestroyed) return;
         aiMsg.searchFailed = false;
         // 收到正文 = 思考结束（状态立即变更，不延迟）
         if (aiMsg.isThinking) {
           aiMsg.isThinking = false;
           aiMsg.thinkingDuration = Math.round((Date.now() - aiMsg.thinkingStartTime) / 100) / 10;
         }
-        this.streamBuffer += deltaText;
-        this.scheduleFlush(aiMsg);
+        task.streamBuffer += deltaText;
+        this.scheduleFlush(task);
       },
       onComplete: (fullText: string) => {
         // 清除定时器并丢弃缓冲区（fullText 包含完整内容）
-        this.clearFlushTimer();
+        task.clearTimer();
+        task.isStreaming = false;
         aiMsg.isThinking = false;
         aiMsg.content = fullText;
-        this.isStreaming = false;
+        this.streamTasks.delete(task.conversationId); // 任务结束，从表中移除
 
-        ConversationRepository.getInstance().updateMessage(aiMsg); // 持久化：更新 AI 消息完整内容
-        targetConv.updatedAt = aiMsg.createdAt; // 持久化：刷新捕获对话的 updated_at
-        ConversationRepository.getInstance().update(targetConv);
+        // 持久化：更新 AI 消息完整内容
+        ConversationRepository.getInstance().updateMessage(aiMsg);
+        // 刷新捕获对话的 updated_at：仅更新时间戳，
+        // 避免整体 update 覆盖流式期间侧边栏的重命名/收藏等字段
+        task.targetConv.updatedAt = aiMsg.createdAt;
+        ConversationRepository.getInstance().updateTimestampOnly(task.targetConv.id, task.targetConv.updatedAt);
+        // 页面已销毁：跳过滚动
+        if (this.isDestroyed) return;
         // 仅在用户仍停留在原对话时滚动到底部，避免误滚其他对话
-        if (this.currentConversation.id === targetConv.id) {
+        if (this.currentConversationId === task.conversationId) {
           this.scrollToBottom();
         }
       },
       onError: (errorMessage: string) => {
-        this.clearFlushTimer();
+        task.clearTimer();
+        task.isStreaming = false;
         aiMsg.isThinking = false;
-        this.isStreaming = false;
+        this.streamTasks.delete(task.conversationId);
         // 保留已接收的流式内容，末尾追加错误提示（不再整体覆盖）
         const received = aiMsg.content;
         aiMsg.content =
           received.length > 0 ? `${received}\n\n[错误] ${errorMessage}` : `[错误] ${errorMessage}`;
         ConversationRepository.getInstance().updateMessage(aiMsg); // 错误消息也入库，方便用户从历史中复盘
-        if (this.currentConversation.id === targetConv.id) {
+        if (this.isDestroyed) return;
+        if (this.currentConversationId === task.conversationId) {
           this.scrollToBottom();
         }
       },
     };
 
-    // 6. 调用 LLM（通过工厂获取 Provider，业务层不依赖具体供应商）
+    // 7. 调用 LLM（通过工厂获取 Provider，业务层不依赖具体供应商）
     LLMProviderFactory.create().sendMessage(context, callbacks, deepThinking);
   }
 
@@ -322,38 +374,33 @@ export class ChatViewModel {
   }
 
   /**
-   * 节流刷新：将缓冲区的增量文本合并后一次性写入 Message 属性
-   * 每 50ms 最多刷新一次，将 ~100 次/秒的 UI 更新降到 ~20 次/秒
-   * @param aiMsg 当前正在流式填充的 AI 消息对象
+   * 指定对话是否正在流式回复中（连发限制按对话粒度判断，支持多对话并发）
+   * @param conversationId 对话 id
    */
-  private scheduleFlush(aiMsg: Message): void {
-    // 已有定时器在等待 → 跳过，本次增量会在下次 flush 时一并写入
-    if (this.flushTimerId !== -1) {
-      return;
-    }
-    this.flushTimerId = setTimeout(() => {
-      // 合并缓冲区内容，一次性写入（触发 @Trace → MessageBubble 重绘）
-      if (this.reasoningBuffer.length > 0) {
-        aiMsg.reasoning += this.reasoningBuffer;
-        this.reasoningBuffer = "";
-      }
-      if (this.streamBuffer.length > 0) {
-        aiMsg.content += this.streamBuffer;
-        this.streamBuffer = "";
-      }
-      this.flushTimerId = -1;
-      this.scrollToBottom();
-    }, 50); // 50ms ≈ 20fps，肉眼几乎无感知
+  private isStreamingFor(conversationId: string): boolean {
+    const task = this.streamTasks.get(conversationId);
+    return task !== undefined && task.isStreaming;
   }
 
-  // 清除节流定时器并清空缓冲区（用于 onComplete / onError / 页面销毁）
-  private clearFlushTimer(): void {
-    if (this.flushTimerId !== -1) {
-      clearTimeout(this.flushTimerId);
-      this.flushTimerId = -1;
+  /**
+   * 节流刷新：将任务缓冲区的增量文本合并后一次性写入 Message 属性
+   * 每 50ms 最多刷新一次，将 ~100 次/秒的 UI 更新降到 ~20 次/秒
+   * 每个 StreamTask 独立调度，多个对话并发流互不影响
+   * @param task 当前正在流式填充的流式任务
+   */
+  private scheduleFlush(task: StreamTask): void {
+    // 已有定时器在等待 → 跳过，本次增量会在下次 flush 时一并写入
+    if (task.flushTimerId !== -1) {
+      return;
     }
-    this.streamBuffer = "";
-    this.reasoningBuffer = "";
+    task.flushTimerId = setTimeout(() => {
+      // 合并缓冲区内容，一次性写入（触发 @Trace → MessageBubble 重绘）
+      task.flush();
+      // 仅当前对话正在展示该任务时才滚动，避免 A 对话的流把 B 对话列表拖到底部
+      if (this.currentConversationId === task.conversationId) {
+        this.scrollToBottom();
+      }
+    }, 50); // 50ms ≈ 20fps，肉眼几乎无感知
   }
 
   // 列表滚动控制（由页面 build 事件绑定）

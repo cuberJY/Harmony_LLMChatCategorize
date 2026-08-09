@@ -63,9 +63,6 @@ export class DeepSeekProvider implements LLMProvider {
   // 单例实例
   private static instance: DeepSeekProvider;
 
-  // SSE 解析缓冲区（处理不完整的 chunk）
-  private sseBuffer: string = "";
-
   // 私有构造函数
   private constructor() {}
 
@@ -103,7 +100,9 @@ export class DeepSeekProvider implements LLMProvider {
       return;
     }
     const config = AppConfig.getInstance().getConfig();
-    this.sseBuffer = "";
+    // 关键：SSE 缓冲改为本次调用私有的局部变量（此前是单例共享实例字段）
+    // 并发场景下多个对话同时流式，若共享缓冲会被互相污染，导致解析错乱
+    let sseBuffer: string = "";
 
     const httpRequest: http.HttpRequest = http.createHttp();
 
@@ -133,10 +132,10 @@ export class DeepSeekProvider implements LLMProvider {
     // 1. 流式数据接收
     httpRequest.on("dataReceive", (data: ArrayBuffer) => {
       const chunk = this.arrayBufferToString(data);
-      this.sseBuffer += chunk;
+      sseBuffer += chunk;
 
-      const lines = this.sseBuffer.split("\n");
-      this.sseBuffer = lines.pop() || "";
+      const lines = sseBuffer.split("\n");
+      sseBuffer = lines.pop() || "";
 
       for (const line of lines) {
         const result = this.parseSSELine(line);

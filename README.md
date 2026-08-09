@@ -28,6 +28,8 @@
 - **消息持久化** — 用户消息/AI 回复（含思考内容）实时入库，支持历史加载回看
 - **智能滚动** — 自动跟随最新消息；用户手动滚动时暂停跟随
 - **流式节流** — 增量文本 50ms 节流合并刷新，高频流式更新降到 ~20fps
+- **多对话并发流式** — 每个对话独立 StreamTask，切换对话后原流在后台继续，互不串写
+- **流式中断** — 支持中断/取消进行中的流式回复，页面销毁时自动清理定时器防泄漏
 - **键盘避让** — RESIZE 模式，键盘弹出自动钉底
 - **智能时间分割线** — 消息间隔超过 10 分钟自动显示
 
@@ -56,6 +58,7 @@ ChatCategorize/
 │   │   ├── service/         # 服务层（Provider 工厂模式）
 │   │   │   ├── LLMProviderFactory.ets      # 大模型 Provider 工厂
 │   │   │   ├── SearchProviderFactory.ets   # 搜索 Provider 工厂
+│   │   │   ├── StreamTask.ets              # 单个流式任务（缓冲/节流/占位消息隔离）
 │   │   │   └── provider/
 │   │   │       ├── LLMProvider.ets         # 大模型抽象接口（SSE 流式）
 │   │   │       ├── DeepSeekProvider.ets    # DeepSeek 实现（OpenAI 兼容）
@@ -69,7 +72,8 @@ ChatCategorize/
 │   │   │   ├── Message.ets        # 消息模型（含思考/搜索状态）
 │   │   │   ├── Conversation.ets   # 对话模型
 │   │   │   ├── Category.ets       # 文件夹/分类模型
-│   │   │   └── FolderParams.ets   # 文件夹跳转参数
+│   │   │   ├── FolderParams.ets   # 文件夹跳转参数
+│   │   │   └── SideBarParams.ets  # 侧边栏路由参数（高亮当前对话）
 │   │   ├── components/      # UI 组件（按职责分子目录）
 │   │   │   ├── chat/               # 聊天相关
 │   │   │   │   ├── MessageBubble.ets   # 聊天气泡（含思考块）
@@ -191,6 +195,14 @@ ChatCategorize/
 - `FolderViewModel`：文件夹树构建、多级导航、文件夹 CRUD 状态
 - `SideBarViewModel`：历史会话分组、收藏 Tab、批量选择状态
 - 页面与数据层解耦，通过 ViewModel 桥接 DAO/Repository 与 ArkUI 状态
+
+### StreamTask — 多对话并发流式
+
+- 一个进行中的流式任务 = 一个 `StreamTask` 实例（含正文/思考缓冲区、节流定时器、AI 占位消息）
+- `ChatViewModel` 持有 `Map<conversationId, StreamTask>`：切到 B 对话后 A 对话的流在后台继续推进，缓冲互不串写
+- 连发限制按"对话"粒度判断（`isStreamingFor`），不同对话的流互不影响
+- 异步操作（加载对话/查标题）均带"过期结果守卫"：await 后校验对话 id 未变，防止快速切换导致 UI 错乱
+- 页面销毁时遍历任务 `clearTimer()` 清理定时器，防止残留定时器触发过期写入
 
 ### ChatPage — 渲染优化
 

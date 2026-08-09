@@ -24,3 +24,5 @@
 *.log
 # 调试环境文件
 /.dbg
+# 外部参考项目（ChatCube 副本，非本项目代码）
+/chatcube-main from GitHub/
