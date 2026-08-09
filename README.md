@@ -1,5 +1,7 @@
 # Harmony LLM Chat Categorize
 
+> **简体中文 | [English](README_EN.md)**
+
 基于 HarmonyOS NEXT 的 AI 聊天应用，支持流式对话、深度思考、联网搜索、历史会话持久化与对话分类管理。
 
 ## 技术栈
