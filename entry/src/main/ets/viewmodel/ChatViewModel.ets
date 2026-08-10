@@ -221,6 +221,8 @@ export class ChatViewModel {
     this.messageDataSource.replaceAll(chain);
 
     // 4. 渲染完成后滚动到底部
+    this.isAtBottom = true;
+    this.isUserScrolling = false;
     setTimeout(() => {
       this.scrollToBottom();
     }, 100);
@@ -746,6 +748,12 @@ export class ChatViewModel {
     const indexes = new Set<number>();
     group.forEach(m => indexes.add(m.variantIndex));
     return { current: msg.variantIndex + 1, total: Math.max(1, indexes.size) };
+  }
+
+  /** 指定消息是否正在被本对话的流式任务填充（UI 据此禁用操作按钮） */
+  isStreaming(msg: Message): boolean {
+    const task = this.streamTasks.get(this.currentConversationId);
+    return task !== undefined && task.isStreaming && task.aiMsg.id === msg.id;
   }
 
   /**

@@ -144,6 +144,7 @@ export struct ChatPage {
       }
       // layoutWeight(1)：占据 Column 去掉标题栏和输入框后的全部剩余空间
       .layoutWeight(1)
+      .stackFromEnd(true) // 内容从底部排布，打开即见最后一条
       .onAreaChange((oldValue: Area, newValue: Area) => {
         // 可视区变矮 = 键盘弹出窗口被压缩 → 重新钉到底部
         if (newValue.height < oldValue.height) {
