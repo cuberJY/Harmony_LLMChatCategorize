@@ -14,7 +14,7 @@ An AI chat application built on HarmonyOS NEXT, featuring streaming conversation
 - **Network**: `@kit.NetworkKit` (HTTP SSE streaming / Web Search API)
 - **LLM API**: OpenAI-compatible interface (DeepSeek by default, extensible via Provider factory)
 - **Search API**: Bocha AI Web Search API (direct domestic access, extensible via Provider factory)
-- **Markdown Rendering**: [`@luvi/lv-markdown-in`](https://gitee.com/luvi/lv-markdown-in) ([OHPM](https://ohpm.openharmony.cn/#/cn/detail/@luvi%2Flv-markdown-in)) native Markdown rendering (LaTeX formulas, code highlighting, Mermaid diagrams)
+- **Markdown Rendering**: `@luvi/lv-markdown-in` native Markdown rendering (LaTeX formulas, code highlighting, Mermaid diagrams)
 
 ## Features
 
@@ -37,7 +37,7 @@ An AI chat application built on HarmonyOS NEXT, featuring streaming conversation
 - **Keyboard Avoidance** — RESIZE mode pins input to the bottom when the keyboard appears
 - **Smart Time Divider** — Auto-shows a divider when message gaps exceed 10 minutes
 - **Markdown Rendering** — AI messages rendered natively in Markdown (LaTeX formulas, code highlighting, Mermaid diagrams); increments auto-re-render during streaming
-- **Unified Folder Color** — Default icon color consolidated into a single `DEFAULT_FOLDER_COLOR` constant (single source of truth); no hardcoded literals
+- **Markdown Dark Mode Adaptation** — Rendering fully follows system light/dark mode: code block & Mermaid themes and LaTeX formula colors switch dynamically with colorMode; font colors use `$r()` resource references (auto-loaded from the dark/ directory)
 
 ## Project Structure
 
@@ -46,13 +46,13 @@ ChatCategorize/
 ├── entry/src/main/
 │   ├── ets/
 │   │   ├── common/          # Global constants & utilities
-│   │   │   ├── AppConstants.ets    # Colors, font sizes, spacing, prompt texts (incl. DEFAULT_FOLDER_COLOR single source)
+│   │   │   ├── AppConstants.ets    # Colors, font sizes, spacing, prompt texts
 │   │   │   ├── Utils.ets           # Utilities (generateId / showToast / delete confirmation)
 │   │   │   ├── TimeUtil.ets        # Time grouping & smart time formatting
 │   │   │   ├── Logger.ets          # Unified logging wrapper
 │   │   │   └── NavTransitionManager.ets  # Page navigation transition animations
 │   │   ├── config/          # App configuration
-│   │   │   ├── AppConfig.ets       # Config management (Preferences + Asset Store)
+│   │   │   ├── AppConfig.ets       # Config management (Preferences + Asset Store read/write)
 │   │   │   └── SecureKeyStore.ets  # Secure key storage (Asset Store Kit wrapper)
 │   │   ├── database/        # Relational database (DAO + Repository layers)
 │   │   │   ├── DatabaseHelper.ets          # Schema creation + shared RdbStore
@@ -83,7 +83,7 @@ ChatCategorize/
 │   │   │   └── SideBarParams.ets  # Sidebar route params (highlight current conversation)
 │   │   ├── components/      # UI components (grouped by responsibility)
 │   │   │   ├── chat/               # Chat-related
-│   │   │   │   ├── MessageBubble.ets   # Chat bubble (AI messages Markdown-rendered + thinking block)
+│   │   │   │   ├── MessageBubble.ets   # Chat bubble (with thinking block)
 │   │   │   │   └── ChatInput.ets       # Input bar (deep thinking / web search toggles)
 │   │   │   ├── item/                # List items
 │   │   │   │   ├── ConversationItem.ets  # History conversation list item (long-press menu)
@@ -229,12 +229,13 @@ Based on `relationalStore`, three tables:
 
 - AI message content is natively rendered by the `Markdown` component from `@luvi/lv-markdown-in`: full markdown syntax, LaTeX formulas, code highlighting; mermaid code blocks are handled by the library's built-in Mermaid rendering (bundled mermaid.main.js, no custom WebView needed)
 - User messages stay as plain text (adaptive bubble width)
+- **Dark mode adaptation**: font colors use `$r()` resource references (the system auto-loads matching values from the dark/ directory on light/dark switch); code block & Mermaid themes (string `'light'/'dark'` only) and LaTeX formula colors (hex numbers only) are switched dynamically by listening to the system `colorMode` via `on('environment')`, with the listener removed in `aboutToDisappear` to prevent leaks
 - During streaming, `text` is a @Prop and content increments auto-re-render; `Message.isStreaming` marks an in-progress stream, cleared on completion (including errors)
 
 ### Data Models
 
 | Model          | Description                                                              |
 | -------------- | ------------------------------------------------------------------------- |
-| `Message`      | Single message (@Observed), with reasoning/isThinking/isSearching/isStreaming states |
+| `Message`      | Single message (@Observed), with reasoning/isThinking/isSearching states  |
 | `Conversation` | A chat session, optionally belonging to a Category (folder)               |
-| `Category`     | Folder/category (@Observed), with parentId (multi-level nesting) and color (icon color, default from DEFAULT_FOLDER_COLOR) |
+| `Category`     | Folder/category (@Observed), with parentId (multi-level nesting) and color (icon color) |

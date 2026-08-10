@@ -22,7 +22,31 @@
     },
     {
       "name": "font_body",
-      "value": "15fp"
+      "value": "16fp"
+    },
+    {
+      "name": "font_h1",
+      "value": "28fp"
+    },
+    {
+      "name": "font_h2",
+      "value": "24fp"
+    },
+    {
+      "name": "font_h3",
+      "value": "20fp"
+    },
+    {
+      "name": "font_h4",
+      "value": "16fp"
+    },
+    {
+      "name": "font_h5",
+      "value": "16fp"
+    },
+    {
+      "name": "font_h6",
+      "value": "16fp"
     },
     {
       "name": "font_model_name",
@@ -30,7 +54,7 @@
     },
     {
       "name": "font_input",
-      "value": "15fp"
+      "value": "16fp"
     },
     {
       "name": "font_remind",

@@ -36,6 +36,8 @@
 - **后台流式保活** — 退后台且流式进行中时申请 dataTransfer 长时任务，SSE 连接不被系统冻结
 - **键盘避让** — RESIZE 模式，键盘弹出自动钉底
 - **智能时间分割线** — 消息间隔超过 10 分钟自动显示
+- **Markdown 渲染** — AI 消息原生 Markdown 渲染（LaTeX 公式、代码高亮、Mermaid 图表），流式输出增量自动重绘
+- **Markdown 深色模式适配** — 渲染完全跟随系统深浅色：代码块/思维导图主题、LaTeX 公式颜色随 colorMode 动态切换；字体类颜色走 `$r()` 资源引用（dark/ 目录自动加载）
 
 ## 项目结构
 
@@ -222,6 +224,13 @@ ChatCategorize/
 - **LazyForEach**（方案 C）：自定义 `IDataSource` 懒加载，只渲染可视区域消息
 - **流式节流**（方案 A）：增量文本攒入缓冲区，每 50ms 合并刷新一次
 - **页面过渡动画**：ChatPage 与 SideBarPage 左右平移推入
+
+### MessageBubble — Markdown 渲染
+
+- AI 消息正文由 `@luvi/lv-markdown-in` 的 `Markdown` 组件原生渲染：完整 markdown 语法、LaTeX 公式、代码高亮；mermaid 代码块由库内置 Mermaid 渲染处理（自带 mermaid.main.js），无需自建 WebView
+- 用户消息保持纯文本渲染（气泡宽度自适应）
+- **深色模式适配**：字体类颜色传 `$r()` 资源引用，系统在深浅色切换时自动加载 dark/ 目录对应色值；代码块/思维导图主题（仅支持 `'light'/'dark'` 字符串）与 LaTeX 公式颜色（仅支持十六进制 number）通过 `on('environment')` 监听系统 colorMode 动态切换，`aboutToDisappear` 注销监听防泄漏
+- 流式输出时 `text` 为 @Prop，chunk 增量自动重绘；`Message.isStreaming` 标记进行中状态，结束（含异常）时清除
 
 ### 数据模型
 
