@@ -35,14 +35,30 @@ export struct ChatInput {
 
   // 模型名称（由父组件传入）
   @Param modelName: string = "";
+  // 编辑态预填文本（点击用户消息「编辑」后回填到输入框；非空即触发回填）
+  @Param prefillText: string = "";
+  // 是否处于编辑态（编辑消息中，显示提示文案）
+  @Param isEditing: boolean = false;
+
+  // 监听 prefillText 变化：回填内容到输入框（@Monitor 是 V2 监听 @Param 变化的机制）
+  @Monitor('prefillText')
+  onPrefillChanged(): void {
+    if (this.prefillText.length > 0) {
+      this.inputText = this.prefillText;
+    }
+  }
 
   // 发送回调（@Event：V2 允许父组件初始化的普通事件）
   @Event onChange: (text: string, webSearch: boolean, deepThinking: boolean) => void = (text: string, webSearch: boolean, deepThinking: boolean) => {};
 
   build() {
     Column() {
-      // 1. 模型名称
-      Text(this.modelName.length > 0 ? this.modelName : "未配置模型，请前往设置")
+      // 1. 模型名称 / 编辑提示（编辑态时优先显示编辑提示）
+      Text(
+        this.isEditing
+          ? $r('app.string.edit_mode_hint')
+          : (this.modelName.length > 0 ? this.modelName : "未配置模型，请前往设置"),
+      )
         .fontSize($r('app.float.font_model_name'))
         .fontColor($r('app.color.text_secondary'))
         .width("100%")

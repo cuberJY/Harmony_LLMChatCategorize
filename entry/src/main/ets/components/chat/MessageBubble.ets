@@ -19,6 +19,15 @@ export struct MessageBubble {
   @Param message: Message = new Message("", "user", "");
   @Local isReasoningExpanded: boolean = true; // 是否展开思考内容
   @Local isDarkMode: boolean = false; // 跟随系统深浅色（驱动代码块/思维导图主题切换）
+  // 对话分支：变体信息与操作回调（父组件注入）
+  @Param variantCurrent: number = 0; // 当前变体序号（1 起，驱动 "< 4 / 5 >" 中的 4）
+  @Param variantTotal: number = 0; // 分支组变体总数（驱动 "5"）
+  // 注意：不通过 @Param 传入"流式禁用"标志——@Param 在渲染时冻结，流式结束后不会刷新，
+  // 会导致按钮永久置灰（必须切页面重建列表才恢复）。改用 message.isStreaming（@Trace 实时驱动）。
+  @Event onRegenerate: (msg: Message) => void = () => {}; // 「重新生成」：覆盖当前回复
+  @Event onCreateBranch: (msg: Message) => void = () => {}; // 「新建分支」：保留旧回复生成新变体
+  @Event onEdit: (msg: Message) => void = () => {}; // 「编辑」：回填输入框创建新分支
+  @Event onSwitchBranch: (msg: Message, delta: number) => void = () => {}; // 「< >」切换变体
   // lv-markdown-in 的样式/拦截控制器（普通成员即可，无需响应式）
   private mdController: MarkdownController = new MarkdownController();
   private envCallbackId: number = -1; // 系统环境监听回调 ID（aboutToDisappear 注销用）
@@ -34,10 +43,10 @@ export struct MessageBubble {
         const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
         pasteboard.getSystemPasteboard().setData(data)
           .then(() => {
-            this.getUIContext().getPromptAction().showToast({ message: '已复制' });
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copied') });
           })
           .catch(() => {
-            this.getUIContext().getPromptAction().showToast({ message: '复制失败' });
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copy_failed') });
           });
       })
       // 3. 可选：代码块右上角"复制"按钮
@@ -45,7 +54,7 @@ export struct MessageBubble {
         const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
         pasteboard.getSystemPasteboard().setData(data)
           .then(() => {
-            this.getUIContext().getPromptAction().showToast({ message: '代码已复制' });
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.code_copied') });
           });
       });
     // 注册系统环境监听（深浅色切换时动态更新代码块/思维导图主题）
@@ -157,15 +166,17 @@ export struct MessageBubble {
         } else {
           this.bubbleContent($r('app.color.text_ai'), $r('app.color.bubble_bg_ai'));
         }
+        // 底部操作栏（复制/编辑/重新生成/新建分支/切换分支）
+        this.actionBar();
       }
-      .alignItems(HorizontalAlign.Start)
-      .constraintSize({
-        maxWidth: `${(this.message.isUser() ? BUBBLE_MAX_WIDTH_RATIO_USER : BUBBLE_MAX_WIDTH_RATIO_AI) * 100}%`,
-      })
+      .alignItems(this.message.isUser() ? HorizontalAlign.End : HorizontalAlign.Start)
+      // 关键：Column 显式撑满整行（不能 wrap-content 自适应），
+      // 否则子元素 actionBar 的 width("100%") 会按外层整行约束解析，把气泡与操作栏撑开错位
+      .width("100%")
     }
     .width("100%")
-    // 用户消息整行靠右，AI 消息整行靠左
-    .justifyContent(this.message.isUser() ? FlexAlign.End : FlexAlign.Start)
+    // 气泡与操作栏已由内部 alignItems 统一对齐（用户贴右 / AI 贴左），
+    // 整行不再需要 justifyContent
     .padding({
       left: $r('app.float.space_md'),
       right: $r('app.float.space_md'),
@@ -248,10 +259,12 @@ export struct MessageBubble {
         })
         .copyOption(CopyOptions.LocalDevice)
     } else if (this.message.content.length > 0) {
-      // AI 消息（lv-markdown-in 原生渲染）：
-      //  - 全文直接交给 Markdown 组件，库内置支持 markdown 语法、LaTeX 公式、代码高亮
-      //  - mermaid 代码块由库内置的 Mermaid 渲染能力处理（自带 mermaid.main.js），无需自建 WebView
-      //  - 流式输出时 text 为 @Prop，chunk 增量自动重绘（库内部支持 streamingActive）
+      /** 
+       * AI 消息（lv-markdown-in 原生渲染）：
+       *  - 全文直接交给 Markdown 组件，库内置支持 markdown 语法、LaTeX 公式、代码高亮
+       *  - mermaid 代码块由库内置的 Mermaid 渲染能力处理（自带 mermaid.main.js），无需自建 WebView
+       *  - 流式输出时 text 为 @Prop，chunk 增量自动重绘（库内部支持 streamingActive）
+       */
       Column() {
         Markdown({
           text: this.message.content,
@@ -298,5 +311,151 @@ export struct MessageBubble {
       })
       .borderRadius($r('app.float.bubble_radius'))
       .backgroundColor($r('app.color.bubble_bg_ai'));
+  }
+
+  // 底部操作栏（对话分支交互入口）
+
+  /**
+   * 操作栏布局：
+   *  - 用户消息：右下角 [复制] [编辑] [切换分支]（从左到右）
+   *  - AI 消息：左下角 [切换分支] [复制]；右下角 [新建分支] [重新生成]
+   */
+  @Builder
+  actionBar() {
+    Row() {
+      if (this.message.isUser()) {
+        // 用户消息：一组按钮靠右
+        Row() {
+          this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage(), true);
+          this.iconButton($r("sys.symbol.square_and_pencil"), () => this.onEdit(this.message),
+            this.opEnabled());
+          // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
+          if (this.variantTotal > 1) {
+            this.variantSwitcher();
+          }
+        }
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.End)
+      } else {
+        // AI 消息：左组（切换分支 + 复制）与右组（新建分支 + 重新生成）
+        Row() {
+          // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
+          if (this.variantTotal > 1) {
+            this.variantSwitcher();
+          }
+          this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage(), true);
+        }
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Start)
+
+        Row() {
+          this.iconButton($r("sys.symbol.circle_and_plus"),
+            () => this.onCreateBranch(this.message), this.opEnabled());
+          this.iconButton($r("sys.symbol.arrow_clockwise"),
+            () => this.onRegenerate(this.message), this.opEnabled());
+        }
+        .margin({ right: $r('app.float.space_xs') })
+        .justifyContent(FlexAlign.End)
+      }
+    }
+    .width("100%")
+    .margin({ top: $r('app.float.space_xs') })
+  }
+
+  // 通用图标按钮：icon 图标，disabled 时置灰（无文字，仅图标）
+  @Builder
+  iconButton(icon: Resource, action: () => void, enabled: boolean) {
+    Row() {
+      SymbolGlyph(icon)
+        .fontSize($r('app.float.font_icon_lg'))
+        .fontWeight(FontWeight.Bold)
+        .fontColor([enabled ? $r('app.color.operation_icon_enabled') : $r('app.color.operation_icon_disabled')])
+    }
+    .padding({
+      left: $r('app.float.space_xs'),
+      right: $r('app.float.space_xs'),
+      top: $r('app.float.space_xs'),
+      bottom: $r('app.float.space_xs'),
+    })
+    .margin({
+      left: $r('app.float.space_xs'),
+      right: $r('app.float.space_xs'),
+      top: $r('app.float.space_xs'),
+      bottom: $r('app.float.space_xs')
+    })
+    .backgroundColor($r('app.color.bubble_bg_ai'))
+    .onClick(() => {
+      if (enabled) {
+        action();
+      }
+    })
+  }
+
+  // 分支切换控件：< 当前 / 总数 >（点击两侧箭头在变体间循环切换）
+  @Builder
+  variantSwitcher() {
+    Row() {
+      SymbolGlyph($r("sys.symbol.chevron_left"))
+        .fontSize($r('app.float.font_icon_md'))
+        .fontWeight(FontWeight.Bold)
+        .fontColor([this.canSwitch() ? $r('app.color.text_secondary') : $r('app.color.send_btn_disabled')])
+        .padding({
+          left: $r('app.float.space_sm'),
+          right: $r('app.float.space_sm')
+        })
+        .onClick(() => {
+          if (this.canSwitch()) {
+            this.onSwitchBranch(this.message, -1);
+          }
+        })
+      Text(`${this.variantCurrent} / ${this.variantTotal}`)
+        .fontSize($r('app.float.font_icon_md'))
+        .fontWeight(FontWeight.Medium)
+        .fontColor($r('app.color.operation_icon_enabled'))
+        .padding({
+          left: $r('app.float.space_xs'),
+          right: $r('app.float.space_xs')
+        })
+      SymbolGlyph($r("sys.symbol.chevron_right"))
+        .fontSize($r('app.float.font_icon_md'))
+        .fontWeight(FontWeight.Bold)
+        .fontColor([this.canSwitch() ? $r('app.color.text_secondary') : $r('app.color.send_btn_disabled')])
+        .padding({
+          left: $r('app.float.space_sm'),
+          right: $r('app.float.space_sm')
+        })
+        .onClick(() => {
+          if (this.canSwitch()) {
+            this.onSwitchBranch(this.message, 1);
+          }
+        })
+    }
+    .padding({
+      top: $r('app.float.space_xs'),
+      bottom: $r('app.float.space_xs')
+    })
+    .backgroundColor($r('app.color.bubble_bg_ai'))
+  }
+
+  /** 是否允许操作（本消息流式回复中 → 置灰；@Trace 实时驱动，流式结束自动恢复） */
+  private opEnabled(): boolean {
+    return !this.message.isStreaming;
+  }
+
+  /** 是否允许切换分支（流式中禁用；仅存在多个变体时可切换） */
+  private canSwitch(): boolean {
+    return this.opEnabled() && this.variantTotal > 1;
+  }
+
+  /** 复制整条消息正文到系统剪贴板 */
+  private copyMessage(): void {
+    const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.message.content);
+    pasteboard.getSystemPasteboard().setData(data)
+      .then(() => {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copied') });
+      })
+      .catch(() => {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copy_failed') });
+      });
   }
 }

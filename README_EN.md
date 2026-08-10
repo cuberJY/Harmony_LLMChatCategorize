@@ -39,6 +39,8 @@ An AI chat application built on HarmonyOS NEXT, featuring streaming conversation
 - **Markdown Rendering** — AI messages rendered natively in Markdown (LaTeX formulas, code highlighting, Mermaid diagrams); increments auto-re-render during streaming
 - **Markdown Dark Mode Adaptation** — Rendering fully follows system light/dark mode: code block & Mermaid themes and LaTeX formula colors switch dynamically with colorMode; font colors use `$r()` resource references (auto-loaded from the dark/ directory)
 - **Text Selection & Copy** — Long-press select text in AI messages and copy with one tap (writes to the system clipboard yourself); "Copy" button on code blocks; user messages copyable via long-press (CopyOptions.LocalDevice)
+- **Conversation Branching** — Regenerate an AI reply (overwrites it) or create a new branch (keeps the old reply as a new variant); cycle through variants of the same group via the "current / total" switcher in the bubble action bar; inactive branches are kept in the database and can be switched back anytime
+- **Message Editing** — "Edit" on a user message refills the input box (with an edit hint on top); sending then creates a new branch at that position and regenerates the AI reply
 
 ## Project Structure
 
@@ -185,11 +187,12 @@ Based on `relationalStore`, three tables:
 | Table          | Fields                                                        | Description                                   |
 | -------------- | -------------------------------------------------------------- | --------------------------------------------- |
 | `conversation` | id, title, category_id, created_at, updated_at                 | Conversation table                            |
-| `message`      | id, conversation_id, role, content, reasoning, created_at      | Message table (includes thinking content)     |
+| `message`      | id, conversation_id, role, content, reasoning, created_at, parent_id, branch_group_id, variant_index, is_active | Message table (includes thinking content & branch fields) |
 | `category`     | id, name, parent_id, color, sort_order, created_at             | Folder/category table (multi-level nesting)   |
 
 - Layered design: `*Dao` for flat single-table CRUD (errors propagate up); `*Repository` for cross-table aggregation and transactions (folder tree, cascading delete)
 - Singleton pattern; `init()` idempotently creates tables (IF NOT EXISTS)
+- Legacy DB compatibility: if the message table lacks branch columns, `ensureMessageColumns()` adds them idempotently via ALTER TABLE (fresh installs already have all columns)
 - High-frequency query indexes: `message(conversation_id)`, `conversation(updated_at DESC)`
 - Delayed conversation insertion: a record is created only on the first user message, avoiding empty conversations polluting history
 - Deleting a conversation cascades message deletion (IN condition)
@@ -199,7 +202,7 @@ Based on `relationalStore`, three tables:
 
 ### ViewModel — State Management Layer
 
-- `ChatViewModel`: chat message flow, streaming-callback-driven UI updates, smart scroll state
+- `ChatViewModel`: chat message flow, streaming-callback-driven UI updates, smart scroll state, conversation branching (regenerate / new branch / edit / switch)
 - `FolderViewModel`: folder tree construction, multi-level navigation, folder CRUD state
 - `SideBarViewModel`: history grouping, Favorites tab, multi-select state
 - Decouples pages from the data layer; ViewModels bridge DAO/Repository and ArkUI state
@@ -211,6 +214,24 @@ Based on `relationalStore`, three tables:
 - Send limiting is per-conversation (`isStreamingFor`); streams in different conversations don't affect each other
 - Async operations (loading conversations / fetching titles) use "stale result guards": re-validating the conversation id after `await` to prevent UI confusion from rapid switching
 - On page destroy, all tasks are `clearTimer()`'d to prevent lingering timers from firing stale writes
+
+### Conversation Branching — Branch Chain Model
+
+Branch chain model: each message records `parentId` (the message it replies to; empty for root user messages), `branchGroupId` (= parentId; messages in the same group are variant siblings), `variantIndex` (variant ordinal within the group, starting at 0), and `isActive` (whether it lies on the current active branch; the list renders the active chain only).
+
+```
+U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (highlighted)
+   │           └ A1' (variant 1)                  ← same-group variant (inactive, switchable back)
+```
+
+- **Regenerate** (`regenerateMessage`): overwrites the current AI reply in place without creating a new variant (reuses the old message object)
+- **New Branch** (`createBranch`): creates a new variant with the same parent and regenerates; the old reply and its follow-up chain are deactivated (`deactivateBranchFrom`) but kept in the database
+- **Message Edit** (`startEdit` / `editUserMessage`): "Edit" on a user message refills the input box (`editingMessageId` + `editingPrefill`); sending creates a new user-message variant and regenerates the AI reply
+- **Switch Branch** (`switchBranch`): cycles variants ±1 within the group; `rebuildActiveChain()` deactivates all → lights up the target variant's ancestor path → extends its active follow-up chain (falling back to the earliest variant when no active child) → persists → reloads the list
+- **Variant count** (`getVariantInfo`): returns `{ current, total }` to drive the "current / total" switcher in the bubble action bar (shown only when multiple variants exist)
+- `allMessages` caches all messages of the current conversation (including inactive variants) as the single source of truth for branch switching / variant counting / active-chain rebuilds
+- Legacy data compatible: when all messages have empty `parentId`, they render in chronological order with no branching UX impact
+- Operation buttons are disabled while streaming (`isStreaming` @Trace-driven, auto-recovered when the stream ends)
 
 ### BackgroundRunGuardService — Background Streaming Keep-alive
 
@@ -232,12 +253,13 @@ Based on `relationalStore`, three tables:
 - User messages stay as plain text (adaptive bubble width)
 - **Dark mode adaptation**: font colors use `$r()` resource references (the system auto-loads matching values from the dark/ directory on light/dark switch); code block & Mermaid themes (string `'light'/'dark'` only) and LaTeX formula colors (hex numbers only) are switched dynamically by listening to the system `colorMode` via `on('environment')`, with the listener removed in `aboutToDisappear` to prevent leaks
 - **Text copying**: since lv-markdown-in v3.1.0 the library no longer copies to the clipboard itself — `setTextSelectionEnable(true)` enables long-press selection and `setTextSelectionCopyListener` writes to the system clipboard (with success/failure Toast); code blocks register the "Copy" button via `setCodeCopyListener`; user messages support long-press copy via `copyOption(CopyOptions.LocalDevice)`
+- **Action bar**: user messages get [Copy] [Edit] [Branch switcher] at bottom-right; AI messages get [Branch switcher] [Copy] at bottom-left and [New branch] [Regenerate] at bottom-right; buttons gray out automatically while streaming (`isStreaming` @Trace-driven), and the "current / total" switcher shows when multiple variants exist
 - During streaming, `text` is a @Prop and content increments auto-re-render; `Message.isStreaming` marks an in-progress stream, cleared on completion (including errors)
 
 ### Data Models
 
 | Model          | Description                                                              |
 | -------------- | ------------------------------------------------------------------------- |
-| `Message`      | Single message (@Observed), with reasoning/isThinking/isSearching states  |
+| `Message`      | Single message (@Observed), with reasoning/isThinking/isSearching states; branch fields parentId/branchGroupId/variantIndex/isActive |
 | `Conversation` | A chat session, optionally belonging to a Category (folder)               |
 | `Category`     | Folder/category (@Observed), with parentId (multi-level nesting) and color (icon color) |

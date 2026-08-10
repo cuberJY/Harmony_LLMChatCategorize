@@ -211,4 +211,26 @@ export class ConversationRepository {
       return false;
     }
   }
+
+  // 更新单条消息的激活分支状态（返回是否成功）
+  async updateMessageActive(id: string, active: boolean): Promise<boolean> {
+    try {
+      await MessageDao.getInstance().updateActive(id, active);
+      return true;
+    } catch (e) {
+      Logger.error(`ConversationRepository.updateMessageActive failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
+  // 将某对话下全部消息置为非激活（重建激活链第一步）（返回是否成功）
+  async setAllMessagesInactive(conversationId: string): Promise<boolean> {
+    try {
+      await MessageDao.getInstance().setAllInactive(conversationId);
+      return true;
+    } catch (e) {
+      Logger.error(`ConversationRepository.setAllMessagesInactive failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
 }

@@ -39,6 +39,8 @@
 - **Markdown 渲染** — AI 消息原生 Markdown 渲染（LaTeX 公式、代码高亮、Mermaid 图表），流式输出增量自动重绘
 - **Markdown 深色模式适配** — 渲染完全跟随系统深浅色：代码块/思维导图主题、LaTeX 公式颜色随 colorMode 动态切换；字体类颜色走 `$r()` 资源引用（dark/ 目录自动加载）
 - **文本选中复制** — AI 消息长按选中文本一键复制（自行写入系统剪贴板），代码块右上角"复制"按钮，用户消息长按复制（CopyOptions.LocalDevice）
+- **对话分支** — AI 回复支持「重新生成」（覆盖当前回复）与「新建分支」（保留旧回复生成新变体）；同组变体通过气泡底栏「< 当前 / 总数 >」循环切换，旧分支整条熄灭但保留在库中，随时可切回
+- **消息编辑** — 用户消息「编辑」将原内容回填输入框（顶部显示编辑提示），发送后在该位置创建新分支并重新生成 AI 回复
 
 ## 项目结构
 
@@ -182,14 +184,15 @@ ChatCategorize/
 
 基于 `relationalStore`，三张表：
 
-| 表               | 字段                                                      | 说明                          |
-| ---------------- | --------------------------------------------------------- | ----------------------------- |
-| `conversation` | id, title, category_id, created_at, updated_at            | 对话表                        |
-| `message`      | id, conversation_id, role, content, reasoning, created_at | 消息表（含思考内容）          |
-| `category`     | id, name, parent_id, color, sort_order, created_at        | 文件夹/分类表（支持多级嵌套） |
+| 表               | 字段                                                                                 | 说明                          |
+| ---------------- | ------------------------------------------------------------------------------------ | ----------------------------- |
+| `conversation` | id, title, category_id, created_at, updated_at                                       | 对话表                        |
+| `message`      | id, conversation_id, role, content, reasoning, created_at, parent_id, branch_group_id, variant_index, is_active | 消息表（含思考内容与分支字段） |
+| `category`     | id, name, parent_id, color, sort_order, created_at                                   | 文件夹/分类表（支持多级嵌套） |
 
 - 分层设计：`*Dao` 平铺单表 CRUD（异常上抛），`*Repository` 跨表聚合与事务（文件夹树、级联删除）
 - 单例模式，`init()` 幂等建表（IF NOT EXISTS）
+- 旧库兼容：message 表缺少分支字段时，`ensureMessageColumns()` 通过 ALTER TABLE 幂等补列（新装库建表已含全字段）
 - 高频查询索引：`message(conversation_id)`、`conversation(updated_at DESC)`
 - 对话延迟入库：首条用户消息时才创建对话记录，避免空白对话污染历史
 - 删除对话级联删除消息（IN 条件）
@@ -199,7 +202,7 @@ ChatCategorize/
 
 ### ViewModel — 状态管理层
 
-- `ChatViewModel`：聊天消息流、流式回调驱动 UI 更新、智能滚动状态
+- `ChatViewModel`：聊天消息流、流式回调驱动 UI 更新、智能滚动状态、对话分支（重新生成/新建分支/编辑/切换）
 - `FolderViewModel`：文件夹树构建、多级导航、文件夹 CRUD 状态
 - `SideBarViewModel`：历史会话分组、收藏 Tab、批量选择状态
 - 页面与数据层解耦，通过 ViewModel 桥接 DAO/Repository 与 ArkUI 状态
@@ -211,6 +214,24 @@ ChatCategorize/
 - 连发限制按"对话"粒度判断（`isStreamingFor`），不同对话的流互不影响
 - 异步操作（加载对话/查标题）均带"过期结果守卫"：await 后校验对话 id 未变，防止快速切换导致 UI 错乱
 - 页面销毁时遍历任务 `clearTimer()` 清理定时器，防止残留定时器触发过期写入
+
+### 对话分支 — 分支链模型
+
+分支链模型：每条消息记录 `parentId`（被回复的消息，根用户消息为空串）、`branchGroupId`（= parentId，同组消息互为变体兄弟）、`variantIndex`（组内变体序号，0 起）、`isActive`（是否位于当前激活分支链，列表仅渲染激活链）。
+
+```
+U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高亮）
+   │           └ A1' (variant 1)                  ← 同组变体（熄灭，可切回）
+```
+
+- **重新生成**（`regenerateMessage`）：直接覆盖当前 AI 回复内容重新生成，不产生新变体（复用旧消息对象）
+- **新建分支**（`createBranch`）：创建同父新变体并重新生成；旧回复及其后续链整条熄灭（`deactivateBranchFrom`）但保留在数据库中
+- **消息编辑**（`startEdit` / `editUserMessage`）：用户消息「编辑」回填输入框（`editingMessageId` + `editingPrefill`），发送时创建新用户消息变体并重新生成 AI 回复
+- **切换分支**（`switchBranch`）：在分支组内按 ±1 循环切换变体，`rebuildActiveChain()` 全量熄灭 → 点亮目标变体祖先路径 → 延伸其激活后续链（无激活子节点时取组内最早变体）→ 持久化 → 重载列表
+- **变体计数**（`getVariantInfo`）：返回 `{ current, total }` 驱动气泡底栏「< 当前 / 总数 >」，多变体时显示
+- `allMessages` 缓存当前对话全量消息（含非激活变体），作为分支切换 / 变体统计 / 激活链重建的唯真源
+- 兼容旧数据：全部消息 `parentId` 为空时按时间正序渲染，无分支体验不受影响
+- 操作按钮流式中禁用（`isStreaming` @Trace 实时驱动，流式结束自动恢复）
 
 ### BackgroundRunGuardService — 后台流式保活
 
@@ -232,12 +253,13 @@ ChatCategorize/
 - 用户消息保持纯文本渲染（气泡宽度自适应）
 - **深色模式适配**：字体类颜色传 `$r()` 资源引用，系统在深浅色切换时自动加载 dark/ 目录对应色值；代码块/思维导图主题（仅支持 `'light'/'dark'` 字符串）与 LaTeX 公式颜色（仅支持十六进制 number）通过 `on('environment')` 监听系统 colorMode 动态切换，`aboutToDisappear` 注销监听防泄漏
 - **文本复制**：lv-markdown-in v3.1.0 起移除内置复制能力，通过 `setTextSelectionEnable(true)` 开启长按选中 + `setTextSelectionCopyListener` 自行写入系统剪贴板（复制成功/失败均有 Toast 提示）；代码块通过 `setCodeCopyListener` 注册右上角"复制"按钮；用户消息通过 `copyOption(CopyOptions.LocalDevice)` 支持长按复制
+- **底部操作栏**：用户消息右下角 [复制] [编辑] [切换分支]，AI 消息左下角 [切换分支] [复制]、右下角 [新建分支] [重新生成]；流式回复中按钮自动置灰（`isStreaming` @Trace 实时驱动），多变体时显示「< 当前 / 总数 >」切换控件
 - 流式输出时 `text` 为 @Prop，chunk 增量自动重绘；`Message.isStreaming` 标记进行中状态，结束（含异常）时清除
 
 ### 数据模型
 
 | 模型             | 说明                                                                     |
 | ---------------- | ------------------------------------------------------------------------ |
-| `Message`      | 单条消息（@Observed 可观察），含 reasoning/isThinking/isSearching 等状态 |
+| `Message`      | 单条消息（@Observed 可观察），含 reasoning/isThinking/isSearching 等状态；分支字段 parentId/branchGroupId/variantIndex/isActive |
 | `Conversation` | 一个对话会话，可归属于某个 Category（文件夹）                            |
 | `Category`     | 文件夹/分类（@Observed），含 parentId（多级嵌套）与 color（图标颜色）    |

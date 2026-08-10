@@ -27,6 +27,18 @@ export class Message {
   @Trace thinkingDuration: number = 0; // 思考耗时（秒），思考完成时赋值
   @Trace createdAt: number = 0; // 发送时间戳（毫秒）
 
+  // ===== 对话分支字段（v2.0 新增）=====
+  // 分支链模型：
+  //   每条消息记录 parentId = 被回复的消息 id（根用户消息为空串）
+  //   branchGroupId = parentId，即"该位置的分支组锚点"（同组消息互为变体兄弟）
+  //   variantIndex = 变体序号（0 起；同一分支组内递增）
+  //   isActive = 是否位于当前激活分支链上（列表仅渲染激活链）
+  // 例如：U1(root) → A1(v0)/A1'(v1) 为变体；U2(parentId=A1) → U2'(parentId=A1) 亦为变体
+  @Trace parentId: string = ""; // 父消息 ID（被回复的消息，根消息为 ""）
+  @Trace branchGroupId: string = ""; // 分支组 ID（= parentId，同组消息互为变体）
+  @Trace variantIndex: number = 0; // 变体序号（0 起，驱动 "< 当前 / 总数 >"）
+  @Trace isActive: boolean = true; // 是否当前激活分支（仅激活链显示在列表中）
+
   constructor(conversationId: string, role: MessageRole, content: string) {
     this.id = generateId();
     this.conversationId = conversationId;

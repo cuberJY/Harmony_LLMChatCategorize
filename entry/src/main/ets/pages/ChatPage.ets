@@ -69,8 +69,8 @@ export struct ChatPage {
 
         // 右侧：「新建对话」按钮
         Row() {
-          SymbolGlyph($r("sys.symbol.plus"))
-            .fontSize($r('app.float.font_icon_xl'))
+          SymbolGlyph($r("sys.symbol.message_badge_plus"))
+            .fontSize($r('app.float.font_icon_xxl'))
             .fontWeight(700)
             .fontColor([$r('app.color.text_primary')])
         }
@@ -114,7 +114,28 @@ export struct ChatPage {
                 }
 
                 // 气泡本体
-                MessageBubble({ message: msg })
+                MessageBubble({
+                  message: msg,
+                  // 分支变体信息：驱动 "< 当前 / 总数 >"（切换分支后列表重建，@Param 自动更新）
+                  variantCurrent: this.vm.getVariantInfo(msg).current,
+                  variantTotal: this.vm.getVariantInfo(msg).total,
+                  // 重新生成：覆盖当前 AI 回复
+                  onRegenerate: (m: Message) => {
+                    this.vm.regenerateMessage(m);
+                  },
+                  // 新建分支：保留旧回复生成新变体
+                  onCreateBranch: (m: Message) => {
+                    this.vm.createBranch(m);
+                  },
+                  // 编辑：回填输入框（发送时创建新分支）
+                  onEdit: (m: Message) => {
+                    this.vm.startEdit(m);
+                  },
+                  // 切换分支：在变体间 ±1 循环
+                  onSwitchBranch: (m: Message, delta: number) => {
+                    this.vm.switchBranch(m, delta);
+                  },
+                })
               }.width("100%")
             }.width("100%");
           },
@@ -160,7 +181,11 @@ export struct ChatPage {
       // 底部输入区域
       ChatInput({
         modelName: this.vm.modelName, // 从配置获取当前模型名称
+        // 编辑态：回填原内容到输入框（vm.startEdit 后 @Trace 变化驱动刷新）
+        prefillText: this.vm.editingPrefill,
+        isEditing: this.vm.editingMessageId.length > 0,
         onChange: (text: string, webSearch: boolean, deepThinking: boolean) => {
+          // 编辑态由 ViewModel 内部识别：非编辑态 = 普通发送；编辑态 = 创建新分支并重新生成
           this.vm.handleUserSend(text, webSearch, deepThinking);
         },
       })

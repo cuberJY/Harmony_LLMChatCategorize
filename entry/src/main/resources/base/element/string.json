@@ -79,6 +79,22 @@
     {
       "name": "permission_keep_background_running",
       "value": "AI 流式回复过程中在后台保持网络连接，以便退到后台后继续生成"
+    },
+    {
+      "name": "copied",
+      "value": "已复制"
+    },
+    {
+      "name": "copy_failed",
+      "value": "复制失败"
+    },
+    {
+      "name": "code_copied",
+      "value": "代码已复制"
+    },
+    {
+      "name": "edit_mode_hint",
+      "value": "正在编辑消息…（发送后在该位置创建新分支）"
     }
   ]
 }

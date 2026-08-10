@@ -37,6 +37,10 @@ export class MessageDao {
         content: msg.content,
         reasoning: msg.reasoning,
         created_at: msg.createdAt,
+        parent_id: msg.parentId,
+        branch_group_id: msg.branchGroupId,
+        variant_index: msg.variantIndex,
+        is_active: msg.isActive ? 1 : 0,
       };
       await store.insert("message", values);
     } catch (e) {
@@ -95,6 +99,40 @@ export class MessageDao {
     return list;
   }
 
+  // 更新一条消息的激活分支状态（切换分支/重建激活链时批量调用）
+  async updateActive(id: string, active: boolean): Promise<void> {
+    const store = this.store;
+    if (!store) return;
+    try {
+      const values: relationalStore.ValuesBucket = {
+        is_active: active ? 1 : 0,
+      };
+      const predicates = new relationalStore.RdbPredicates("message");
+      predicates.equalTo("id", id);
+      await store.update(values, predicates);
+    } catch (e) {
+      Logger.error(`MessageDao.updateActive failed: ${JSON.stringify(e)}`);
+      throw new Error(`MessageDao error: ${JSON.stringify(e)}`);
+    }
+  }
+
+  // 将该对话下全部消息置为非激活（重建激活链的第一步，先全部熄灭再点亮目标链）
+  async setAllInactive(conversationId: string): Promise<void> {
+    const store = this.store;
+    if (!store) return;
+    try {
+      const values: relationalStore.ValuesBucket = {
+        is_active: 0,
+      };
+      const predicates = new relationalStore.RdbPredicates("message");
+      predicates.equalTo("conversation_id", conversationId);
+      await store.update(values, predicates);
+    } catch (e) {
+      Logger.error(`MessageDao.setAllInactive failed: ${JSON.stringify(e)}`);
+      throw new Error(`MessageDao error: ${JSON.stringify(e)}`);
+    }
+  }
+
   // 按所属对话批量删除消息（供删除对话时级联使用）
   async deleteByConversationIds(conversationIds: string[]): Promise<void> {
     const store = this.store;
@@ -120,6 +158,15 @@ export class MessageDao {
       msg.content = rs.getString(rs.getColumnIndex("content"));
       msg.reasoning = rs.getString(rs.getColumnIndex("reasoning"));
       msg.createdAt = rs.getLong(rs.getColumnIndex("created_at"));
+      // 分支字段（旧库迁移前可能缺失，读取失败则保持默认值）
+      try {
+        msg.parentId = rs.getString(rs.getColumnIndex("parent_id"));
+        msg.branchGroupId = rs.getString(rs.getColumnIndex("branch_group_id"));
+        msg.variantIndex = rs.getLong(rs.getColumnIndex("variant_index"));
+        msg.isActive = rs.getLong(rs.getColumnIndex("is_active")) === 1;
+      } catch (e) {
+        // 旧库无分支列：保持默认值（parentId="" → 按时间序渲染，兼容无分支旧对话）
+      }
     } catch (e) {
       // 单行读取异常：保留默认值
     }

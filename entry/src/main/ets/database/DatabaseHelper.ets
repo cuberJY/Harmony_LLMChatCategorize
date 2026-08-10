@@ -78,7 +78,11 @@ export class DatabaseHelper {
       role TEXT NOT NULL,                -- 消息角色：user / assistant / system
       content TEXT NOT NULL DEFAULT '',  -- 消息正文
       reasoning TEXT NOT NULL DEFAULT '',-- AI 思考内容（仅 assistant 有值）
-      created_at INTEGER NOT NULL        -- 发送时间戳（毫秒）
+      created_at INTEGER NOT NULL,       -- 发送时间戳（毫秒）
+      parent_id TEXT NOT NULL DEFAULT '',-- 父消息 ID（分支链：被回复的消息，根消息为空串）
+      branch_group_id TEXT NOT NULL DEFAULT '', -- 分支组 ID（= parent_id，同组消息互为变体）
+      variant_index INTEGER NOT NULL DEFAULT 0, -- 变体序号（0 起，驱动 "< 当前 / 总数 >"）
+      is_active INTEGER NOT NULL DEFAULT 1 -- 是否当前激活分支（列表仅渲染激活链）
     )`,
       );
       await store.executeSql(
@@ -101,7 +105,10 @@ export class DatabaseHelper {
         `CREATE INDEX IF NOT EXISTS idx_conversation_updated ON conversation(updated_at DESC)`,
       );
 
-      // 4. 记录当前结构版本号（开发阶段固定 1，不启用迁移）
+      // 4. 兼容旧库：message 表缺少分支字段时补列（开发阶段直接 ALTER，不引入版本迁移）
+      await this.ensureMessageColumns(store);
+
+      // 5. 记录当前结构版本号（开发阶段固定 1，不启用迁移）
       store.version = DatabaseHelper.DB_VERSION;
 
       this.store = store;
@@ -117,5 +124,37 @@ export class DatabaseHelper {
    */
   getStore(): relationalStore.RdbStore | undefined {
     return this.store;
+  }
+
+  /**
+   * 兼容旧库：检测 message 表是否缺少分支字段，缺失则 ALTER TABLE 补列
+   * 新装库建表语句已含全字段，此方法仅对历史版本数据库生效（幂等）
+   */
+  private async ensureMessageColumns(store: relationalStore.RdbStore): Promise<void> {
+    try {
+      // 读取表结构：LIMIT 0 不返回数据行，但 ResultSet 携带全部列名
+      const rs = await store.querySql('SELECT * FROM message LIMIT 0');
+      const existingCols: string[] = [];
+      for (let i = 0; i < rs.columnCount; i++) {
+        existingCols.push(rs.getColumnName(i));
+      }
+      rs.close();
+      // 需要补齐的分支字段定义（名称 + SQL 片段）
+      const newCols: string[] = [
+        "parent_id TEXT NOT NULL DEFAULT ''",
+        "branch_group_id TEXT NOT NULL DEFAULT ''",
+        "variant_index INTEGER NOT NULL DEFAULT 0",
+        "is_active INTEGER NOT NULL DEFAULT 1",
+      ];
+      for (const def of newCols) {
+        const colName = def.split(' ')[0]; // 取列名（定义首词）
+        if (existingCols.indexOf(colName) < 0) {
+          await store.executeSql(`ALTER TABLE message ADD COLUMN ${def}`);
+        }
+      }
+    } catch (e) {
+      // 迁移失败：不影响主流程（新库已含全字段），仅记录日志
+      Logger.error(`ensureMessageColumns failed: ${JSON.stringify(e)}`);
+    }
   }
 }

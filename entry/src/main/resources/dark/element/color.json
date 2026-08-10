@@ -89,6 +89,14 @@
       "value": "#8E8E93"
     },
     {
+      "name": "operation_icon_enabled",
+      "value": "#D0D0D2"
+    },
+    {
+      "name": "operation_icon_disabled",
+      "value": "#58585A"
+    },
+    {
       "name": "menu_bg",
       "value": "#CC2C2C2E"
     },
