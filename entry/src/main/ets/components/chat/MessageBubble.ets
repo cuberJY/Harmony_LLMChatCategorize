@@ -7,6 +7,8 @@ import { Message } from "../../model/Message";
 import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../common/AppConstants";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.AbilityKit';
+import { pasteboard } from '@kit.BasicServicesKit';
+import { promptAction } from '@kit.ArkUI';
 @ComponentV2
 export struct MessageBubble {
   /**
@@ -24,6 +26,28 @@ export struct MessageBubble {
   aboutToAppear(): void {
     // 依据当前系统颜色模式配置 Markdown 颜色与代码块/思维导图主题
     this.applyMarkdownTheme();
+    this.mdController
+      // 1. 开启长按选中文本
+      .setTextSelectionEnable(true)
+      // 2. 选中后点击"复制"回调——自行写入系统剪贴板
+      .setTextSelectionCopyListener((text: string) => {
+        const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+        pasteboard.getSystemPasteboard().setData(data)
+          .then(() => {
+            this.getUIContext().getPromptAction().showToast({ message: '已复制' });
+          })
+          .catch(() => {
+            this.getUIContext().getPromptAction().showToast({ message: '复制失败' });
+          });
+      })
+      // 3. 可选：代码块右上角"复制"按钮
+      .setCodeCopyListener((text: string) => {
+        const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+        pasteboard.getSystemPasteboard().setData(data)
+          .then(() => {
+            this.getUIContext().getPromptAction().showToast({ message: '代码已复制' });
+          });
+      });
     // 注册系统环境监听（深浅色切换时动态更新代码块/思维导图主题）
     this.registerEnvironmentListener();
   }
@@ -221,7 +245,8 @@ export struct MessageBubble {
         .backgroundColor(bgColor)
         .constraintSize({
           maxWidth: `${(this.message.isUser() ? BUBBLE_MAX_WIDTH_RATIO_USER : BUBBLE_MAX_WIDTH_RATIO_AI) * 100}%`,
-        });
+        })
+        .copyOption(CopyOptions.LocalDevice)
     } else if (this.message.content.length > 0) {
       // AI 消息（lv-markdown-in 原生渲染）：
       //  - 全文直接交给 Markdown 组件，库内置支持 markdown 语法、LaTeX 公式、代码高亮

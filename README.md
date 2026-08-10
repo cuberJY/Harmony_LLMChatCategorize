@@ -38,6 +38,7 @@
 - **智能时间分割线** — 消息间隔超过 10 分钟自动显示
 - **Markdown 渲染** — AI 消息原生 Markdown 渲染（LaTeX 公式、代码高亮、Mermaid 图表），流式输出增量自动重绘
 - **Markdown 深色模式适配** — 渲染完全跟随系统深浅色：代码块/思维导图主题、LaTeX 公式颜色随 colorMode 动态切换；字体类颜色走 `$r()` 资源引用（dark/ 目录自动加载）
+- **文本选中复制** — AI 消息长按选中文本一键复制（自行写入系统剪贴板），代码块右上角"复制"按钮，用户消息长按复制（CopyOptions.LocalDevice）
 
 ## 项目结构
 
@@ -230,6 +231,7 @@ ChatCategorize/
 - AI 消息正文由 `@luvi/lv-markdown-in` 的 `Markdown` 组件原生渲染：完整 markdown 语法、LaTeX 公式、代码高亮；mermaid 代码块由库内置 Mermaid 渲染处理（自带 mermaid.main.js），无需自建 WebView
 - 用户消息保持纯文本渲染（气泡宽度自适应）
 - **深色模式适配**：字体类颜色传 `$r()` 资源引用，系统在深浅色切换时自动加载 dark/ 目录对应色值；代码块/思维导图主题（仅支持 `'light'/'dark'` 字符串）与 LaTeX 公式颜色（仅支持十六进制 number）通过 `on('environment')` 监听系统 colorMode 动态切换，`aboutToDisappear` 注销监听防泄漏
+- **文本复制**：lv-markdown-in v3.1.0 起移除内置复制能力，通过 `setTextSelectionEnable(true)` 开启长按选中 + `setTextSelectionCopyListener` 自行写入系统剪贴板（复制成功/失败均有 Toast 提示）；代码块通过 `setCodeCopyListener` 注册右上角"复制"按钮；用户消息通过 `copyOption(CopyOptions.LocalDevice)` 支持长按复制
 - 流式输出时 `text` 为 @Prop，chunk 增量自动重绘；`Message.isStreaming` 标记进行中状态，结束（含异常）时清除
 
 ### 数据模型

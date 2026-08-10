@@ -38,6 +38,7 @@ An AI chat application built on HarmonyOS NEXT, featuring streaming conversation
 - **Smart Time Divider** — Auto-shows a divider when message gaps exceed 10 minutes
 - **Markdown Rendering** — AI messages rendered natively in Markdown (LaTeX formulas, code highlighting, Mermaid diagrams); increments auto-re-render during streaming
 - **Markdown Dark Mode Adaptation** — Rendering fully follows system light/dark mode: code block & Mermaid themes and LaTeX formula colors switch dynamically with colorMode; font colors use `$r()` resource references (auto-loaded from the dark/ directory)
+- **Text Selection & Copy** — Long-press select text in AI messages and copy with one tap (writes to the system clipboard yourself); "Copy" button on code blocks; user messages copyable via long-press (CopyOptions.LocalDevice)
 
 ## Project Structure
 
@@ -230,6 +231,7 @@ Based on `relationalStore`, three tables:
 - AI message content is natively rendered by the `Markdown` component from `@luvi/lv-markdown-in`: full markdown syntax, LaTeX formulas, code highlighting; mermaid code blocks are handled by the library's built-in Mermaid rendering (bundled mermaid.main.js, no custom WebView needed)
 - User messages stay as plain text (adaptive bubble width)
 - **Dark mode adaptation**: font colors use `$r()` resource references (the system auto-loads matching values from the dark/ directory on light/dark switch); code block & Mermaid themes (string `'light'/'dark'` only) and LaTeX formula colors (hex numbers only) are switched dynamically by listening to the system `colorMode` via `on('environment')`, with the listener removed in `aboutToDisappear` to prevent leaks
+- **Text copying**: since lv-markdown-in v3.1.0 the library no longer copies to the clipboard itself — `setTextSelectionEnable(true)` enables long-press selection and `setTextSelectionCopyListener` writes to the system clipboard (with success/failure Toast); code blocks register the "Copy" button via `setCodeCopyListener`; user messages support long-press copy via `copyOption(CopyOptions.LocalDevice)`
 - During streaming, `text` is a @Prop and content increments auto-re-render; `Message.isStreaming` marks an in-progress stream, cleared on completion (including errors)
 
 ### Data Models
