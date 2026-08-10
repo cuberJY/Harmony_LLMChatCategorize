@@ -41,6 +41,8 @@ An AI chat application built on HarmonyOS NEXT, featuring streaming conversation
 - **Text Selection & Copy** — Long-press select text in AI messages and copy with one tap (writes to the system clipboard yourself); "Copy" button on code blocks; user messages copyable via long-press (CopyOptions.LocalDevice)
 - **Conversation Branching** — Regenerate an AI reply (overwrites it) or create a new branch (keeps the old reply as a new variant); cycle through variants of the same group via the "current / total" switcher in the bubble action bar; inactive branches are kept in the database and can be switched back anytime
 - **Message Editing** — "Edit" on a user message refills the input box (with an edit hint on top); sending then creates a new branch at that position and regenerates the AI reply
+- **Delete Single Message** — Trash button in the message action bar (AI messages: inside the "More" menu too); after a system-dialog confirmation, cascades to delete the message and all its follow-up branches (subtree deletion); when everything is deleted, auto-resets to a new conversation and deletes the now-empty conversation record
+- **Select Text (view original)** — "Select Text" in the AI message "More" menu opens a bottom half-modal sheet showing the raw Markdown source before rendering, selectable/copyable via long-press (bypasses the rendered view's text-selection limits)
 
 ## Project Structure
 
@@ -227,11 +229,12 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
 - **Regenerate** (`regenerateMessage`): overwrites the current AI reply in place without creating a new variant (reuses the old message object)
 - **New Branch** (`createBranch`): creates a new variant with the same parent and regenerates; the old reply and its follow-up chain are deactivated (`deactivateBranchFrom`) but kept in the database
 - **Message Edit** (`startEdit` / `editUserMessage`): "Edit" on a user message refills the input box (`editingMessageId` + `editingPrefill`); sending creates a new user-message variant and regenerates the AI reply
+- **Delete Single Message** (`deleteMessage`): blocked while streaming; DFS collects the message itself + all descendants (any branch variant, avoiding dangling parent pointers) → removed from memory and DB (transactionally) in sync → terminates the stream task if it targets a deleted message (defensive; normally unreachable) → auto-exits edit mode when the edited message is deleted → rebuilds the active chain and reloads the list
 - **Switch Branch** (`switchBranch`): cycles variants ±1 within the group; `rebuildActiveChain()` deactivates all → lights up the target variant's ancestor path → extends its active follow-up chain (falling back to the earliest variant when no active child) → persists → reloads the list
 - **Variant count** (`getVariantInfo`): returns `{ current, total }` to drive the "current / total" switcher in the bubble action bar (shown only when multiple variants exist)
 - `allMessages` caches all messages of the current conversation (including inactive variants) as the single source of truth for branch switching / variant counting / active-chain rebuilds
 - Legacy data compatible: when all messages have empty `parentId`, they render in chronological order with no branching UX impact
-- Operation buttons are disabled while streaming (`isStreaming` @Trace-driven, auto-recovered when the stream ends)
+- The action bar is hidden entirely while streaming (`message.isStreaming` is @Trace, auto-restored when the stream ends), preventing mis-taps from the root
 
 ### BackgroundRunGuardService — Background Streaming Keep-alive
 
@@ -246,6 +249,7 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
 - **LazyForEach** (option C): custom `IDataSource` for lazy loading, rendering only messages in the visible area
 - **Streaming throttle** (option A): incremental text accumulated in a buffer, merged/refreshed every 50ms
 - **Page transition animations**: ChatPage and SideBarPage slide in horizontally
+- **Back key interception**: ChatPage is the bottom-of-stack main page (pushed via isEntry), so the system back key means "exit the app"; `onBackPressed` intercepts and calls `terminateSelf()` to exit directly, preventing the NavDestination from being popped back to an empty Navigation home (NavBar)
 
 ### MessageBubble — Markdown Rendering
 
@@ -253,7 +257,9 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
 - User messages stay as plain text (adaptive bubble width)
 - **Dark mode adaptation**: font colors use `$r()` resource references (the system auto-loads matching values from the dark/ directory on light/dark switch); code block & Mermaid themes (string `'light'/'dark'` only) and LaTeX formula colors (hex numbers only) are switched dynamically by listening to the system `colorMode` via `on('environment')`, with the listener removed in `aboutToDisappear` to prevent leaks
 - **Text copying**: since lv-markdown-in v3.1.0 the library no longer copies to the clipboard itself — `setTextSelectionEnable(true)` enables long-press selection and `setTextSelectionCopyListener` writes to the system clipboard (with success/failure Toast); code blocks register the "Copy" button via `setCodeCopyListener`; user messages support long-press copy via `copyOption(CopyOptions.LocalDevice)`
-- **Action bar**: user messages get [Copy] [Edit] [Branch switcher] at bottom-right; AI messages get [Branch switcher] [Copy] at bottom-left and [New branch] [Regenerate] at bottom-right; buttons gray out automatically while streaming (`isStreaming` @Trace-driven), and the "current / total" switcher shows when multiple variants exist
+- **Action bar**: user messages get [Delete] [Copy] [Edit] [Branch switcher] at bottom-right; AI messages get [Branch switcher] [Copy] [More] at bottom-left and [Delete] [New branch] [Regenerate] at bottom-right; the "More" button (dot_grid_2x2) opens a vertical menu: Copy / Select Text / New Branch / Regenerate / Delete (danger-styled, at the bottom); the "current / total" switcher shows when multiple variants exist; icon color is unified via the `operation_icon` resource (light #666666 / dark #8E8E8E), buttons always enabled — **the action bar is hidden entirely while streaming** (`message.isStreaming` is @Trace, auto-restored when the stream ends), preventing mis-taps from the root
+- **Select Text (view original)**: AI message "More" menu → "Select Text" opens a bottom half-modal sheet via `bindSheet($$isTextSheetShow)`: a title row on top + a scrollable body below (raw Markdown source before rendering, `copyOption(CopyOptions.LocalDevice)` for long-press select/copy); sheet height = window height − status bar − title bar, so its top aligns with the page title bar's bottom edge (`textSheetHeight()` computed dynamically, 500vp fallback on error); the $$ two-way binding auto-resets the state when dragged/backdrop-tapped closed
+- **Delete message**: the trash button (user messages: shown directly; AI messages: in both the action bar and the "More" menu) opens a system dialog for confirmation ("Cancel / Delete" with a danger-styled Delete, actually deleting only when `result.index === 1` to avoid mis-taps); on confirm, the ViewModel cascades along `parentId` to delete the message and all its follow-up branches
 - During streaming, `text` is a @Prop and content increments auto-re-render; `Message.isStreaming` marks an in-progress stream, cleared on completion (including errors)
 
 ### Data Models

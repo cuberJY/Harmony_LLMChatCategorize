@@ -72,7 +72,7 @@ export struct SettingsPage {
           // 标题
           Text("设置")
             .fontSize($r('app.float.font_title'))
-            .fontWeight(FontWeight.Bold)
+            .fontWeight(700)
             .fontColor($r('app.color.text_primary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)

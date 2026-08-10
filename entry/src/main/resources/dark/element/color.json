@@ -6,7 +6,7 @@
     },
     {
       "name": "primary",
-      "value": "#FF4C8DFF"
+      "value": "#FF2D65F8"
     },
     {
       "name": "page_bg",
@@ -30,7 +30,7 @@
     },
     {
       "name": "bubble_bg_ai",
-      "value": "#1E1E1E"
+      "value": "#121212"
     },
     {
       "name": "bubble_bg_thinking",
@@ -73,6 +73,10 @@
       "value": "#171717"
     },
     {
+      "name": "input_search_bg",
+      "value": "#282828"
+    },
+    {
       "name": "toggle_bg_active",
       "value": "#2D3A52"
     },
@@ -89,12 +93,8 @@
       "value": "#8E8E93"
     },
     {
-      "name": "operation_icon_enabled",
-      "value": "#D0D0D2"
-    },
-    {
-      "name": "operation_icon_disabled",
-      "value": "#58585A"
+      "name": "operation_icon",
+      "value": "#8E8E8E"
     },
     {
       "name": "menu_bg",

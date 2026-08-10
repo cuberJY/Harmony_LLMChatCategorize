@@ -223,6 +223,17 @@ export class ConversationRepository {
     }
   }
 
+  // 按 id 批量删除消息（删除单条消息及其后续子树时使用）（返回是否成功）
+  async deleteMessages(ids: string[]): Promise<boolean> {
+    try {
+      await MessageDao.getInstance().deleteByIds(ids);
+      return true;
+    } catch (e) {
+      Logger.error(`ConversationRepository.deleteMessages failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
   // 将某对话下全部消息置为非激活（重建激活链第一步）（返回是否成功）
   async setAllMessagesInactive(conversationId: string): Promise<boolean> {
     try {

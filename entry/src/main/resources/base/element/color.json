@@ -73,6 +73,10 @@
       "value": "#FFFFFF"
     },
     {
+      "name": "input_search_bg",
+      "value": "#F1F1F1"
+    },
+    {
       "name": "toggle_bg_active",
       "value": "#E8F4FD"
     },
@@ -89,12 +93,8 @@
       "value": "#666666"
     },
     {
-      "name": "operation_icon_enabled",
+      "name": "operation_icon",
       "value": "#666666"
-    },
-    {
-      "name": "operation_icon_disabled",
-      "value": "#C0C0C0"
     },
     {
       "name": "menu_bg",

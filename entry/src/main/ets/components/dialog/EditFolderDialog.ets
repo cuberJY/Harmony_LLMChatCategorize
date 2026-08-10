@@ -56,7 +56,7 @@ export struct EditFolderDialog {
       // 标题
       Text(this.title)
         .fontSize($r('app.float.font_body'))
-        .fontWeight(FontWeight.Bold)
+        .fontWeight(700)
         .fontColor($r('app.color.text_primary'))
         .width("100%")
         .textAlign(TextAlign.Start)

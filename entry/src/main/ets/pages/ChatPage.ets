@@ -61,7 +61,7 @@ export struct ChatPage {
         // 中间：APP 标题
         Text(this.vm.title)
           .fontSize($r('app.float.font_title'))
-          .fontWeight(FontWeight.Bold)
+          .fontWeight(700)
           .fontColor($r('app.color.text_primary'))
           .layoutWeight(1)
           // 占据中间剩余空间
@@ -134,6 +134,10 @@ export struct ChatPage {
                   // 切换分支：在变体间 ±1 循环
                   onSwitchBranch: (m: Message, delta: number) => {
                     this.vm.switchBranch(m, delta);
+                  },
+                  // 删除：删除该消息及其后续所有分支（子树整体删除）
+                  onDelete: (m: Message) => {
+                    this.vm.deleteMessage(m);
                   },
                 })
               }.width("100%")
@@ -218,6 +222,15 @@ export struct ChatPage {
     .onShown(() => {
       // 每次显示（含从侧边栏/文件夹返回）时刷新模型名与标题
       this.vm.onPageShow();
+    })
+    .onBackPressed(() => {
+      /** 
+       * ChatPage 是栈底主页面（isEntry 入栈）：系统返回键 = 退出应用，
+       * 拦截后不弹栈，避免 NavDestination 被弹出、回到空白的 Navigation 首页内容（NavBar）
+       */
+      const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      context.terminateSelf();
+      return true; // true = 本页自行处理返回键，框架不再执行默认弹栈
     })
   }
 

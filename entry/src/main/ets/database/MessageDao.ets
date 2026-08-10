@@ -148,6 +148,21 @@ export class MessageDao {
     }
   }
 
+  // 按 id 批量删除消息（删除单条消息及其后续子树时使用）
+  async deleteByIds(ids: string[]): Promise<void> {
+    const store = this.store;
+    if (!store || ids.length === 0) return;
+    try {
+      const predicates = new relationalStore.RdbPredicates("message");
+      predicates.in("id", ids);
+      await store.delete(predicates);
+    } catch (e) {
+      Logger.error(`MessageDao.deleteByIds failed: ${JSON.stringify(e)}`);
+      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
+      throw new Error(`MessageDao error: ${JSON.stringify(e)}`);
+    }
+  }
+
   // 游标行 → Message 对象
   private messageFromResultSet(rs: relationalStore.ResultSet): Message {
     const msg = new Message("", "assistant", "");

@@ -95,6 +95,38 @@
     {
       "name": "edit_mode_hint",
       "value": "正在编辑消息…（发送后在该位置创建新分支）"
+    },
+    {
+      "name": "copy",
+      "value": "复制"
+    },
+    {
+      "name": "select_text",
+      "value": "选择文本"
+    },
+    {
+      "name": "create_branch",
+      "value": "新建分支"
+    },
+    {
+      "name": "regenerate",
+      "value": "重新生成"
+    },
+    {
+      "name": "delete",
+      "value": "删除"
+    },
+    {
+      "name": "delete_message_title",
+      "value": "删除消息"
+    },
+    {
+      "name": "delete_message_confirm",
+      "value": "确定删除该消息吗？删除后将同时删除该消息后续的所有分支"
+    },
+    {
+      "name": "cancel",
+      "value": "取消"
     }
   ]
 }

@@ -21,7 +21,7 @@ export struct FolderPickerDialog {
     Column({ space: $r('app.float.space_xs') }) {
       Text(this.title)
         .fontSize($r('app.float.font_name'))
-        .fontWeight(FontWeight.Bold)
+        .fontWeight(700)
         .fontColor($r('app.color.text_primary'))
         .width("100%")
         .textAlign(TextAlign.Start)

@@ -66,7 +66,7 @@ export struct FolderPage {
           // 文件夹名称
           Text(this.vm.folderName.length > 0 ? this.vm.folderName : "文件夹")
             .fontSize($r('app.float.font_title'))
-            .fontWeight(FontWeight.Bold)
+            .fontWeight(700)
             .fontColor($r('app.color.text_primary'))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -201,7 +201,7 @@ export struct FolderPage {
         Text("+")
           .fontSize($r('app.float.font_icon_xxl'))
           .fontColor(Color.White)
-          .fontWeight(FontWeight.Medium)
+          .fontWeight(500)
       }
       .width(32)
       .height(32)

@@ -41,6 +41,8 @@
 - **文本选中复制** — AI 消息长按选中文本一键复制（自行写入系统剪贴板），代码块右上角"复制"按钮，用户消息长按复制（CopyOptions.LocalDevice）
 - **对话分支** — AI 回复支持「重新生成」（覆盖当前回复）与「新建分支」（保留旧回复生成新变体）；同组变体通过气泡底栏「< 当前 / 总数 >」循环切换，旧分支整条熄灭但保留在库中，随时可切回
 - **消息编辑** — 用户消息「编辑」将原内容回填输入框（顶部显示编辑提示），发送后在该位置创建新分支并重新生成 AI 回复
+- **删除单条消息** — 消息操作栏垃圾桶按钮（AI 消息在「更多」菜单中），系统对话框二次确认后级联删除该消息及其后续所有分支（子树整体删除）；全部删空时自动重置为新对话并同步删除空对话记录
+- **选择文本（原文查看）** — AI 消息「更多」菜单「选择文本」，从底部弹出半模态面板显示渲染前的原始 Markdown 源码，支持长按选择/复制（绕过渲染视图的文本选择限制）
 
 ## 项目结构
 
@@ -227,11 +229,12 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 - **重新生成**（`regenerateMessage`）：直接覆盖当前 AI 回复内容重新生成，不产生新变体（复用旧消息对象）
 - **新建分支**（`createBranch`）：创建同父新变体并重新生成；旧回复及其后续链整条熄灭（`deactivateBranchFrom`）但保留在数据库中
 - **消息编辑**（`startEdit` / `editUserMessage`）：用户消息「编辑」回填输入框（`editingMessageId` + `editingPrefill`），发送时创建新用户消息变体并重新生成 AI 回复
+- **删除单条消息**（`deleteMessage`）：沿 parentId 广度遍历收集该消息 + 全部后代（含各变体分支）→ 从 DB 批量删除（消息 id 集合）并从内存缓存 `allMessages` 移除 → 被删消息正在流式输出时先中止对应流任务 → 列表重建；全部删空时重置为新对话并同步删除已无内容的对话记录
 - **切换分支**（`switchBranch`）：在分支组内按 ±1 循环切换变体，`rebuildActiveChain()` 全量熄灭 → 点亮目标变体祖先路径 → 延伸其激活后续链（无激活子节点时取组内最早变体）→ 持久化 → 重载列表
 - **变体计数**（`getVariantInfo`）：返回 `{ current, total }` 驱动气泡底栏「< 当前 / 总数 >」，多变体时显示
 - `allMessages` 缓存当前对话全量消息（含非激活变体），作为分支切换 / 变体统计 / 激活链重建的唯真源
 - 兼容旧数据：全部消息 `parentId` 为空时按时间正序渲染，无分支体验不受影响
-- 操作按钮流式中禁用（`isStreaming` @Trace 实时驱动，流式结束自动恢复）
+- 操作栏流式时整体隐藏（`message.isStreaming` 为 @Trace，流式结束自动恢复显示），避免流式中误操作
 
 ### BackgroundRunGuardService — 后台流式保活
 
@@ -246,6 +249,7 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 - **LazyForEach**（方案 C）：自定义 `IDataSource` 懒加载，只渲染可视区域消息
 - **流式节流**（方案 A）：增量文本攒入缓冲区，每 50ms 合并刷新一次
 - **页面过渡动画**：ChatPage 与 SideBarPage 左右平移推入
+- **返回键拦截**：ChatPage 是栈底主页面（isEntry 入栈），系统返回键 = 退出应用；`onBackPressed` 拦截后 `terminateSelf()` 直接退出，避免 NavDestination 被弹出回到空白的 Navigation 首页（NavBar）
 
 ### MessageBubble — Markdown 渲染
 
@@ -253,7 +257,9 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 - 用户消息保持纯文本渲染（气泡宽度自适应）
 - **深色模式适配**：字体类颜色传 `$r()` 资源引用，系统在深浅色切换时自动加载 dark/ 目录对应色值；代码块/思维导图主题（仅支持 `'light'/'dark'` 字符串）与 LaTeX 公式颜色（仅支持十六进制 number）通过 `on('environment')` 监听系统 colorMode 动态切换，`aboutToDisappear` 注销监听防泄漏
 - **文本复制**：lv-markdown-in v3.1.0 起移除内置复制能力，通过 `setTextSelectionEnable(true)` 开启长按选中 + `setTextSelectionCopyListener` 自行写入系统剪贴板（复制成功/失败均有 Toast 提示）；代码块通过 `setCodeCopyListener` 注册右上角"复制"按钮；用户消息通过 `copyOption(CopyOptions.LocalDevice)` 支持长按复制
-- **底部操作栏**：用户消息右下角 [复制] [编辑] [切换分支]，AI 消息左下角 [切换分支] [复制]、右下角 [新建分支] [重新生成]；流式回复中按钮自动置灰（`isStreaming` @Trace 实时驱动），多变体时显示「< 当前 / 总数 >」切换控件
+- **底部操作栏**：用户消息右下角 [删除] [复制] [编辑] [切换分支]；AI 消息左下角 [切换分支] [复制] [更多]，右下角 [删除] [新建分支] [重新生成]；「更多」按钮（dot_grid_2x2）弹出纵向菜单：复制 / 选择文本 / 新建分支 / 重新生成 / 删除（红色警示，置底）；多变体时显示「< 当前 / 总数 >」切换控件；图标颜色统一走 `operation_icon` 资源（浅色 #666666 / 深色 #8E8E8E），按钮恒可用——**流式回复中操作栏整体隐藏**（`message.isStreaming` 为 @Trace，流式结束自动恢复显示），从根源避免流式中误操作
+- **选择文本（原文查看）**：AI 消息「更多」菜单 →「选择文本」，通过 `bindSheet($$isTextSheetShow)` 从底部弹出半模态面板：顶部标题行 + 下方滚动正文（渲染前的原始 Markdown 源码，`copyOption(CopyOptions.LocalDevice)` 支持长按选择/复制）；面板高度 = 窗口高 − 状态栏 − 标题栏，顶部与页面标题栏下缘对齐（`textSheetHeight()` 动态计算，异常兜底 500vp）；$$ 双向绑定保证拖拽/点遮罩关闭时状态自动复位
+- **删除消息**：垃圾桶按钮（用户消息直接展示、AI 消息在操作栏与「更多」菜单中均有），点击弹系统对话框二次确认（「取消 / 删除」红色按钮，`result.index === 1` 才真正删除，避免误删），确认后由 ViewModel 沿 parentId 级联删除该消息及其后续所有分支
 - 流式输出时 `text` 为 @Prop，chunk 增量自动重绘；`Message.isStreaming` 标记进行中状态，结束（含异常）时清除
 
 ### 数据模型

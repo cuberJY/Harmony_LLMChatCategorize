@@ -8,7 +8,7 @@ import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../co
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { promptAction } from '@kit.ArkUI';
+import { promptAction, SymbolGlyphModifier, window } from '@kit.ArkUI';
 @ComponentV2
 export struct MessageBubble {
   /**
@@ -19,15 +19,17 @@ export struct MessageBubble {
   @Param message: Message = new Message("", "user", "");
   @Local isReasoningExpanded: boolean = true; // 是否展开思考内容
   @Local isDarkMode: boolean = false; // 跟随系统深浅色（驱动代码块/思维导图主题切换）
+  @Local isTextSheetShow: boolean = false; // 「选择文本」半模态面板显示状态（bindSheet $$ 双向绑定）
   // 对话分支：变体信息与操作回调（父组件注入）
   @Param variantCurrent: number = 0; // 当前变体序号（1 起，驱动 "< 4 / 5 >" 中的 4）
   @Param variantTotal: number = 0; // 分支组变体总数（驱动 "5"）
-  // 注意：不通过 @Param 传入"流式禁用"标志——@Param 在渲染时冻结，流式结束后不会刷新，
-  // 会导致按钮永久置灰（必须切页面重建列表才恢复）。改用 message.isStreaming（@Trace 实时驱动）。
+  // 注意：不通过 @Param 传入"流式生成中"标志——@Param 在渲染时冻结，流式结束后不会刷新，
+  // 会导致操作栏永久隐藏（必须切页面重建列表才恢复）。改用 message.isStreaming（@Trace 实时驱动）。
   @Event onRegenerate: (msg: Message) => void = () => {}; // 「重新生成」：覆盖当前回复
   @Event onCreateBranch: (msg: Message) => void = () => {}; // 「新建分支」：保留旧回复生成新变体
   @Event onEdit: (msg: Message) => void = () => {}; // 「编辑」：回填输入框创建新分支
   @Event onSwitchBranch: (msg: Message, delta: number) => void = () => {}; // 「< >」切换变体
+  @Event onDelete: (msg: Message) => void = () => {}; // 「删除」：删除单条消息（含后续分支）
   // lv-markdown-in 的样式/拦截控制器（普通成员即可，无需响应式）
   private mdController: MarkdownController = new MarkdownController();
   private envCallbackId: number = -1; // 系统环境监听回调 ID（aboutToDisappear 注销用）
@@ -167,7 +169,10 @@ export struct MessageBubble {
           this.bubbleContent($r('app.color.text_ai'), $r('app.color.bubble_bg_ai'));
         }
         // 底部操作栏（复制/编辑/重新生成/新建分支/切换分支）
-        this.actionBar();
+        // 流式生成中不显示操作栏（isStreaming 为 @Trace，流式结束自动恢复显示）
+        if (!this.message.isStreaming) {
+          this.actionBar();
+        }
       }
       .alignItems(this.message.isUser() ? HorizontalAlign.End : HorizontalAlign.Start)
       // 关键：Column 显式撑满整行（不能 wrap-content 自适应），
@@ -182,6 +187,14 @@ export struct MessageBubble {
       right: $r('app.float.space_md'),
       top: $r('app.float.space_sm'),
       bottom: $r('app.float.space_sm'),
+    })
+    // 「选择文本」半模态面板：从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏（顶部与标题栏下缘对齐）
+    // $$ 双向绑定：拖拽/点遮罩关闭时框架自动把 isTextSheetShow 置回 false
+    .bindSheet($$this.isTextSheetShow, this.textSheet(), {
+      height: this.textSheetHeight(),
+      dragBar: false,
+      showClose: false,
+      backgroundColor: $r('app.color.dialog_bg'),
     });
   }
 
@@ -313,6 +326,101 @@ export struct MessageBubble {
       .backgroundColor($r('app.color.bubble_bg_ai'));
   }
 
+  /**
+   * 「选择文本」半模态面板内容
+   *  - 顶部标题行：上方居中「选择文本」，右上角叉号关闭
+   *  - 下方正文：显示渲染前的原始文本（Markdown 源码），可长按选择/复制
+   *  - 面板整体高度由 textSheetHeight() 控制，顶部与页面标题栏下缘对齐
+   */
+  @Builder
+  textSheet() {
+    Column() {
+      // 标题行：左右等宽占位保证标题居中
+      Row() {
+        // 左侧占位（与右侧关闭按钮等宽，保证标题视觉居中）
+        Row().width($r('app.float.space_xxl'))
+        Text($r('app.string.select_text'))
+          .fontSize($r('app.float.font_title'))
+          .fontWeight(700)
+          .fontColor($r('app.color.text_primary'))
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+        // 右上角关闭按钮（叉）
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize($r('app.float.font_icon_md'))
+            .fontWeight(700)
+            .fontColor([$r('app.color.text_secondary')])
+        }
+        .width($r('app.float.space_xxl'))
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          this.isTextSheetShow = false;
+        })
+      }
+      .width("100%")
+      .height($r('app.float.title_bar_height'))
+      .padding({
+        left: $r('app.float.space_xl'),
+        right: $r('app.float.space_xl'),
+      })
+      // 标题行底部分割线
+      .border({
+        width: { bottom: 1 },
+        color: { bottom: $r('app.color.divider') },
+      })
+
+      // 渲染前的原始文本（Markdown 源码），copyOption 支持长按选择与复制
+      Scroll() {
+        Text(this.message.content)
+          .fontSize($r('app.float.font_body'))
+          .fontColor($r('app.color.text_ai'))
+          .copyOption(CopyOptions.LocalDevice)
+          .width("100%")
+          .padding({
+            left: $r('app.float.space_xl'),
+            right: $r('app.float.space_xl'),
+            top: $r('app.float.space_lg'),
+            bottom: $r('app.float.space_lg'),
+          })
+      }
+      .width("100%")
+      .layoutWeight(1)
+      .align(Alignment.TopStart)
+      .scrollBar(BarState.Auto)
+    }
+    .width("100%")
+    .height("100%")
+    .backgroundColor($r('app.color.dialog_bg'))
+  }
+
+  /**
+   * 计算「选择文本」面板高度（vp）：
+   * 面板从底部弹出，要求其顶部与页面顶部标题栏下缘对齐，
+   * 故 高度 = 窗口高度 - 状态栏高度 - 标题栏高度（窗口/状态栏为 px，统一转 vp）。
+   */
+  private textSheetHeight(): number {
+    try {
+      const host = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+      if (host === undefined || host.windowStage === undefined) {
+        return 500; // 兜底高度
+      }
+      // 标题栏高度（float 资源带 'vp' 单位，getNumber 返回 px，需转回 vp）
+      const titleBarHeightPx = host.resourceManager.getNumber($r('app.float.title_bar_height').id);
+      const titleBarHeight = this.getUIContext().px2vp(titleBarHeightPx);
+      const win = host.windowStage.getMainWindowSync();
+      // 窗口总高度（px）
+      const windowHeightPx = win.getWindowProperties().windowRect.height;
+      // 状态栏（顶部安全区）高度（px），非沉浸式窗口时为 0
+      const safeTopPx = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect.height;
+      const windowHeight = this.getUIContext().px2vp(windowHeightPx);
+      const safeTop = this.getUIContext().px2vp(safeTopPx);
+      return Math.max(200, windowHeight - safeTop - titleBarHeight);
+    } catch (e) {
+      return 500; // 异常兜底，保证面板可显示
+    }
+  }
+
   // 底部操作栏（对话分支交互入口）
 
   /**
@@ -324,11 +432,11 @@ export struct MessageBubble {
   actionBar() {
     Row() {
       if (this.message.isUser()) {
-        // 用户消息：一组按钮靠右
+        // 用户消息：一组按钮靠右（删除在复制左端，普通图标无特殊颜色）
         Row() {
-          this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage(), true);
-          this.iconButton($r("sys.symbol.square_and_pencil"), () => this.onEdit(this.message),
-            this.opEnabled());
+          this.iconButton($r("sys.symbol.trash"), () => this.confirmDelete());
+          this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
+          this.iconButton($r("sys.symbol.square_and_pencil"), () => this.onEdit(this.message));
           // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
           if (this.variantTotal > 1) {
             this.variantSwitcher();
@@ -343,16 +451,19 @@ export struct MessageBubble {
           if (this.variantTotal > 1) {
             this.variantSwitcher();
           }
-          this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage(), true);
+          this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
+          // 「更多」按钮（dot_grid_2x2，位于复制键右侧）：点击弹出菜单
+          this.moreButton();
         }
         .layoutWeight(1)
         .justifyContent(FlexAlign.Start)
 
         Row() {
+          this.iconButton($r("sys.symbol.trash"), () => this.confirmDelete());
           this.iconButton($r("sys.symbol.circle_and_plus"),
-            () => this.onCreateBranch(this.message), this.opEnabled());
+            () => this.onCreateBranch(this.message));
           this.iconButton($r("sys.symbol.arrow_clockwise"),
-            () => this.onRegenerate(this.message), this.opEnabled());
+            () => this.onRegenerate(this.message));
         }
         .margin({ right: $r('app.float.space_xs') })
         .justifyContent(FlexAlign.End)
@@ -362,14 +473,100 @@ export struct MessageBubble {
     .margin({ top: $r('app.float.space_xs') })
   }
 
-  // 通用图标按钮：icon 图标，disabled 时置灰（无文字，仅图标）
+  // 「更多」按钮（dot_grid_2x2）：样式与 iconButton 保持一致，点击展开纵向菜单
   @Builder
-  iconButton(icon: Resource, action: () => void, enabled: boolean) {
+  moreButton() {
+    Row() {
+      SymbolGlyph($r("sys.symbol.dot_grid_2x2"))
+        .fontSize($r('app.float.font_icon_lg'))
+        .fontWeight(700)
+        .fontColor([$r('app.color.operation_icon')])
+    }
+    .padding({
+      left: $r('app.float.space_xs'),
+      right: $r('app.float.space_xs'),
+      top: $r('app.float.space_xs'),
+      bottom: $r('app.float.space_xs'),
+    })
+    .margin({
+      left: $r('app.float.space_xs'),
+      right: $r('app.float.space_xs'),
+      top: $r('app.float.space_xs'),
+      bottom: $r('app.float.space_xs')
+    })
+    .backgroundColor($r('app.color.bubble_bg_ai'))
+    // 点击展开菜单：复制 / 选择文本 / 新建分支 / 重新生成 / 删除（默认出现在按钮下方，空间不足自动调整）
+    .bindMenu(this.moreMenu())
+  }
+
+  // 「更多」菜单：从上到下 = 复制、选择文本、新建分支、重新生成、删除
+  @Builder
+  moreMenu() {
+    Menu() {
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.square_and_square'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.operation_icon')]),
+        content: $r('app.string.copy'),
+      })
+        .onChange(() => {
+          this.copyMessage();
+        })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.doc_plaintext'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.operation_icon')]),
+        content: $r('app.string.select_text'),
+      })
+        .onChange(() => {
+          // 打开「选择文本」半模态面板（显示渲染前的原文）
+          this.isTextSheetShow = true;
+        })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.circle_and_plus'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.operation_icon')]),
+        content: $r('app.string.create_branch'),
+      })
+        .onChange(() => {
+          this.onCreateBranch(this.message);
+        })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.arrow_clockwise'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.operation_icon')]),
+        content: $r('app.string.regenerate'),
+      })
+        .onChange(() => {
+          this.onRegenerate(this.message);
+        })
+      // 删除：置于菜单最下面，图标与文字变红（危险操作醒目提示）
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.trash'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.text_danger')]),
+        content: $r('app.string.delete'),
+      })
+        .contentFontColor($r('app.color.text_danger'))
+        .onChange(() => {
+          this.confirmDelete();
+        })
+    }
+  }
+
+  // 通用图标按钮：无文字仅图标（操作栏仅在非流式时显示，按钮恒可用）
+  @Builder
+  iconButton(icon: Resource, action: () => void) {
     Row() {
       SymbolGlyph(icon)
         .fontSize($r('app.float.font_icon_lg'))
-        .fontWeight(FontWeight.Bold)
-        .fontColor([enabled ? $r('app.color.operation_icon_enabled') : $r('app.color.operation_icon_disabled')])
+        .fontWeight(700)
+        .fontColor([$r('app.color.operation_icon')])
     }
     .padding({
       left: $r('app.float.space_xs'),
@@ -385,49 +582,43 @@ export struct MessageBubble {
     })
     .backgroundColor($r('app.color.bubble_bg_ai'))
     .onClick(() => {
-      if (enabled) {
-        action();
-      }
+      action();
     })
   }
 
-  // 分支切换控件：< 当前 / 总数 >（点击两侧箭头在变体间循环切换）
+  // 分支切换控件：< 当前 / 总数 >（点击两侧箭头在变体间循环切换；操作栏仅在非流式时显示，恒可切换）
   @Builder
   variantSwitcher() {
     Row() {
       SymbolGlyph($r("sys.symbol.chevron_left"))
         .fontSize($r('app.float.font_icon_md'))
-        .fontWeight(FontWeight.Bold)
-        .fontColor([this.canSwitch() ? $r('app.color.text_secondary') : $r('app.color.send_btn_disabled')])
+        .fontWeight(700)
+        .fontColor([$r('app.color.text_secondary')])
         .padding({
           left: $r('app.float.space_sm'),
           right: $r('app.float.space_sm')
         })
         .onClick(() => {
-          if (this.canSwitch()) {
-            this.onSwitchBranch(this.message, -1);
-          }
+          this.onSwitchBranch(this.message, -1);
         })
       Text(`${this.variantCurrent} / ${this.variantTotal}`)
         .fontSize($r('app.float.font_icon_md'))
-        .fontWeight(FontWeight.Medium)
-        .fontColor($r('app.color.operation_icon_enabled'))
+        .fontWeight(500)
+        .fontColor($r('app.color.operation_icon'))
         .padding({
           left: $r('app.float.space_xs'),
           right: $r('app.float.space_xs')
         })
       SymbolGlyph($r("sys.symbol.chevron_right"))
         .fontSize($r('app.float.font_icon_md'))
-        .fontWeight(FontWeight.Bold)
-        .fontColor([this.canSwitch() ? $r('app.color.text_secondary') : $r('app.color.send_btn_disabled')])
+        .fontWeight(700)
+        .fontColor([$r('app.color.text_secondary')])
         .padding({
           left: $r('app.float.space_sm'),
           right: $r('app.float.space_sm')
         })
         .onClick(() => {
-          if (this.canSwitch()) {
-            this.onSwitchBranch(this.message, 1);
-          }
+          this.onSwitchBranch(this.message, 1);
         })
     }
     .padding({
@@ -435,16 +626,6 @@ export struct MessageBubble {
       bottom: $r('app.float.space_xs')
     })
     .backgroundColor($r('app.color.bubble_bg_ai'))
-  }
-
-  /** 是否允许操作（本消息流式回复中 → 置灰；@Trace 实时驱动，流式结束自动恢复） */
-  private opEnabled(): boolean {
-    return !this.message.isStreaming;
-  }
-
-  /** 是否允许切换分支（流式中禁用；仅存在多个变体时可切换） */
-  private canSwitch(): boolean {
-    return this.opEnabled() && this.variantTotal > 1;
   }
 
   /** 复制整条消息正文到系统剪贴板 */
@@ -457,5 +638,27 @@ export struct MessageBubble {
       .catch(() => {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copy_failed') });
       });
+  }
+
+  /**
+   * 「删除」确认弹窗：系统对话框二次确认，避免误删
+   * 用户点「删除」按钮（index=1）才真正回调 onDelete；取消/点遮罩关闭不删除
+   */
+  private confirmDelete(): void {
+    this.getUIContext().getPromptAction().showDialog({
+      title: $r('app.string.delete_message_title'),
+      message: $r('app.string.delete_message_confirm'),
+      buttons: [
+        { text: $r('app.string.cancel'), color: $r('app.color.text_secondary') },
+        { text: $r('app.string.delete'), color: $r('app.color.text_danger') },
+      ],
+    }).then((result: promptAction.ShowDialogSuccessResponse) => {
+      // index=0 取消，index=1 删除
+      if (result.index === 1) {
+        this.onDelete(this.message);
+      }
+    }).catch(() => {
+      // 取消或对话框关闭失败，无需处理
+    });
   }
 }

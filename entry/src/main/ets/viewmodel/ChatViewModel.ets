@@ -597,6 +597,59 @@ export class ChatViewModel {
   }
 
   /**
+   * 删除消息及其后续所有分支（子树整体删除）
+   * - 从 DB 批量删除（消息 id 集合）
+   * - 从内存缓存 allMessages 移除
+   * - 若该消息正在流式输出，先中止对应流任务
+   * - 列表重建；全部删空则重置为新对话（同步删除已无内容的对话记录）
+   */
+  async deleteMessage(msg: Message): Promise<void> {
+    await this.dbInitPromise;
+    if (this.isDestroyed) return;
+    const convId = this.currentConversationId;
+    if (convId.length === 0) return; // 空白新对话尚未入库，无可删除
+
+    // 1. 若被删消息正是当前流式任务正在填充的消息，先中止任务
+    const task = this.streamTasks.get(convId);
+    if (task !== undefined && task.aiMsg.id === msg.id) {
+      task.clearTimer();
+      task.isStreaming = false;
+      msg.isStreaming = false;
+      this.streamTasks.delete(convId);
+      this.syncBackgroundGuardCount();
+    }
+
+    // 2. 收集子树 id 集合：该消息 + 所有后代（含各变体分支），沿 parentId 广度遍历
+    const deleteIds: string[] = [];
+    const stack: string[] = [msg.id];
+    while (stack.length > 0) {
+      const curId = stack.pop();
+      if (curId === undefined) continue;
+      if (deleteIds.indexOf(curId) >= 0) continue; // 防重复
+      deleteIds.push(curId);
+      this.allMessages.forEach((m: Message) => {
+        if (m.parentId === curId) {
+          stack.push(m.id);
+        }
+      });
+    }
+
+    // 3. 持久化：删除消息（子树）；若全部删空，同时删除已无内容的对话记录
+    ConversationRepository.getInstance().deleteMessages(deleteIds);
+    if (deleteIds.length === this.allMessages.length) {
+      ConversationRepository.getInstance().deleteConversations([convId]);
+    }
+
+    // 4. 更新内存缓存并重建列表
+    this.allMessages = this.allMessages.filter((m: Message) => deleteIds.indexOf(m.id) < 0);
+    if (this.allMessages.length === 0) {
+      this.newConversation(); // 删空 → 回到新对话状态
+    } else {
+      this.reloadActiveList();
+    }
+  }
+
+  /**
    * 重建激活链（切换分支核心）：
    * 1. 全量熄灭 → 2. 点亮目标变体的祖先路径 → 3. 点亮目标变体的后续链
    * 4. 持久化激活状态 → 5. 重载列表
@@ -748,12 +801,6 @@ export class ChatViewModel {
     const indexes = new Set<number>();
     group.forEach(m => indexes.add(m.variantIndex));
     return { current: msg.variantIndex + 1, total: Math.max(1, indexes.size) };
-  }
-
-  /** 指定消息是否正在被本对话的流式任务填充（UI 据此禁用操作按钮） */
-  isStreaming(msg: Message): boolean {
-    const task = this.streamTasks.get(this.currentConversationId);
-    return task !== undefined && task.isStreaming && task.aiMsg.id === msg.id;
   }
 
   /**

@@ -115,7 +115,7 @@ export struct SideBarPage {
                 .fontColor(
                   this.vm.currentTab === 0 ? $r('app.color.toggle_text_active') : $r('app.color.toggle_text_inactive'),
                 )
-                .fontWeight(this.vm.currentTab === 0 ? FontWeight.Bold : FontWeight.Normal)
+                .fontWeight(this.vm.currentTab === 0 ? 700 : 400)
                 .padding({
                   left: $r('app.float.space_md'),
                   right: $r('app.float.space_md'),
@@ -135,7 +135,7 @@ export struct SideBarPage {
                 .fontColor(
                   this.vm.currentTab === 1 ? $r('app.color.toggle_text_active') : $r('app.color.toggle_text_inactive'),
                 )
-                .fontWeight(this.vm.currentTab === 1 ? FontWeight.Bold : FontWeight.Normal)
+                .fontWeight(this.vm.currentTab === 1 ? 700 : 400)
                 .padding({
                   left: $r('app.float.space_md'),
                   right: $r('app.float.space_md'),
@@ -184,11 +184,12 @@ export struct SideBarPage {
             // 搜索框
             if (this.vm.conversations.length > 0) {
               TextInput({ placeholder: "搜索对话...", text: this.vm.searchText })
+                .height(40)
                 .fontSize($r('app.float.font_input'))
                 .fontColor($r('app.color.text_primary'))
                 .placeholderColor($r('app.color.text_secondary'))
-                .backgroundColor($r('app.color.page_bg'))
-                .borderRadius(16)
+                .backgroundColor($r('app.color.input_search_bg'))
+                .borderRadius(20)
                 .borderWidth(1)
                 .borderColor($r('app.color.input_border'))
                 .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
@@ -400,7 +401,7 @@ export struct SideBarPage {
               Text("+")
                 .fontSize($r('app.float.font_icon_xxl'))
                 .fontColor(Color.White)
-                .fontWeight(FontWeight.Medium)
+                .fontWeight(500)
             }
             .width(48)
             .height(48)
@@ -444,7 +445,7 @@ export struct SideBarPage {
                 })
               Text(`删除`)
                 .fontSize($r('app.float.font_button'))
-                .fontWeight(FontWeight.Medium)
+                .fontWeight(500)
                 .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
                 .layoutWeight(1)
                 .textAlign(TextAlign.Center)
@@ -455,7 +456,7 @@ export struct SideBarPage {
               if (this.vm.currentTab === 1) {
                 Text("移动")
                   .fontSize($r('app.float.font_button'))
-                  .fontWeight(FontWeight.Medium)
+                  .fontWeight(500)
                   .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.toggle_text_active') : $r('app.color.text_secondary'))
                   .layoutWeight(1)
                   .textAlign(TextAlign.Center)
