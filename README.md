@@ -34,7 +34,7 @@
 - **智能滚动** — 自动跟随最新消息，Markdown 异步渲染增高；用户手动滚动时暂停跟随
 - **流式节流** — 增量文本 50ms 节流合并刷新，高频流式更新降至约 20fps
 - **多对话并发流式** — 每个对话独立 StreamTask，切换对话后原流在后台继续，缓冲互不串写
-- **流式中断** — 支持中断 / 取消进行中的流式回复，页面销毁时自动清理定时器防泄漏
+- **暂停 / 继续生成** — 生成中发送键变为暂停键，点击中止请求并保留已生成内容；网络异常自动进入暂停态，可一键从未完成处续写（沿用原任务与开关设置）
 - **后台流式保活** — 退后台且有流式任务时申请 `dataTransfer` 长时任务，SSE 连接不被系统冻结
 - **键盘避让** — RESIZE 模式，键盘弹出时输入栏自动钉底
 - **智能时间分割线** — 消息间隔超过 10 分钟自动显示
@@ -243,7 +243,8 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 ### 9. BackgroundRunGuardService — 后台流式保活
 
 - 背景：系统对退后台应用约 2 秒冻结网络、约 12 秒释放资源，SSE 流式连接会被掐断
-- 解法：应用在后台**且**仍有流式任务时，申请 `dataTransfer` 长时任务（`backgroundTaskManager.startBackgroundRunning`），保持网络连接
+- 解法：应用在后台**且**仍有进行中的流式任务时，申请 `dataTransfer` 长时任务（`backgroundTaskManager.startBackgroundRunning`），保持网络连接
+- 保活计数仅统计 `isStreaming=true` 的任务（已暂停任务网络请求已中止，无需保活）
 - 任务全部结束或回到前台时立即 `stopBackgroundRunning` 释放，避免资源占用
 - 前置配置：`ohos.permission.KEEP_BACKGROUND_RUNNING` 权限 + EntryAbility `backgroundModes: ["dataTransfer"]`
 

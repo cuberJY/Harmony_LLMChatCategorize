@@ -34,7 +34,7 @@ An AI chat application built on HarmonyOS NEXT, featuring SSE streaming conversa
 - **Smart Scroll** — Auto-follows the latest message; re-pins to bottom as Markdown async rendering grows items; pauses following when the user scrolls manually
 - **Streaming Throttle** — Incremental text merged every 50ms, reducing high-frequency stream updates to ~20fps
 - **Concurrent Multi-conversation Streaming** — Each conversation owns an independent StreamTask; switching away keeps the original stream running in the background without cross-writes
-- **Stream Interruption** — Interrupt/cancel an in-progress stream; timers cleaned up on page destroy to prevent leaks
+- **Pause / Resume Generation** — The send button turns into a pause button while generating; tapping it aborts the request but keeps the received content; network hiccups auto-enter the paused state, and one tap resumes generation from where it left off (reusing the original task and toggles)
 - **Background Streaming Keep-alive** — Requests a `dataTransfer` continuous task when in background with active streams so the SSE connection isn't frozen by the system
 - **Keyboard Avoidance** — RESIZE mode pins the input bar to the bottom when the keyboard appears
 - **Smart Time Divider** — Auto-shows a divider when message gaps exceed 10 minutes
@@ -244,7 +244,8 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
 ### 9. BackgroundRunGuardService — Background Streaming Keep-alive
 
 - Background: the system freezes network resources ~2s after an app goes to background and releases them ~12s later, cutting off SSE streaming connections
-- Solution: while in background **and** streams are active, request a `dataTransfer` continuous task (`backgroundTaskManager.startBackgroundRunning`) to keep the network connection alive
+- Solution: while in background **and** streams are actively running, request a `dataTransfer` continuous task (`backgroundTaskManager.startBackgroundRunning`) to keep the network connection alive
+- The keep-alive count only counts `isStreaming=true` tasks (paused tasks have already aborted their network requests, so no keep-alive needed)
 - Immediately calls `stopBackgroundRunning` when all tasks finish or the app returns to foreground, avoiding resource usage
 - Prerequisites: `ohos.permission.KEEP_BACKGROUND_RUNNING` permission + `backgroundModes: ["dataTransfer"]` in EntryAbility
 
