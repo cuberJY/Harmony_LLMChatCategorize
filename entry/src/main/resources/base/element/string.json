@@ -69,6 +69,14 @@
       "value": "正在回复中，请稍候"
     },
     {
+      "name": "continue_generate",
+      "value": "继续生成"
+    },
+    {
+      "name": "stream_interrupted",
+      "value": "网络中断，已暂停生成"
+    },
+    {
       "name": "config_incomplete",
       "value": "请填写 API Key"
     },

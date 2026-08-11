@@ -23,6 +23,7 @@ export class Message {
   @Trace isSearching: boolean = false; // 是否正在联网搜索（用于 UI 状态）
   @Trace searchFailed: boolean = false; // 联网搜索是否失败（已降级普通模式）
   @Trace isStreaming: boolean = false; // 是否正在流式输出（UI 据此保持渲染，Markdown 组件由 content 增量自动重绘）
+  @Trace isPaused: boolean = false; // 是否已暂停生成（暂停态时气泡操作栏右上角显示「继续生成」；仅内存状态，不持久化）
   @Trace thinkingStartTime: number = 0; // 思考开始时间戳
   @Trace thinkingDuration: number = 0; // 思考耗时（秒），思考完成时赋值
   @Trace createdAt: number = 0; // 发送时间戳（毫秒）

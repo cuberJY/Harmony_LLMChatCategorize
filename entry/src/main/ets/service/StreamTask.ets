@@ -10,6 +10,7 @@
  */
 import { Message } from "../model/Message";
 import { Conversation } from "../model/Conversation";
+import { AbortHandle } from "./provider/LLMProvider";
 
 export class StreamTask {
   conversationId: string; // 归属对话 id（也是 map 的 key）
@@ -18,9 +19,12 @@ export class StreamTask {
   streamBuffer: string = ""; // 正文增量缓冲区（未合并到 aiMsg 的待写文本）
   reasoningBuffer: string = ""; // 思考增量缓冲区
   flushTimerId: number = -1; // 节流定时器 id（-1 = 无等待中的定时器）
-  isStreaming: boolean = true; // 流式进行中标记（onComplete/onError 置 false）
+  isStreaming: boolean = true; // 流式进行中标记（onComplete/onError/暂停时置 false）
+  isPaused: boolean = false; // 是否已暂停（用户点暂停键或网络异常中断；暂停后可「继续生成」）
   webSearchEnabled: boolean = false; // 本次流是否请求了服务端联网搜索（onComplete 判断搜索是否发生过用）
   searchEventSeen: boolean = false; // 是否收到过服务端搜索事件（web_search_call.*）
+  deepThinkingEnabled: boolean = false; // 本次流使用的深度思考开关（「继续生成」时复用，保持风格一致）
+  abortHandler: AbortHandle | null = null; // 底层 HTTP 请求的中止句柄（「暂停生成」时调用 abort()）
 
   constructor(conversationId: string, aiMsg: Message, targetConv: Conversation) {
     this.conversationId = conversationId;

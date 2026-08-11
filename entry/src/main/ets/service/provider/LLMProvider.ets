@@ -28,10 +28,23 @@ export interface StreamCallbacks {
   onComplete: (fullText: string) => void;
   // 发生错误时触发
   onError: (errorMessage: string) => void;
+  // 流被异常中断时触发（网络出问题、连接被掐断等，未收到正常结束事件）：
+  // 调用方应进入"暂停"态，保留已接收内容并允许用户「继续生成」
+  onInterrupted: () => void;
   // 服务端开始执行联网搜索（web_search 工具由服务端执行，UI 显示"正在搜索…"）
   onWebSearchStart: () => void;
   // 服务端联网搜索完成（模型开始基于搜索结果回答）
   onWebSearchEnd: () => void;
+}
+
+/**
+ * 流式请求中止句柄
+ * sendMessage 发起请求后返回本句柄，调用方在需要「暂停生成」时调用 abort()
+ * 中止后底层 HTTP 连接被销毁，且 Provider 不再触发任何回调（onComplete/onError/onInterrupted）
+ */
+export interface AbortHandle {
+  // 中止当前流式请求（幂等：重复调用无副作用）
+  abort(): void;
 }
 
 /**
@@ -47,11 +60,12 @@ export interface LLMProvider {
    * @param callbacks 流式回调
    * @param deepThinking 是否开启深度思考
    * @param webSearch 是否开启联网搜索（服务端 web_search 工具）
+   * @returns 中止句柄：调用方可在生成过程中调用 abort() 暂停（保留已接收内容）
    */
   sendMessage(
     messages: Message[],
     callbacks: StreamCallbacks,
     deepThinking: boolean,
     webSearch: boolean,
-  ): void;
+  ): AbortHandle;
 }

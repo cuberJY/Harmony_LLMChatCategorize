@@ -6,11 +6,12 @@
  *   3. 底部操作栏：左侧切换按钮 + 右侧发送按钮
  *
  * 切换按钮（深度思考 / 联网搜索）：
- *   - 点击切换激活/默认态
- *   - 当前仅 UI 状态，后续接入 API 时传递参数
+ *   - 状态由父级 ViewModel 持有（@Param 单向传入），点击后经 onToggleChange 上报，
+ *     由 VM 更新唯一真源并回流刷新 → 发送 / 重新生成 / 新建分支使用同一份当前开关
+ *   - 发送时通过 onChange 上报文本（开关值由 VM 直接读取，不再重复传递）
  *
- * V2 说明：@Local 为组件内部状态（输入文本/开关/最大高度），
- * @Param 为父组件传入的只读参数（模型名称），回调用普通成员承载
+ * V2 说明：@Local 为组件内部状态（输入文本/最大高度），
+ * @Param 为父组件传入的参数（模型名称/开关状态/编辑态），回调用 @Event 承载
  */
 
 import { LengthMetrics } from "@kit.ArkUI";
@@ -18,11 +19,6 @@ import { LengthMetrics } from "@kit.ArkUI";
 export struct ChatInput {
   // 输入文本
   @Local inputText: string = "";
-  // 深度思考开关（后续传给 LLM Provider 切换模型）
-  @Local deepThinking: boolean = true;
-  // 联网搜索开关（后续传给 LLM Provider 开启搜索）
-  @Local webSearch: boolean = true;
-
   // 输入框行高与行间距（用于精确计算最大高度）
   private inputLineHeight: number = 22; // 行高，需 >= 输入字号（15fp）
   private inputLineSpacing: number = 0; // 行间距
@@ -33,12 +29,24 @@ export struct ChatInput {
     this.inputMaxHeight = this.inputLineHeight * 5 + this.inputLineSpacing * 4;
   }
 
+  // 发送/暂停按钮是否可用：生成中恒可用（暂停键）；否则输入框有内容才可点（发送键）
+  private isSendButtonEnabled(): boolean {
+    return this.streamState === "streaming" || this.inputText.trim().length > 0;
+  }
+
   // 模型名称（由父组件传入）
   @Param modelName: string = "";
   // 编辑态预填文本（点击用户消息「编辑」后回填到输入框；非空即触发回填）
   @Param prefillText: string = "";
   // 是否处于编辑态（编辑消息中，显示提示文案）
   @Param isEditing: boolean = false;
+  // 深度思考开关（由 ViewModel 传入，唯一真源）
+  @Param deepThinking: boolean = true;
+  // 联网搜索开关（由 ViewModel 传入，唯一真源）
+  @Param webSearch: boolean = true;
+  // 流式生成状态（由 ViewModel 传入，唯一真源）：
+  // idle=发送键 / streaming=暂停键 / paused=显示「继续生成」按钮
+  @Param streamState: "idle" | "streaming" | "paused" = "idle";
 
   // 监听 prefillText 变化：回填内容到输入框（@Monitor 是 V2 监听 @Param 变化的机制）
   @Monitor('prefillText')
@@ -48,8 +56,12 @@ export struct ChatInput {
     }
   }
 
-  // 发送回调（@Event：V2 允许父组件初始化的普通事件）
-  @Event onChange: (text: string, webSearch: boolean, deepThinking: boolean) => void = (text: string, webSearch: boolean, deepThinking: boolean) => {};
+  // 开关切换回调（@Event：点击切换按钮时上报新状态，由父级更新 VM 唯一真源）
+  @Event onToggleChange: (webSearch: boolean, deepThinking: boolean) => void = (webSearch: boolean, deepThinking: boolean) => {};
+  // 发送回调（@Event：仅上报文本，开关状态由父级 VM 读取）
+  @Event onChange: (text: string) => void = (text: string) => {};
+  // 暂停生成回调（生成中点击暂停键时触发，由 VM 中止流式请求）
+  @Event onPause: () => void = () => {};
 
   build() {
     Column() {
@@ -117,7 +129,8 @@ export struct ChatInput {
             )
             .margin({ right: $r('app.float.space_sm') })
             .onClick(() => {
-              this.deepThinking = !this.deepThinking;
+              // 上报新状态给父级（VM 更新唯一真源后回流刷新本组件）
+              this.onToggleChange(this.webSearch, !this.deepThinking);
             })
 
           // 联网搜索
@@ -134,15 +147,24 @@ export struct ChatInput {
             .borderRadius(16)
             .backgroundColor(this.webSearch ? $r('app.color.toggle_bg_active') : $r('app.color.toggle_bg_inactive'))
             .onClick(() => {
-              this.webSearch = !this.webSearch;
+              // 上报新状态给父级（VM 更新唯一真源后回流刷新本组件）
+              this.onToggleChange(!this.webSearch, this.deepThinking);
             })
         }
         .layoutWeight(1) // 占据左侧空间，把发送按钮推到最右
 
-        // 右侧：发送按钮
+        // 右侧：发送 / 暂停按钮（生成中显示暂停键，点击暂停；普通态显示发送键）
         Button() {
-          SymbolGlyph($r("sys.symbol.arrowshape_up_fill"))
-            .fontSize($r('app.float.font_icon_xl'))
+          SymbolGlyph(
+            this.streamState === "streaming"
+              ? $r("sys.symbol.square_fill") // 生成中 → 暂停图标（实心方块）
+              : $r("sys.symbol.arrowshape_up_fill"), // 普通态 → 发送图标
+          )
+            .fontSize(
+              this.streamState === "streaming"
+                ? $r('app.float.font_icon_md')
+                : $r('app.float.font_icon_xl')
+            )
             .fontColor([Color.White])
             .margin({ bottom: 1 })
         }
@@ -150,12 +172,16 @@ export struct ChatInput {
         .height(32)
         .type(ButtonType.Circle)
         .backgroundColor(
-          this.inputText.trim().length > 0 ? $r('app.color.primary') : $r('app.color.send_btn_disabled'),
+          this.isSendButtonEnabled() ? $r('app.color.primary') : $r('app.color.send_btn_disabled'),
         )
-        .enabled(this.inputText.trim().length > 0) // 空内容时不可点击
+        .enabled(this.isSendButtonEnabled()) // 生成中恒可点（暂停键）；否则有内容才可点（发送键）
         .onClick(() => {
-          if (this.inputText.trim().length > 0 && this.onChange) {
-            this.onChange(this.inputText.trim(), this.webSearch, this.deepThinking);
+          if (this.streamState === "streaming") {
+            // 生成中：暂停（中止流式请求，保留已生成内容）
+            this.onPause();
+          } else if (this.inputText.trim().length > 0 && this.onChange) {
+            // 普通态：发送（开关状态由父级 VM 读取（唯一真源），这里仅上报文本）
+            this.onChange(this.inputText.trim());
             this.inputText = ""; // 发送后清空输入框
           }
         })

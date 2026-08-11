@@ -30,6 +30,7 @@ export struct MessageBubble {
   @Event onEdit: (msg: Message) => void = () => {}; // 「编辑」：回填输入框创建新分支
   @Event onSwitchBranch: (msg: Message, delta: number) => void = () => {}; // 「< >」切换变体
   @Event onDelete: (msg: Message) => void = () => {}; // 「删除」：删除单条消息（含后续分支）
+  @Event onResume: (msg: Message) => void = () => {}; // 「继续生成」：暂停态下从未完成处续写
   // lv-markdown-in 的样式/拦截控制器（普通成员即可，无需响应式）
   private mdController: MarkdownController = new MarkdownController();
   private envCallbackId: number = -1; // 系统环境监听回调 ID（aboutToDisappear 注销用）
@@ -431,48 +432,70 @@ export struct MessageBubble {
   /**
    * 操作栏布局：
    *  - 用户消息：右下角 [复制] [编辑] [切换分支]（从左到右）
-   *  - AI 消息：左下角 [切换分支] [复制]；右下角 [新建分支] [重新生成]
+   *  - AI 消息：
+   *     第一行（仅暂停态显示）右上角 [继续生成]
+   *     第二行 左下角 [切换分支] [复制]；右下角 [新建分支] [重新生成]
    */
   @Builder
   actionBar() {
-    Row() {
-      if (this.message.isUser()) {
-        // 用户消息：一组按钮靠右（删除在复制左端，普通图标无特殊颜色）
+    Column() {
+      // 第一行（仅暂停态 AI 消息显示）：右上角「继续生成」，其余操作按钮移到第二行
+      if (!this.message.isUser() && this.message.isPaused) {
         Row() {
-          this.iconButton($r("sys.symbol.trash"), () => this.confirmDelete());
-          this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
-          this.iconButton($r("sys.symbol.square_and_pencil"), () => this.onEdit(this.message));
-          // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
-          if (this.variantTotal > 1) {
-            this.variantSwitcher();
-          }
+          Row()
+            .layoutWeight(1) // 占位，把「继续生成」推到最右
+          this.resumeButton();
         }
-        .layoutWeight(1)
+        .width("100%")
         .justifyContent(FlexAlign.End)
-      } else {
-        // AI 消息：左组（切换分支 + 复制）与右组（新建分支 + 重新生成）
-        Row() {
-          // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
-          if (this.variantTotal > 1) {
-            this.variantSwitcher();
-          }
-          this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
-          // 「更多」按钮（dot_grid_2x2，位于复制键右侧）：点击弹出菜单
-          this.moreButton();
-        }
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Start)
-
-        Row() {
-          this.iconButton($r("sys.symbol.trash"), () => this.confirmDelete());
-          this.iconButton($r("sys.symbol.circle_and_plus"),
-            () => this.onCreateBranch(this.message));
-          this.iconButton($r("sys.symbol.arrow_clockwise"),
-            () => this.onRegenerate(this.message));
-        }
         .margin({ right: $r('app.float.space_xs') })
-        .justifyContent(FlexAlign.End)
+        .padding({
+          top: $r('app.float.space_md'),
+          bottom: $r('app.float.space_sm')
+        })
       }
+
+      // 第二行：常规操作按钮（用户消息靠右一组 / AI 消息左组+右组）
+      Row() {
+        if (this.message.isUser()) {
+          // 用户消息：一组按钮靠右（删除在复制左端，普通图标无特殊颜色）
+          Row() {
+            this.iconButton($r("sys.symbol.trash"), () => this.confirmDelete());
+            this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
+            this.iconButton($r("sys.symbol.square_and_pencil"), () => this.onEdit(this.message));
+            // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
+            if (this.variantTotal > 1) {
+              this.variantSwitcher();
+            }
+          }
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.End)
+        } else {
+          // AI 消息：左组（切换分支 + 复制）与右组（新建分支 + 重新生成）
+          Row() {
+            // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
+            if (this.variantTotal > 1) {
+              this.variantSwitcher();
+            }
+            this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
+            // 「更多」按钮（dot_grid_2x2，位于复制键右侧）：点击弹出菜单
+            this.moreButton();
+          }
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Start)
+
+          Row() {
+            this.iconButton($r("sys.symbol.trash"), () => this.confirmDelete());
+            this.iconButton($r("sys.symbol.circle_and_plus"),
+              () => this.onCreateBranch(this.message));
+            this.iconButton($r("sys.symbol.arrow_clockwise"),
+              () => this.onRegenerate(this.message));
+          }
+          .margin({ right: $r('app.float.space_xs') })
+          .justifyContent(FlexAlign.End)
+        }
+      }
+      .width("100%")
     }
     .width("100%")
   }
@@ -588,6 +611,28 @@ export struct MessageBubble {
     .onClick(() => {
       action();
     })
+  }
+
+  // 「继续生成」胶囊按钮：仅暂停态显示，样式与输入区「深度思考」「联网搜索」开关一致
+  //（圆角胶囊 + active 蓝底白字），点击从未完成处续写
+  @Builder
+  resumeButton() {
+    Text($r('app.string.continue_generate'))
+      .fontSize($r('app.float.font_button'))
+      .fontColor($r('app.color.text_ai'))
+      .padding({
+        left: $r('app.float.space_sm'),
+        right: $r('app.float.space_sm'),
+        top: $r('app.float.space_xs'),
+        bottom: $r('app.float.space_xs'),
+      })
+      .height(30)
+      .borderRadius(15)
+      .backgroundColor($r('app.color.bubble_bg_ai'))
+      .border({ width: 1, color: $r('app.color.bubble_bg_thinking') })
+      .onClick(() => {
+        this.onResume(this.message);
+      })
   }
 
   // 分支切换控件：< 当前 / 总数 >（点击两侧箭头在变体间循环切换；操作栏仅在非流式时显示，恒可切换）

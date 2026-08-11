@@ -20,7 +20,7 @@ import buffer from "@ohos.buffer";
 import { http } from "@kit.NetworkKit";
 import { Message } from "../../model/Message";
 import { AppConfig } from "../../config/AppConfig";
-import { LLMProvider, StreamCallbacks } from "./LLMProvider";
+import { AbortHandle, LLMProvider, StreamCallbacks } from "./LLMProvider";
 
 // API 请求中的消息格式（Responses API 的 input item：message 类型）
 interface ApiMessage {
@@ -69,6 +69,28 @@ interface SSEResult {
   errorMsg: string; // 失败原因
 }
 
+/**
+ * 中止句柄实现
+ * ArkTS 不允许匿名对象字面量（arkts-no-untyped-obj-literals），
+ * 故 sendMessage 返回的 AbortHandle 必须用显式声明的类构造
+ */
+class StreamAbortHandle implements AbortHandle {
+  private aborted: boolean = false; // 幂等标记：abort 只执行一次
+  private action: () => void; // 真正的中止动作（销毁 HTTP 请求等）
+
+  constructor(action: () => void) {
+    this.action = action;
+  }
+
+  abort(): void {
+    if (this.aborted) {
+      return; // 重复调用无副作用
+    }
+    this.aborted = true;
+    this.action();
+  }
+}
+
 export class DeepSeekProvider implements LLMProvider {
   // 单例实例
   private static instance: DeepSeekProvider;
@@ -93,29 +115,34 @@ export class DeepSeekProvider implements LLMProvider {
    * 发送流式对话请求（Responses API）
    *
    * @param messages 历史消息列表（包含用户和 AI 的完整对话）
-   * @param callbacks 流式回调（含服务端搜索状态回调）
+   * @param callbacks 流式回调（含服务端搜索状态回调与网络中断回调）
    * @param deepThinking 是否开启深度思考（reasoning.effort: high / low）
    * @param webSearch 是否开启联网搜索（服务端 web_search 工具）
+   * @returns 中止句柄：调用方在「暂停生成」时调用 abort()，
+   *   中止后销毁底层 HTTP 连接且不再触发任何回调（已接收内容由调用方自行保留）
    *
    * 调用示例：
-   *   DeepSeekProvider.getInstance().sendMessage(messages, {
+   *   const handle = DeepSeekProvider.getInstance().sendMessage(messages, {
    *     onChunk: (delta) => { // 追加到最后一条 AI 消息 },
    *     onWebSearchStart: () => { // 显示"正在搜索…" },
    *     onWebSearchEnd: () => { // 恢复思考状态 },
    *     onComplete: (full) => { // 标记完成 },
+   *     onInterrupted: () => { // 网络异常中断 → 进入"暂停"态 },
    *     onError: (err) => { // 显示错误 },
    *   }, true, true);
+   *   // 需要暂停时：handle.abort()
    */
   sendMessage(
     messages: Message[],
     callbacks: StreamCallbacks,
     deepThinking: boolean,
     webSearch: boolean,
-  ): void {
+  ): AbortHandle {
     // 未配置时提前拦截，提示用户前往设置
     if (!this.isConfigured()) {
       callbacks.onError("尚未配置 API，请先前往「设置」填写 API Key");
-      return;
+      // 请求从未真正发起，返回空操作的中止句柄（幂等安全）
+      return new StreamAbortHandle((): void => {});
     }
     const preset = AppConfig.getInstance().getPreset();
     // 关键：SSE 缓冲改为本次调用私有的局部变量（此前是单例共享实例字段）
@@ -128,7 +155,8 @@ export class DeepSeekProvider implements LLMProvider {
 
     let fullText = "";
     let fullReasoning = "";
-    let isFinished = false; // 防止 onComplete/onError 重复调用
+    let isFinished = false; // 防止 onComplete/onError/onInterrupted 重复调用
+    let gotTerminalEvent = false; // 是否收到过正常结束事件（response.completed/incomplete/failed/[DONE]）
 
     // 安全调用回调的辅助函数
     const safeComplete = (text: string): void => {
@@ -141,6 +169,13 @@ export class DeepSeekProvider implements LLMProvider {
       if (!isFinished) {
         isFinished = true;
         callbacks.onError(msg);
+      }
+    };
+    // 网络异常中断（未收到正常结束事件）→ 通知调用方进入"暂停"态，允许继续生成
+    const safeInterrupted = (): void => {
+      if (!isFinished) {
+        isFinished = true;
+        callbacks.onInterrupted();
       }
     };
     const cleanup = (): void => {
@@ -170,6 +205,7 @@ export class DeepSeekProvider implements LLMProvider {
         }
         // 结束标记（Responses API 无 [DONE]，此处仅作兼容兜底）
         if (trimmed === "data: [DONE]") {
+          gotTerminalEvent = true;
           safeComplete(fullText);
           return;
         }
@@ -195,10 +231,12 @@ export class DeepSeekProvider implements LLMProvider {
           }
           // 流结束 / 失败
           if (result.done) {
+            gotTerminalEvent = true;
             safeComplete(fullText);
             return;
           }
           if (result.failed) {
+            gotTerminalEvent = true;
             safeError(result.errorMsg.length > 0 ? `API 错误: ${result.errorMsg}` : "API 请求失败");
             return;
           }
@@ -218,7 +256,11 @@ export class DeepSeekProvider implements LLMProvider {
 
     // 2. 数据接收完毕 → 在这里清理资源
     httpRequest.on("dataEnd", () => {
-      if (fullText.length === 0 && fullReasoning.length === 0) {
+      if (!gotTerminalEvent) {
+        // 未收到正常结束事件（response.completed/incomplete/failed/[DONE]）就结束了
+        // = 连接被掐断/网络异常中断（已收到的内容保留，由调用方进入"暂停"态供用户继续生成）
+        safeInterrupted();
+      } else if (fullText.length === 0 && fullReasoning.length === 0) {
         safeError("未收到有效响应数据");
       } else {
         safeComplete(fullText);
@@ -276,9 +318,25 @@ export class DeepSeekProvider implements LLMProvider {
         // 正常情况（200）：不做任何事，等待 dataReceive 和 dataEnd
       })
       .catch((error: Error) => {
-        safeError(`网络请求失败: ${error.message}`);
+        // 已收到部分内容后连接失败 → 视为网络异常中断（进入"暂停"态可继续生成）；
+        // 尚未收到任何内容 → 请求级失败，按普通错误处理
+        if (fullText.length > 0 || fullReasoning.length > 0) {
+          safeInterrupted();
+        } else {
+          safeError(`网络请求失败: ${error.message}`);
+        }
         cleanup();
       });
+
+    // 5. 返回中止句柄：暂停生成时调用 abort()
+    // abort 置 isFinished → 后续 dataReceive/dataEnd/catch 不再触发任何回调，
+    // 再销毁底层 HTTP 连接，保证"暂停"后不会收到残留事件
+    return new StreamAbortHandle((): void => {
+      if (!isFinished) {
+        isFinished = true;
+        cleanup();
+      }
+    });
   }
 
   /**
