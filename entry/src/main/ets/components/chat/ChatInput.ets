@@ -107,8 +107,8 @@ export struct ChatInput {
             .padding({
               left: $r('app.float.space_sm'),
               right: $r('app.float.space_sm'),
-              top: $r('app.float.space_sm'),
-              bottom: $r('app.float.space_sm'),
+              top: $r('app.float.space_xs'),
+              bottom: $r('app.float.space_xs'),
             })
             .height(32)
             .borderRadius(16)

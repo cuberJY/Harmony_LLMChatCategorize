@@ -1,13 +1,19 @@
 /**
- * DeepSeek（OpenAI 兼容）LLM Provider
- * 封装 OpenAI 兼容 API 的调用，支持 SSE 流式输出
- * 阶段五：服务层接口抽象 — 实现 LLMProvider 接口
+ * DeepSeek（Responses API）LLM Provider
+ * 由 OpenAI 兼容 Chat Completions 迁移至 Responses API
+ *
+ * 与旧版（Chat Completions）的核心差异：
+ *   1. 请求地址：https://api.deepseek.com/responses（由 ModelPresets 预设推导）
+ *   2. 请求体：messages → input + instructions；thinking/reasoning_effort → reasoning.effort
+ *   3. 联网搜索：tools: [{ type: "web_search" }] 由服务端执行，本地不再调用搜索 API
+ *   4. 流式事件：choices[0].delta → 语义化事件（response.output_text.delta 等），
+ *      无 data: [DONE]，以 response.completed / response.incomplete / response.failed 收尾
  *
  * 核心流程：
- *   1. 将 Message[] 转换为 API 请求格式
+ *   1. 将 Message[] 转换为 Responses API 的 input item 列表
  *   2. 发起 HTTP POST 请求（stream: true）
- *   3. 监听 dataReceive 事件，逐 chunk 解析 SSE 数据
- *   4. 通过回调实时通知调用方更新 UI
+ *   3. 监听 dataReceive 事件，逐 chunk 解析 SSE 事件（event: 行 + data: 行）
+ *   4. 通过回调实时通知调用方更新 UI（正文/思考/搜索状态）
  */
 
 import buffer from "@ohos.buffer";
@@ -16,47 +22,51 @@ import { Message } from "../../model/Message";
 import { AppConfig } from "../../config/AppConfig";
 import { LLMProvider, StreamCallbacks } from "./LLMProvider";
 
-// API 请求中的消息格式
+// API 请求中的消息格式（Responses API 的 input item：message 类型）
 interface ApiMessage {
   role: string;
   content: string;
 }
 
-// 深度思考配置（DeepSeek 官方格式）
-interface ThinkingConfig {
-  type: string; // "enabled" | "disabled"
+// 工具（服务端 web_search）
+interface ResponsesTool {
+  type: string; // "web_search"
 }
 
-// API 请求体结构
-interface ChatRequestBody {
+// 思考模式配置（Responses API 通过 reasoning.effort 控制强度）
+interface ReasoningConfig {
+  effort: string; // "high"（深度思考）| "low"（轻量思考）
+}
+
+// Responses API 请求体结构
+interface ResponsesRequestBody {
   model: string;
-  messages: ApiMessage[];
+  input: ApiMessage[];
   stream: boolean;
-  thinking?: ThinkingConfig; // 思考模式开关（默认 enabled）
-  reasoning_effort?: string; // 思考强度：high / max
+  reasoning?: ReasoningConfig;
+  tools?: ResponsesTool[];
+}
+
+// SSE data 行 JSON（包含事件类型与增量字段）
+interface ResponsesEventData {
+  type?: string; // 事件类型（data JSON 自带时使用）
+  event?: string; // 事件类型（部分实现用 event 字段）
+  delta?: string; // 正文/思考增量
+  error?: ErrorDetail; // response.failed 时的错误详情
+}
+
+// 错误详情
+interface ErrorDetail {
+  message?: string;
 }
 
 // SSE 单行解析结果
 interface SSEResult {
-  delta: string;
-  reasoningDelta: string;
-  done: boolean;
-}
-
-// SSE 响应中的 delta 结构
-interface SSEDelta {
-  content: string;
-  reasoning_content: string;
-}
-
-// SSE 响应中的 choices 元素
-interface SSEChoice {
-  delta: SSEDelta;
-}
-
-// SSE 完整响应结构
-interface SSEResponse {
-  choices: SSEChoice[];
+  kind: "none" | "chunk" | "reasoning" | "searchStart" | "searchEnd" | "done" | "failed";
+  text: string; // 增量文本（chunk / reasoning 时有效）
+  done: boolean; // 是否流结束（response.completed / incomplete）
+  failed: boolean; // 是否失败（response.failed）
+  errorMsg: string; // 失败原因
 }
 
 export class DeepSeekProvider implements LLMProvider {
@@ -80,29 +90,39 @@ export class DeepSeekProvider implements LLMProvider {
   }
 
   /**
-   * 发送流式对话请求
+   * 发送流式对话请求（Responses API）
    *
    * @param messages 历史消息列表（包含用户和 AI 的完整对话）
-   * @param callbacks 流式回调
-   * @param deepThinking 是否开启深度思考
+   * @param callbacks 流式回调（含服务端搜索状态回调）
+   * @param deepThinking 是否开启深度思考（reasoning.effort: high / low）
+   * @param webSearch 是否开启联网搜索（服务端 web_search 工具）
    *
    * 调用示例：
    *   DeepSeekProvider.getInstance().sendMessage(messages, {
    *     onChunk: (delta) => { // 追加到最后一条 AI 消息 },
+   *     onWebSearchStart: () => { // 显示"正在搜索…" },
+   *     onWebSearchEnd: () => { // 恢复思考状态 },
    *     onComplete: (full) => { // 标记完成 },
    *     onError: (err) => { // 显示错误 },
-   *   });
+   *   }, true, true);
    */
-  sendMessage(messages: Message[], callbacks: StreamCallbacks, deepThinking?: boolean): void {
+  sendMessage(
+    messages: Message[],
+    callbacks: StreamCallbacks,
+    deepThinking: boolean,
+    webSearch: boolean,
+  ): void {
     // 未配置时提前拦截，提示用户前往设置
     if (!this.isConfigured()) {
-      callbacks.onError("尚未配置 API，请先前往「设置」填写 API 地址、Key 和模型");
+      callbacks.onError("尚未配置 API，请先前往「设置」填写 API Key");
       return;
     }
-    const config = AppConfig.getInstance().getConfig();
+    const preset = AppConfig.getInstance().getPreset();
     // 关键：SSE 缓冲改为本次调用私有的局部变量（此前是单例共享实例字段）
     // 并发场景下多个对话同时流式，若共享缓冲会被互相污染，导致解析错乱
     let sseBuffer: string = "";
+    // 当前 pending 的 SSE event: 行事件名（与 data: 行成对出现）
+    let pendingEventName: string = "";
 
     const httpRequest: http.HttpRequest = http.createHttp();
 
@@ -138,27 +158,67 @@ export class DeepSeekProvider implements LLMProvider {
       sseBuffer = lines.pop() || "";
 
       for (const line of lines) {
-        const result = this.parseSSELine(line);
-        if (result.done) {
+        const trimmed = line.trim();
+        // SSE 事件头：event: response.output_text.delta（记录类型，供紧邻的 data: 行使用）
+        if (trimmed.startsWith("event:")) {
+          pendingEventName = trimmed.substring(6).trim();
+          continue;
+        }
+        // 空行 / 注释行，跳过
+        if (trimmed === "" || trimmed.startsWith(":")) {
+          continue;
+        }
+        // 结束标记（Responses API 无 [DONE]，此处仅作兼容兜底）
+        if (trimmed === "data: [DONE]") {
           safeComplete(fullText);
           return;
         }
-        // 思考内容增量
-        if (result.reasoningDelta.length > 0) {
-          fullReasoning += result.reasoningDelta;
-          callbacks.onReasoningChunk(result.reasoningDelta);
+        // 数据行：data: {json}（兼容 data: 后有无空格两种写法）
+        let jsonStr: string = "";
+        if (trimmed.startsWith("data: ")) {
+          jsonStr = trimmed.substring(6);
+        } else if (trimmed.startsWith("data:")) {
+          jsonStr = trimmed.substring(5).trim();
         }
-        // 正文增量
-        if (result.delta.length > 0) {
-          fullText += result.delta;
-          callbacks.onChunk(result.delta);
+        if (jsonStr.length > 0) {
+          const result = this.parseEventData(pendingEventName, jsonStr);
+          pendingEventName = ""; // 该事件已消费，复位（后续 data 行需自带 event: 或 JSON type）
+
+          // 服务端搜索状态（不中断流程）
+          if (result.kind === "searchStart") {
+            callbacks.onWebSearchStart();
+            continue;
+          }
+          if (result.kind === "searchEnd") {
+            callbacks.onWebSearchEnd();
+            continue;
+          }
+          // 流结束 / 失败
+          if (result.done) {
+            safeComplete(fullText);
+            return;
+          }
+          if (result.failed) {
+            safeError(result.errorMsg.length > 0 ? `API 错误: ${result.errorMsg}` : "API 请求失败");
+            return;
+          }
+          // 思考内容增量
+          if (result.kind === "reasoning" && result.text.length > 0) {
+            fullReasoning += result.text;
+            callbacks.onReasoningChunk(result.text);
+          }
+          // 正文增量
+          if (result.kind === "chunk" && result.text.length > 0) {
+            fullText += result.text;
+            callbacks.onChunk(result.text);
+          }
         }
       }
     });
 
     // 2. 数据接收完毕 → 在这里清理资源
     httpRequest.on("dataEnd", () => {
-      if (fullText.length === 0) {
+      if (fullText.length === 0 && fullReasoning.length === 0) {
         safeError("未收到有效响应数据");
       } else {
         safeComplete(fullText);
@@ -166,35 +226,39 @@ export class DeepSeekProvider implements LLMProvider {
       cleanup();
     });
 
-    // 3. 构造请求体
+    // 3. 构造请求体（Responses API 格式）
     const apiMessages: ApiMessage[] = messages.map((msg: Message): ApiMessage => {
       return { role: msg.role, content: msg.content };
     });
 
-    // 请求体：DeepSeek 官方格式
-    const requestBodyObj: ChatRequestBody = {
-      model: config.model,
-      messages: apiMessages,
+    const requestBodyObj: ResponsesRequestBody = {
+      model: AppConfig.getInstance().getModel(), // 设置页选择的模型（未选择时回退供应商默认）
+      input: apiMessages,
       stream: true,
     };
 
-    // 深度思考开关（DeepSeek 官方：默认思考 enabled，所以必须显式控制）
-    // - 开启深度思考：thinking=enabled + 思考强度 max
-    // - 关闭深度思考：thinking=disabled（否则 V4 模型默认仍会思考）
-    requestBodyObj.thinking = { type: deepThinking ? "enabled" : "disabled" };
-    if (deepThinking) {
-      requestBodyObj.reasoning_effort = "max";
+    // 思考模式（Responses API：reasoning.effort 控制强度）
+    // - 开启深度思考：high（深度推理）
+    // - 关闭深度思考：low（Responses API 无"完全关闭"开关，low 最接近轻量思考）
+    if (preset.supportsReasoning) {
+      requestBodyObj.reasoning = { effort: deepThinking ? "high" : "low" };
+    }
+
+    // 服务端联网搜索：开启且供应商支持时携带 web_search 工具，
+    // 搜索结果由服务端自动注入供模型回答（本地不再调用搜索 API）
+    if (webSearch && preset.supportsWebSearch) {
+      requestBodyObj.tools = [{ type: "web_search" }];
     }
 
     const requestBody = JSON.stringify(requestBodyObj);
 
     // 4. 发起请求
     httpRequest
-      .requestInStream(config.baseUrl, {
+      .requestInStream(preset.endpoint, {
         method: http.RequestMethod.POST,
         header: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${config.apiKey}`,
+          Authorization: `Bearer ${AppConfig.getInstance().getApiKey()}`,
           Accept: "text/event-stream",
         },
         extraData: requestBody,
@@ -218,53 +282,66 @@ export class DeepSeekProvider implements LLMProvider {
   }
 
   /**
-   * 解析单行 SSE 数据
+   * 解析单个 SSE 事件（event: 行事件名 + data: 行 JSON）
    *
-   * SSE 格式示例：
-   *   data: {"choices":[{"delta":{"content":"你好"}}]}     → 提取 "你好"
-   *   data: {"choices":[{"delta":{"content":""}}]}          → 空增量，跳过
-   *   data: [DONE]                                          → 标记结束
-   *   : comment                                             → 注释行，跳过
+   * Responses API 流式事件示例（兼容两种形态）：
+   *   形态一（event: + data: 成对）：
+   *     event: response.output_text.delta
+   *     data: {"type":"response.output_text.delta","sequence_number":1,"delta":"你好"}
+   *   形态二（data JSON 自带 type 字段，无 event: 行）：
+   *     data: {"type":"response.output_text.delta","delta":"你好"}
    *
-   * @param line 单行 SSE 数据（已去除换行符）
-   * @returns SSEResult 包含 delta（增量文本）和 done（是否结束）
+   * 事件类型优先级：SSE event: 行 > data JSON 的 type 字段 > event 字段
+   *
+   * @param eventName SSE event: 行携带的事件名（可能为空串）
+   * @param jsonStr data: 行携带的 JSON 字符串
+   * @returns SSEResult 解析结果
    */
-  private parseSSELine(line: string): SSEResult {
+  private parseEventData(eventName: string, jsonStr: string): SSEResult {
     // ArkTS 要求对象字面量必须对应已声明的 interface
-    const result: SSEResult = { delta: "", reasoningDelta: "", done: false };
-    const trimmed = line.trim();
-
-    // 空行或注释行，跳过
-    if (trimmed === "" || trimmed.startsWith(":")) {
+    const result: SSEResult = { kind: "none", text: "", done: false, failed: false, errorMsg: "" };
+    let parsed: ResponsesEventData;
+    try {
+      parsed = JSON.parse(jsonStr) as ResponsesEventData;
+    } catch (e) {
+      // JSON 解析失败，跳过这一行（可能是心跳包或不完整数据）
       return result;
     }
+    // 事件类型解析（优先级：event: 行 > JSON type > JSON event）
+    const jsonType: string =
+      parsed.type !== undefined ? parsed.type : (parsed.event !== undefined ? parsed.event : "");
+    const type: string = eventName.length > 0 ? eventName : jsonType;
 
-    // 结束标记
-    if (trimmed === "data: [DONE]") {
+    if (type === "response.output_text.delta") {
+      // 正文增量
+      result.kind = "chunk";
+      result.text = parsed.delta || "";
+    } else if (type === "response.reasoning_text.delta") {
+      // 思维链增量
+      result.kind = "reasoning";
+      result.text = parsed.delta || "";
+    } else if (
+      type === "response.web_search_call.in_progress" ||
+      type === "response.web_search_call.searching"
+    ) {
+      // 服务端搜索开始
+      result.kind = "searchStart";
+    } else if (type === "response.web_search_call.completed") {
+      // 服务端搜索完成
+      result.kind = "searchEnd";
+    } else if (type === "response.completed" || type === "response.incomplete") {
+      // 正常完成 / 截断完成 → 均视为流结束
+      result.kind = "done";
       result.done = true;
-      return result;
+    } else if (type === "response.failed") {
+      // 失败
+      result.kind = "failed";
+      result.failed = true;
+      result.errorMsg = parsed.error !== undefined && parsed.error.message !== undefined
+        ? parsed.error.message
+        : "";
     }
-
-    // 提取 data: 后面的 JSON 内容
-    if (trimmed.startsWith("data: ")) {
-      const jsonStr = trimmed.substring(6); // 去掉 "data: " 前缀
-      try {
-        // ArkTS 不允许 any 类型，必须用 as 断言到具体 interface
-        const parsed: SSEResponse = JSON.parse(jsonStr) as SSEResponse;
-        // OpenAI 兼容格式：choices[0].delta.content
-        const reasoning: string = parsed.choices?.[0]?.delta?.reasoning_content || "";
-        const content: string = parsed.choices?.[0]?.delta?.content || "";
-        if (reasoning.length > 0) {
-          result.reasoningDelta = reasoning;
-        }
-        if (content.length > 0) {
-          result.delta = content;
-        }
-      } catch (e) {
-        // JSON 解析失败，跳过这一行（可能是心跳包或不完整数据）
-      }
-    }
-
+    // 其余事件（response.created / in_progress / output_item.* / content_part.* 等）忽略
     return result;
   }
 

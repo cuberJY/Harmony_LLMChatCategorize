@@ -1,14 +1,17 @@
 /**
  * 应用配置管理
- * 管理 API Key、API 地址、模型名称等配置项
+ * 管理供应商标识、API Key 等配置项
  *
- * 敏感凭据安全存储升级（解决 API Key 明文落盘问题）
- *  - apiKey / searchApiKey（敏感项）→ Asset Store Kit 加密存储（SecureKeyStore）
+ * 架构演进（供应商预设化）：
+ *  - 不再手动填写 API 地址 / 模型名称，改为「选择供应商」：
+ *    · providerId（非敏感项）→ Preferences 明文存储
+ *    · baseUrl / model 由 ModelPresets 注册表按 providerId 推导（唯一真源）
+ *  - apiKey（敏感项）→ Asset Store Kit 加密存储（SecureKeyStore）
  *    · AES256-GCM 密文落盘，密钥存于 TEE 可信执行环境，即使应用数据被读取也无法还原
  *    · SyncType.NEVER：不参与云同步 / 云备份，避免密钥随备份外泄
- *  - baseUrl / model（非敏感项）→ 仍用 Preferences 明文存储，保持兼容
- *  - 旧版本迁移：首次启动检测 Preferences 中遗留的明文 Key，
- *    自动迁入 Asset Store 并删除明文残留，老用户平滑升级
+ *  - 旧版本迁移：
+ *    · 旧版明文 Key（Preferences api_api_key）自动迁入 Asset Store 并删除明文
+ *    · 旧版 baseUrl / model / 搜索配置（博查）全部废弃，启动时清理残留
  *  - 调用方（SettingsPage / Provider）API 签名不变，零改动接入
  */
 
@@ -16,40 +19,39 @@ import { preferences } from "@kit.ArkData";
 import { common } from "@kit.AbilityKit";
 import { SecureKeyStore } from "./SecureKeyStore";
 import { Logger } from "../common/Logger";
+import { ModelPreset, getModelPreset, DEFAULT_PROVIDER_ID } from "./ModelPresets";
 
 // AI API 配置接口
 export interface ApiConfig {
-  baseUrl: string; // API 基础地址（OpenAI 兼容格式）
+  providerId: string; // 供应商标识（决定 API 地址与能力开关）
+  model: string; // 当前供应商下选中的模型名（空串 = 使用供应商默认模型）
   apiKey: string; // API 密钥（Bearer Token）
-  model: string; // 模型名称
-  searchBaseUrl: string; // 搜索 API 地址（可切换渠道）
-  searchApiKey: string; // 搜索 API 密钥
 }
 
 // Asset Store 中保存 API Key 的固定别名（全局唯一）
 const ASSET_LLM_KEY = "llm_api_key"; // 大模型 API Key 的别名
-const ASSET_SEARCH_KEY = "search_api_key"; // 搜索 API Key 的别名
 
 // Preferences 存储的 Key 常量
-const KEY_BASE_URL = "api_base_url";
-// 以下两个 Key 仅用于「旧版本明文数据迁移」，迁移成功后即删除，不再写入
-const KEY_API_KEY = "api_api_key";
-const KEY_MODEL = "api_model";
-const KEY_SEARCH_BASE_URL = "api_search_base_url";
-const KEY_SEARCH_API_KEY = "api_search_api_key";
+const KEY_PROVIDER_ID = "api_provider_id";
+const KEY_MODEL_SELECTED = "api_selected_model"; // 设置页选择的模型名（非敏感项）
+// 以下 Key 仅用于「旧版本数据迁移」，迁移成功后即删除，不再写入
+const KEY_API_KEY = "api_api_key"; // 旧版明文大模型 Key
+const KEY_BASE_URL = "api_base_url"; // 旧版 API 地址（已废弃）
+const KEY_MODEL = "api_model"; // 旧版模型名（已废弃）
+const KEY_SEARCH_BASE_URL = "api_search_base_url"; // 旧版搜索地址（博查，已废弃）
+const KEY_SEARCH_API_KEY = "api_search_api_key"; // 旧版搜索 Key（博查，已废弃）
+const ASSET_SEARCH_KEY = "search_api_key"; // 旧版搜索 Key 密文别名（博查，已废弃）
 
 export class AppConfig {
   private static instance: AppConfig; // 单例实例
   private prefs?: preferences.Preferences; // Preferences 实例（init 成功后赋值）
   private loaded: boolean = false; // 是否已从存储加载过配置
 
-  // 默认配置：全部为空，用户必须自行填写
+  // 默认配置：供应商默认 DeepSeek，模型取该供应商默认，Key 为空
   private config: ApiConfig = {
-    baseUrl: "",
-    apiKey: "",
+    providerId: DEFAULT_PROVIDER_ID,
     model: "",
-    searchBaseUrl: "",
-    searchApiKey: "",
+    apiKey: "",
   };
 
   // 私有构造函数，禁止外部直接 new
@@ -67,9 +69,10 @@ export class AppConfig {
    * 初始化：加载配置
    * 由 EntryAbility.onCreate 调用一次；重复调用幂等
    * 加载策略：
-   *  - 非敏感项（baseUrl/model/searchBaseUrl）→ Preferences 明文读取
-   *  - 敏感项（apiKey/searchApiKey）→ Asset Store 密文读取；
+   *  - 非敏感项（providerId）→ Preferences 明文读取
+   *  - 敏感项（apiKey）→ Asset Store 密文读取；
    *    若 Asset 无数据但 Preferences 有旧明文 → 自动迁入 Asset 并删除明文
+   *  - 旧版 baseUrl / model / 搜索配置 → 全部废弃，清理残留
    * @param context UIAbilityContext
    */
   async init(context: common.UIAbilityContext): Promise<void> {
@@ -80,37 +83,28 @@ export class AppConfig {
     try {
       // 1. 获取 Preferences 实例（文件名为 chatcategorize_config）
       this.prefs = await preferences.getPreferences(context, "chatcategorize_config");
-      // 2. 加载非敏感项（明文 Preferences 即可）
-      this.config.baseUrl = (await this.prefs.get(KEY_BASE_URL, "")) as string;
-      this.config.model = (await this.prefs.get(KEY_MODEL, "")) as string;
-      this.config.searchBaseUrl = (await this.prefs.get(KEY_SEARCH_BASE_URL, "")) as string;
-      // 3. 加载敏感项：优先从 Asset Store（密文）读取
+      // 2. 加载供应商标识（旧版未存储时回退默认 DeepSeek）
+      const providerId: string = (await this.prefs.get(KEY_PROVIDER_ID, "")) as string;
+      this.config.providerId = providerId.length > 0 ? providerId : DEFAULT_PROVIDER_ID;
+      // 3. 加载选中的模型名（空串 = 使用供应商默认模型；getModel 会兜底校验）
+      const savedModel: string = (await this.prefs.get(KEY_MODEL_SELECTED, "")) as string;
+      this.config.model = savedModel;
+      // 4. 清理旧版配置残留（baseUrl / model / 博查搜索配置，已废弃）
+      await this.cleanupLegacyConfig();
+      // 5. 加载 API Key：优先从 Asset Store（密文）读取
       let llmKey: string = await SecureKeyStore.get(ASSET_LLM_KEY);
-      let searchKey: string = await SecureKeyStore.get(ASSET_SEARCH_KEY);
 
-      // 4. 旧版本迁移：Asset 中无数据但 Preferences 遗留明文 → 迁入 Asset 并删除明文
+      // 6. 旧版本迁移：Asset 中无数据但 Preferences 遗留明文 → 迁入 Asset 并删除明文
       const legacyLlm: string = (await this.prefs.get(KEY_API_KEY, "")) as string;
-      const legacySearch: string = (await this.prefs.get(KEY_SEARCH_API_KEY, "")) as string;
-      let migrated: boolean = false; // 是否发生过迁移
       if (llmKey.length === 0 && legacyLlm.length > 0) {
         await SecureKeyStore.save(ASSET_LLM_KEY, legacyLlm);
         llmKey = legacyLlm;
-        migrated = true;
-      }
-      if (searchKey.length === 0 && legacySearch.length > 0) {
-        await SecureKeyStore.save(ASSET_SEARCH_KEY, legacySearch);
-        searchKey = legacySearch;
-        migrated = true;
-      }
-      // 迁移成功后立即删除明文残留，避免敏感数据继续以明文落盘
-      if (migrated) {
+        // 迁移成功后立即删除明文残留，避免敏感数据继续以明文落盘
         await this.prefs.delete(KEY_API_KEY);
-        await this.prefs.delete(KEY_SEARCH_API_KEY);
         await this.prefs.flush();
       }
-      // 5. 写入内存配置（后续 Provider 直接使用内存值）
+      // 7. 写入内存配置（后续 Provider 直接使用内存值）
       this.config.apiKey = llmKey;
-      this.config.searchApiKey = searchKey;
       this.loaded = true;
     } catch (e) {
       // 初始化失败：保持默认空配置，后续保存时重试
@@ -119,15 +113,32 @@ export class AppConfig {
   }
 
   /**
-   * 判断是否已完整配置（大模型三项必须齐全）
+   * 清理旧版本废弃配置（baseUrl / model / 博查搜索配置）
+   * 启动时执行一次：删除 Preferences 残留 + 搜索 Key 密文，避免脏数据长期留存
+   */
+  private async cleanupLegacyConfig(): Promise<void> {
+    if (!this.prefs) {
+      return;
+    }
+    try {
+      await this.prefs.delete(KEY_BASE_URL);
+      await this.prefs.delete(KEY_MODEL);
+      await this.prefs.delete(KEY_SEARCH_BASE_URL);
+      await this.prefs.delete(KEY_SEARCH_API_KEY);
+      await this.prefs.flush();
+      // 搜索 Key 密文（Asset Store）
+      await SecureKeyStore.remove(ASSET_SEARCH_KEY);
+    } catch (e) {
+      Logger.error(`AppConfig cleanupLegacyConfig failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  /**
+   * 判断是否已完整配置（供应商有效 且 Key 非空）
    * 用于聊天前校验，未配置时提示用户前往设置页
    */
   isConfigured(): boolean {
-    return (
-      this.config.baseUrl.length > 0 &&
-      this.config.apiKey.length > 0 &&
-      this.config.model.length > 0
-    );
+    return this.config.providerId.length > 0 && this.config.apiKey.length > 0;
   }
 
   // 获取完整配置对象
@@ -135,9 +146,9 @@ export class AppConfig {
     return this.config;
   }
 
-  // 获取 API 地址
-  getBaseUrl(): string {
-    return this.config.baseUrl;
+  // 获取供应商标识
+  getProviderId(): string {
+    return this.config.providerId;
   }
 
   // 获取大模型 API Key
@@ -145,49 +156,50 @@ export class AppConfig {
     return this.config.apiKey;
   }
 
-  // 获取模型名称
+  // 获取当前供应商预设（由 providerId 推导，必然存在）
+  getPreset(): ModelPreset {
+    return getModelPreset(this.config.providerId);
+  }
+
+  /**
+   * 获取当前实际使用的模型名（设置页选择的模型）
+   * 兜底校验：所选模型不属于当前供应商时回退该供应商默认模型，保证永远返回可用值
+   */
   getModel(): string {
-    return this.config.model;
+    const preset = this.getPreset();
+    if (this.config.model.length > 0 && preset.models.indexOf(this.config.model) >= 0) {
+      return this.config.model;
+    }
+    return preset.defaultModel;
   }
 
-  // 获取搜索 API 地址
-  getSearchBaseUrl(): string {
-    return this.config.searchBaseUrl;
-  }
-
-  // 获取搜索 API Key
-  getSearchApiKey(): string {
-    return this.config.searchApiKey;
+  // 获取完整请求地址（由供应商预设推导，替代旧版手动填写）
+  getBaseUrl(): string {
+    return this.getPreset().endpoint;
   }
 
   /**
    * 更新配置并持久化
    * 设置页点击"保存"时调用
    * 持久化策略：
-   *  - 非敏感项 → Preferences（明文即可，便于运维排查）
-   *  - 敏感项（两个 API Key）→ Asset Store（密文落盘，明文不写盘）
+   *  - 非敏感项（providerId / model）→ Preferences（明文即可，便于运维排查）
+   *  - 敏感项（apiKey）→ Asset Store（密文落盘，明文不写盘）
+   * @param providerId 供应商标识（下拉选择）
+   * @param apiKey API 密钥
+   * @param model 当前供应商下选中的模型名（空串 = 默认模型）
    * @returns 是否全部持久化成功（内存配置始终立即生效）
    */
-  async updateConfig(
-    baseUrl: string,
-    apiKey: string,
-    model: string,
-    searchBaseUrl: string,
-    searchApiKey: string,
-  ): Promise<boolean> {
+  async updateConfig(providerId: string, apiKey: string, model: string): Promise<boolean> {
     // 1. 内存配置立即生效（即使落盘失败也不影响本次会话）
-    this.config.baseUrl = baseUrl;
+    this.config.providerId = providerId;
     this.config.apiKey = apiKey;
     this.config.model = model;
-    this.config.searchBaseUrl = searchBaseUrl;
-    this.config.searchApiKey = searchApiKey;
 
     // 2. 非敏感项 → Preferences
     if (this.prefs) {
       try {
-        await this.prefs.put(KEY_BASE_URL, baseUrl);
-        await this.prefs.put(KEY_MODEL, model);
-        await this.prefs.put(KEY_SEARCH_BASE_URL, searchBaseUrl);
+        await this.prefs.put(KEY_PROVIDER_ID, providerId);
+        await this.prefs.put(KEY_MODEL_SELECTED, model);
         await this.prefs.flush(); // 立即落盘
       } catch (e) {
         Logger.error(`AppConfig save(prefs) failed: ${JSON.stringify(e)}`);
@@ -197,8 +209,7 @@ export class AppConfig {
 
     // 3. 敏感项 → Asset Store（空串时 SecureKeyStore 会删除旧密钥，避免残留）
     const llmOk: boolean = await SecureKeyStore.save(ASSET_LLM_KEY, apiKey);
-    const searchOk: boolean = await SecureKeyStore.save(ASSET_SEARCH_KEY, searchApiKey);
-    if (!llmOk || !searchOk) {
+    if (!llmOk) {
       Logger.warn(`AppConfig save(asset) failed: keys kept in memory only`);
       return false;
     }

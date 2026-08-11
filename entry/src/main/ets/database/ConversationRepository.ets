@@ -132,7 +132,7 @@ export class ConversationRepository {
   }
 
   /**
-   * 移动对话：更新分类并持久化（阶段七：由 common/FolderOps.moveConversationTo 下沉）
+   * 移动对话：更新分类并持久化（由 common/FolderOps.moveConversationTo 下沉）
    * @param conv 被移动的对话（@Observed，直接改字段即可驱动 UI）
    * @param folderId 目标文件夹 id，空串 = 移出不分类
    */
@@ -234,7 +234,7 @@ export class ConversationRepository {
     }
   }
 
-  // 将某对话下全部消息置为非激活（重建激活链第一步）（返回是否成功）
+  // 将某对话下全部消息置为非激活（重建激活链：先熄灭全部消息）（返回是否成功）
   async setAllMessagesInactive(conversationId: string): Promise<boolean> {
     try {
       await MessageDao.getInstance().setAllInactive(conversationId);

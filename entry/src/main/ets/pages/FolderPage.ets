@@ -11,7 +11,7 @@
  *   - 长按子文件夹 → 重命名 / 删除（删除二次确认 + 级联）
  *   - 长按对话 → 移动到文件夹 / 重命名 / 删除
  *
- * 阶段四：Navigation 路由重构
+ * Navigation 路由重构
  * - 不再作为 @Entry 页面，由 HomePage 的 Navigation 以 NavDestination 形式承载
  * - 路由参数通过 @Param（HomePage pageMap 注入）接收，替代 router.getParams
  */

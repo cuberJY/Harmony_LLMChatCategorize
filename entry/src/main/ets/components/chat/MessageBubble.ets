@@ -213,7 +213,7 @@ export struct MessageBubble {
             ? "思考中…"
             : `已思考（用时 ${this.message.thinkingDuration} 秒）`,
         )
-          .fontSize($r('app.float.font_thinking'))
+          .fontSize($r('app.float.font_body'))
           .fontColor($r('app.color.text_secondary'))
           .margin({ left: $r('app.float.space_xs') })
           .layoutWeight(1)
@@ -234,7 +234,7 @@ export struct MessageBubble {
         Row() {
           Text(this.message.reasoning)
             .constraintSize({ maxWidth: "95%" })
-            .fontSize($r('app.float.font_model_name'))
+            .fontSize($r('app.float.font_thinking'))
             .fontColor($r('app.color.text_secondary'))
             .margin({ top: $r('app.float.space_sm') })
         }
@@ -475,7 +475,6 @@ export struct MessageBubble {
       }
     }
     .width("100%")
-    .margin({ top: $r('app.float.space_xs') })
   }
 
   // 「更多」按钮（dot_grid_2x2）：样式与 iconButton 保持一致，点击展开纵向菜单

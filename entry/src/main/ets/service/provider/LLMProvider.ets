@@ -1,17 +1,23 @@
 /**
- * LLM（大语言模型）服务接口抽象（阶段五：服务层接口抽象）
+ * LLM（大语言模型）服务接口抽象（服务层接口抽象）
  *
  * 设计意图：业务层（ChatViewModel）只依赖本接口与工厂，不直接依赖具体实现。
  * 未来接入其他模型供应商（如 Qwen / Moonshot / 本地 Ollama 等）时，
  * 只需新增一个实现 LLMProvider 的 Provider 类，并在 LLMProviderFactory 中注册，
  * 业务代码无需任何改动。
+ *
+ * Responses API 迁移
+ *  - 联网搜索由「本地调用搜索 API」改为「服务端 web_search 工具」，
+ *    sendMessage 新增 webSearch 参数：开启时由 Provider 在请求中携带 web_search 工具
+ *  - StreamCallbacks 新增 onWebSearchStart / onWebSearchEnd：
+ *    UI 的"正在搜索…"状态改由服务端流事件驱动，不再由业务层预置
  */
 
 import { Message } from "../../model/Message";
 
 /**
  * 流式回调接口
- * 调用方（ChatViewModel）实现这四个回调来驱动 UI 更新
+ * 调用方（ChatViewModel）实现这些回调来驱动 UI 更新
  */
 export interface StreamCallbacks {
   // 每收到一段思考内容增量时触发（逐字/逐词输出效果）
@@ -22,6 +28,10 @@ export interface StreamCallbacks {
   onComplete: (fullText: string) => void;
   // 发生错误时触发
   onError: (errorMessage: string) => void;
+  // 服务端开始执行联网搜索（web_search 工具由服务端执行，UI 显示"正在搜索…"）
+  onWebSearchStart: () => void;
+  // 服务端联网搜索完成（模型开始基于搜索结果回答）
+  onWebSearchEnd: () => void;
 }
 
 /**
@@ -36,6 +46,12 @@ export interface LLMProvider {
    * @param messages 历史消息列表（包含用户和 AI 的完整对话）
    * @param callbacks 流式回调
    * @param deepThinking 是否开启深度思考
+   * @param webSearch 是否开启联网搜索（服务端 web_search 工具）
    */
-  sendMessage(messages: Message[], callbacks: StreamCallbacks, deepThinking?: boolean): void;
+  sendMessage(
+    messages: Message[],
+    callbacks: StreamCallbacks,
+    deepThinking: boolean,
+    webSearch: boolean,
+  ): void;
 }

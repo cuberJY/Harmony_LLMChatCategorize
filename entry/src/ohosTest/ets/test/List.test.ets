@@ -3,7 +3,7 @@ import { describe, expect, it } from '@ohos/hypium';
 import { getGroupName, formatSmartTime } from '../../../main/ets/common/TimeUtil';
 import { generateId } from '../../../main/ets/common/Utils';
 
-// 时间工具纯函数测试（阶段八）
+// 时间工具纯函数测试
 // 用例基于相对当前时刻的时间偏移，验证"今天/昨天/7天内/30天内/更早"分组与智能时间格式化
 export default function testsuite() {
   describe('TimeUtilTest', () => {

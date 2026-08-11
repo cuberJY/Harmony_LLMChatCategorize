@@ -3,16 +3,16 @@
  * 视觉上与侧边栏类似，作为独立页面存在
  * 从 ChatPage 点击左上角按钮 或 左边缘右滑 进入
  *
- * 阶段四：Navigation 路由重构
+ * Navigation 路由重构
  * - 不再作为 @Entry 页面，由 HomePage 的 Navigation 以 NavDestination 形式承载
  * - 路由：顶部返回 / 选中对话 pop(conv) 回传；进入 FolderPage / SettingsPage 用 pushPathByName
  * - 返回刷新：NavDestination.onShown 替代原 onPageShow
  *
  * 结构（从上到下）：
  *  顶部栏  [收藏] [历史]        ← 返回
- *  内容区  收藏Tab → 文件夹列表（第七步实现，先空态占位）
+ *  内容区  收藏Tab → 文件夹列表（先空态占位）
  *         历史Tab → 搜索框 + 按时间分组的历史对话列表
- *  底部    设置按钮（第六步接入）
+ *  底部    设置按钮
  */
 
 import { ComponentContent, KeyboardAvoidMode } from "@kit.ArkUI";

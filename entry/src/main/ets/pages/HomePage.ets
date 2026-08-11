@@ -1,6 +1,6 @@
 /**
  * 宿主页面（Navigation 路由容器）
- * 阶段四：Navigation 路由重构
+ * Navigation 路由重构
  * - 唯一的 @Entry 入口页面（其余页面作为 NavDestination，不再单独注册）
  * - 持有 NavPathStack 统一管理页面路由：入栈 / 出栈 / 参数传递 / 返回结果
  * - ChatPage 作为路由栈首页（isEntry 入栈，不可出栈），其余为栈内 NavDestination

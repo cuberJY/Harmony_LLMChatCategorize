@@ -70,7 +70,7 @@
     },
     {
       "name": "config_incomplete",
-      "value": "请填写完整的 AI 对话配置"
+      "value": "请填写 API Key"
     },
     {
       "name": "save_success",

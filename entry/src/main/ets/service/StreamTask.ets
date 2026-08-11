@@ -19,6 +19,8 @@ export class StreamTask {
   reasoningBuffer: string = ""; // 思考增量缓冲区
   flushTimerId: number = -1; // 节流定时器 id（-1 = 无等待中的定时器）
   isStreaming: boolean = true; // 流式进行中标记（onComplete/onError 置 false）
+  webSearchEnabled: boolean = false; // 本次流是否请求了服务端联网搜索（onComplete 判断搜索是否发生过用）
+  searchEventSeen: boolean = false; // 是否收到过服务端搜索事件（web_search_call.*）
 
   constructor(conversationId: string, aiMsg: Message, targetConv: Conversation) {
     this.conversationId = conversationId;

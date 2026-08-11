@@ -86,7 +86,7 @@ export class CategoryRepository {
   }
 
   /**
-   * 移动文件夹：更新 parentId 并持久化（阶段七：由 common/FolderOps.moveCategoryTo 下沉）
+   * 移动文件夹：更新 parentId 并持久化（由 common/FolderOps.moveCategoryTo 下沉）
    * @param cat 被移动的文件夹（@Observed，直接改字段即可驱动 UI）
    * @param targetId 目标父文件夹 id，空串 = 移到顶级
    */
@@ -96,7 +96,7 @@ export class CategoryRepository {
   }
 
   /**
-   * 编辑文件夹：更新名称与颜色并持久化（阶段七：由 common/FolderOps.saveCategoryEdit 下沉）
+   * 编辑文件夹：更新名称与颜色并持久化（由 common/FolderOps.saveCategoryEdit 下沉）
    * @param cat 被编辑的文件夹
    * @param name 新名称
    * @param color 新颜色
@@ -108,7 +108,7 @@ export class CategoryRepository {
   }
 
   /**
-   * 计算"移动文件夹"的候选目标列表（阶段七：由 common/FolderOps.getMoveFolderCandidates 下沉）
+   * 计算"移动文件夹"的候选目标列表（由 common/FolderOps.getMoveFolderCandidates 下沉）
    * 规则：全部文件夹 - 自身及子孙（防止成环；空串"不分类"由选择器提供，表示移到顶级）
    * @param catId 被移动的文件夹 id
    */

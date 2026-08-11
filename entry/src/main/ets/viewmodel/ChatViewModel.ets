@@ -18,7 +18,6 @@ import { Message } from "../model/Message";
 import { StreamCallbacks } from "../service/provider/LLMProvider";
 import { StreamTask } from "../service/StreamTask";
 import { LLMProviderFactory } from "../service/LLMProviderFactory";
-import { SearchProviderFactory } from "../service/SearchProviderFactory";
 import { AppConfig } from "../config/AppConfig";
 import { showToast } from "../common/Utils";
 import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
@@ -313,9 +312,9 @@ export class ChatViewModel {
    * @param targetConv 发起时捕获的对话对象（onComplete 刷新 updated_at 用）
    * @param aiMsg AI 占位消息（流式填充目标；重新生成时复用旧消息对象实现覆盖）
    * @param context 历史上下文（不含 aiMsg 本身）
-   * @param webSearch 是否开启联网搜索
+   * @param webSearch 是否开启联网搜索（服务端 web_search 工具）
    * @param deepThinking 是否开启深度思考
-   * @param searchQuery 联网搜索关键词（通常为用户提问原文）
+   * @param searchQuery 保留参数（历史版本为本地搜索取词；服务端搜索后不再使用）
    */
   private async startStreamReply(
     sendConvId: string,
@@ -328,39 +327,14 @@ export class ChatViewModel {
   ): Promise<void> {
     // 1. 登记流式任务（替代原全局 isStreaming 标志，实现按对话隔离）
     const task = new StreamTask(sendConvId, aiMsg, targetConv);
+    task.webSearchEnabled = webSearch; // 记录本次是否请求联网搜索（onComplete 据此判断搜索是否发生过）
     this.streamTasks.set(sendConvId, task);
     // 同步进行中任务数到保活服务（退后台时据此决定是否申请长时任务）
     this.syncBackgroundGuardCount();
 
-    // 2. 联网搜索（开关开启 且 渠道已配置，才显示搜索状态并真正发起）
-    if (webSearch && SearchProviderFactory.create().isAvailable()) {
-      // 2.1 显示"正在搜索"状态（isSearching 控制，不写入 content）
-      aiMsg.isSearching = true;
-
-      // 2.2 调用搜索服务（失败时返回空串，不阻断流程）
-      // 注意：await 期间可能切换对话，之后一律使用捕获的 sendConvId，不用 this.currentConversationId
-      const searchResult = await SearchProviderFactory.create().search(searchQuery);
-      if (this.isDestroyed) return; // 页面已销毁，放弃后续流程
-
-      // 2.3 结束搜索状态
-      aiMsg.isSearching = false;
-      if (searchResult.length > 0) {
-        // 有结果：作为 system 消息插入上下文最前面（归属捕获的对话）
-        const searchMsg = new Message(
-          sendConvId,
-          "system",
-          `以下是从网络搜索到的参考资料，请基于这些信息回答用户的问题：\n\n${searchResult}`,
-        );
-        context.unshift(searchMsg);
-      } else {
-        // 无结果：标记失败，UI 显示降级提示（content 仍为空）
-        aiMsg.searchFailed = true;
-      }
-
-      // 2.4 恢复"思考中"状态，重新计时
-      aiMsg.isThinking = true;
-      aiMsg.thinkingStartTime = Date.now();
-    }
+    // 2. 联网搜索由 LLM 服务端执行（Responses API 的 web_search 工具）：
+    //    - 不再本地预搜索，webSearch 直接透传给 Provider（由其拼装 tools）
+    //    - "正在搜索…"状态由服务端 web_search_call 流事件驱动（onWebSearchStart / onWebSearchEnd）
 
     // 3. 构造回调并调用 LLM Provider（回调统一操作 task，实现按对话隔离）
     const callbacks: StreamCallbacks = {
@@ -374,6 +348,9 @@ export class ChatViewModel {
       onChunk: (deltaText: string) => {
         if (this.isDestroyed) return;
         aiMsg.searchFailed = false;
+        if (aiMsg.isSearching) {
+          aiMsg.isSearching = false; // 收到正文 = 服务端搜索已结束
+        }
         // 收到正文 = 思考结束（状态立即变更，不延迟）
         if (aiMsg.isThinking) {
           aiMsg.isThinking = false;
@@ -382,6 +359,18 @@ export class ChatViewModel {
         task.streamBuffer += deltaText;
         this.scheduleFlush(task);
       },
+      // 服务端开始执行联网搜索
+      onWebSearchStart: () => {
+        if (this.isDestroyed) return;
+        task.searchEventSeen = true;
+        aiMsg.isSearching = true;
+      },
+      // 服务端搜索完成（模型开始基于搜索结果回答）
+      onWebSearchEnd: () => {
+        if (this.isDestroyed) return;
+        task.searchEventSeen = true;
+        aiMsg.isSearching = false;
+      },
       onComplete: (fullText: string) => {
         // 清除定时器并丢弃缓冲区（fullText 包含完整内容）
         task.clearTimer();
@@ -389,6 +378,10 @@ export class ChatViewModel {
         aiMsg.isStreaming = false; // 流式结束
         aiMsg.isThinking = false;
         aiMsg.content = fullText;
+        // 请求了联网搜索但整个流中未出现任何搜索事件 → 标记搜索失败（提示已降级）
+        if (task.webSearchEnabled && !task.searchEventSeen) {
+          aiMsg.searchFailed = true;
+        }
         this.streamTasks.delete(task.conversationId); // 任务结束，从表中移除
         this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
 
@@ -410,6 +403,7 @@ export class ChatViewModel {
         task.isStreaming = false;
         aiMsg.isStreaming = false; // 异常结束同样退出流式态
         aiMsg.isThinking = false;
+        aiMsg.isSearching = false;
         this.streamTasks.delete(task.conversationId);
         this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
         // 保留已接收的流式内容，末尾追加错误提示（不再整体覆盖）
@@ -425,7 +419,7 @@ export class ChatViewModel {
     };
 
     // 4. 调用 LLM（通过工厂获取 Provider，业务层不依赖具体供应商）
-    LLMProviderFactory.create().sendMessage(context, callbacks, deepThinking);
+    LLMProviderFactory.create().sendMessage(context, callbacks, deepThinking, webSearch);
   }
 
   /**

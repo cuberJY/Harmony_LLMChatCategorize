@@ -45,7 +45,7 @@ export struct ChatPage {
   }
 
   build() {
-    // 阶段四：ChatPage 作为 NavDestination 首页（HomePage 以 isEntry 方式入栈）
+    // ChatPage 作为 NavDestination 首页（HomePage 以 isEntry 方式入栈）
     // 使自定义转场（customNavContentTransition）能同时驱动聊天页与侧边栏的位移动画
     NavDestination() {
     Column() {

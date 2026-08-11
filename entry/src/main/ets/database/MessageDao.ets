@@ -116,7 +116,7 @@ export class MessageDao {
     }
   }
 
-  // 将该对话下全部消息置为非激活（重建激活链的第一步，先全部熄灭再点亮目标链）
+  // 将该对话下全部消息置为非激活（重建激活链：先全部熄灭再点亮目标链）
   async setAllInactive(conversationId: string): Promise<void> {
     const store = this.store;
     if (!store) return;
