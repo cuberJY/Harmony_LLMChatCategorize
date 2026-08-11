@@ -8,6 +8,7 @@ import { ChatInput } from "../components/chat/ChatInput";
 import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";
+import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 
 /**
  * 状态管理 V2 结构：
@@ -21,11 +22,18 @@ export struct ChatPage {
   // 本页作为抽屉动画的底板：保持原位，不参与位移动画（SideBarPage 覆盖其上滑动）
   // 业务状态与逻辑（@Trace 状态 + 数据源 + 滚动控制）
   private vm: ChatViewModel = new ChatViewModel();
+  // Markdown 库预热控制器（仅用于触发库初始化，不参与实际渲染）
+  private mdPreloadController: MarkdownController = new MarkdownController();
 
   aboutToAppear(): void {
     // 初始化数据库（页面级 UIAbilityContext）
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.vm.aboutToAppear(context);
+    // 注入流式跟随滚动动画：V2 组件内通过 getUIContext().animateTo 提供 200ms EaseOut 过渡
+    this.vm.setScrollAnimator((action: () => void): void => {
+      // animateTo 的 curve 支持字符串（'easeOut'），避免依赖 Curve 枚举导出
+      this.getUIContext().animateTo({ duration: 200, curve: 'easeOut' }, action);
+    });
     // 模型名/标题等显示期状态在 onShown 中刷新（首次与每次从其他页面返回都触发）
   }
 
@@ -141,6 +149,11 @@ export struct ChatPage {
                   },
                 })
               }.width("100%")
+              .onAreaChange((oldArea: Area, newArea: Area) => {
+                // 消息项高度变化（Markdown 异步渲染完成增高）→ 通知 ViewModel 立即重新钉底
+                // Area.height 声明类型为 Length，运行时为 number，用 Number() 做数值化再求增量
+                this.vm.onListItemHeightChanged(Number(newArea.height) - Number(oldArea.height));
+              })
             }.width("100%");
           },
           (msg: Message) => msg.id, // 用 msg.id 作为唯一 key
@@ -148,9 +161,11 @@ export struct ChatPage {
       }
       // layoutWeight(1)：占据 Column 去掉标题栏和输入框后的全部剩余空间
       .layoutWeight(1)
-      // 内容从顶部排布（DeepSeek 风格）：首条消息在顶部，显示不下才滚动；
+      // 内容从顶部排布：首条消息在顶部，显示不下才滚动；
       // 超出屏幕后的"钉到底部"由 scrollToBottom() 的 scrollToIndex(END) 保证
       .onAreaChange((oldValue: Area, newValue: Area) => {
+        // 首帧布局完成（首次回调）→ 通知 ViewModel 开始钉底，避免"打开瞬间停留在列表顶部"
+        this.vm.onListFirstLayout();
         // 可视区变矮 = 键盘弹出窗口被压缩 → 重新钉到底部
         if (newValue.height < oldValue.height) {
           this.vm.scrollToBottom();
@@ -195,6 +210,17 @@ export struct ChatPage {
           this.vm.handleUserSend(text, webSearch, deepThinking);
         },
       })
+
+      // Markdown 库预热：提前创建 Markdown 组件，触发 lv-markdown-in 的 worker 初始化，
+      // 消除历史对话首次打开时"正文卡顿"（worker 为进程内单例，预热后复用；Hidden 不显示、零尺寸不占布局）
+      Markdown({
+        text: "**预热**",
+        mode: "text",
+        controller: this.mdPreloadController,
+      })
+        .visibility(Visibility.Hidden)
+        .width(0)
+        .height(0)
     }
 
     // 从左向右滑→ 跳转历史页

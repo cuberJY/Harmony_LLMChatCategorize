@@ -86,6 +86,9 @@ export struct MessageBubble {
   private applyMarkdownColors(isDark: boolean): void {
     // 链式部分（返回 this 的 setter）
     const controller = this.mdController
+      .setLazyRender(true) // 屏幕外块先用轻量占位渲染
+      .setLazyPreloadBlockCount(2) // 仅预渲染可视区附近少量块
+      .setThreadRenderEnable(true) // 线程渲染（默认已开，可显式声明）
       .setTitleColor($r('app.color.text_primary'))
       .setTextColor($r('app.color.text_ai'))
       .setInlineCodeColor($r('app.color.text_important'))
@@ -105,7 +108,7 @@ export struct MessageBubble {
       .setUlPointColor($r('app.color.text_secondary'))
       .setFootnoteTextColor($r('app.color.text_secondary'))
       .setLineColor($r('app.color.divider'))
-      // ===== 字号统一（float.json 资源管理）=====
+      // 字号统一（float.json 资源管理）
       .setTextSize($r('app.float.font_body')) // 正文 = font_body，与用户消息一致
       .setTitleSize([ // 标题 1-6 级字号
         $r('app.float.font_h1'),
@@ -119,6 +122,8 @@ export struct MessageBubble {
       // LaTeX 公式颜色：库只接受十六进制 number，手动随系统深浅色切换
       .setLatexMathTextColor(isDark ? 0xFFE5E5E7 : 0xFF1A1A1A)
       .setCodeBlockTheme(isDark ? 'dark' : 'light')
+      .setCodeBlockIdxState(true) // 代码块是否显示行号索引（可减少渲染节点，提升长代码块滚动性能）
+      .setCodeBlockAutoCollapseEnable(true) // 超过阈值(默认10行)的代码块自动折叠，长代码块渲染压力大时受益
       .setMermaidTheme(isDark ? 'dark' : 'light');
     // 以下两个 setter 返回 void，不能链式调用，需单独设置
     controller.setTableNormalTextColor($r('app.color.text_ai'));

@@ -114,6 +114,10 @@ export class ChatViewModel {
   private currentConversationId: string = ""; // 当前对话id
   private isFirstUserMsg: boolean = true; // 标记是否第一条用户消息（决定是否生成标题）
   private isUserScrolling: boolean = false; // 是否正在手动滚动
+  private isListLayoutReady: boolean = false; // List 是否已完成首帧布局（onAreaChange 首次回调置位）
+  private pendingPinToBottom: boolean = false; // 布局就绪前挂起的钉底请求
+  private followAnimationTimerId: number = -1; // 流式跟随动画的防抖定时器（-1 表示无挂起）
+  private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isDestroyed: boolean = false; // 页面销毁标记（销毁后流回调跳过 UI 更新）
   // 当前对话的全部消息缓存（含非激活分支变体），分支切换/变体统计/激活链重建均基于它
   private allMessages: Message[] = [];
@@ -140,6 +144,10 @@ export class ChatViewModel {
   // 页面 aboutToDisappear：标记销毁并清理所有进行中任务的定时器，防止内存泄漏
   aboutToDisappear(): void {
     this.isDestroyed = true;
+    if (this.followAnimationTimerId >= 0) {
+      clearTimeout(this.followAnimationTimerId);
+      this.followAnimationTimerId = -1;
+    }
     this.streamTasks.forEach((task: StreamTask) => {
       task.clearTimer();
     });
@@ -223,9 +231,7 @@ export class ChatViewModel {
     // 4. 渲染完成后滚动到底部
     this.isAtBottom = true;
     this.isUserScrolling = false;
-    setTimeout(() => {
-      this.scrollToBottom();
-    }, 100);
+    this.pinToBottomAfterLoad();
   }
 
   /**
@@ -842,7 +848,7 @@ export class ChatViewModel {
       task.flush();
       // 仅当前对话正在展示该任务时才滚动，避免 A 对话的流把 B 对话列表拖到底部
       if (this.currentConversationId === task.conversationId) {
-        this.scrollToBottom();
+        this.scrollToBottomSmooth(); // 平滑跟随（200ms 动画），消除流式瞬移感
       }
     }, 50); // 50ms ≈ 20fps，肉眼几乎无感知
   }
@@ -865,12 +871,119 @@ export class ChatViewModel {
     if (!this.isAtBottom || this.isUserScrolling) {
       return;
     }
-    // 流式高频滚动使用无动画（false），避免动画堆积导致抖动
-    this.listScroller.scrollToIndex(
-      this.messageDataSource.totalCount() - 1,
-      false,
-      ScrollAlign.END,
-    );
+    // 优先 scrollEdge 直达底部边缘：不依赖末尾 item 是否已懒加载渲染，比 scrollToIndex 更可靠；
+    // 个别平台版本不支持时回退到 scrollToIndex(末尾, END)
+    try {
+      this.listScroller.scrollEdge(Edge.Bottom);
+    } catch (e) {
+      this.listScroller.scrollToIndex(
+        this.messageDataSource.totalCount() - 1,
+        false,
+        ScrollAlign.END,
+      );
+    }
+  }
+
+  // 流式跟随的平滑滚动：50ms 防抖 + 200ms EaseOut 动画（防抖保证同时间只有一组动画，避免动画堆积抖动）
+  private scrollToBottomSmooth(): void {
+    if (!this.isAtBottom || this.isUserScrolling) {
+      return;
+    }
+    if (this.followAnimationTimerId >= 0) {
+      clearTimeout(this.followAnimationTimerId);
+    }
+    this.followAnimationTimerId = setTimeout(() => {
+      this.followAnimationTimerId = -1;
+      if (!this.isAtBottom || this.isUserScrolling) {
+        return;
+      }
+      if (this.scrollAnimator !== undefined) {
+        // 由页面注入的 animateTo 提供 200ms EaseOut 过渡，消除流式跟随的瞬移感
+        this.scrollAnimator(() => this.scrollToBottom());
+      } else {
+        this.scrollToBottom();
+      }
+    }, 50);
+  }
+
+  // 页面注入滚动动画执行器（V2 组件外无 UIContext，由 ChatPage 的 getUIContext().animateTo 提供）
+  setScrollAnimator(animator: (action: () => void) => void): void {
+    this.scrollAnimator = animator;
+  }
+
+  /**
+   * 加载/重建列表后的多次钉底重试（入口 + 重试循环一体）：
+   * 解决"首次打开分支多、Markdown 渲染重的对话滚不到最后一条"的问题——
+   * 懒加载 + Markdown 异步渲染导致 item 高度在渲染完成后才确定，单次 scrollToIndex
+   * 只能滚到当前已知高度的底部；内容持续增高后相对位置不再在底。此处每间隔固定时长
+   * 重新钉底一次，直至内容高度稳定或用户开始操作（isAtBottom / isUserScrolling 守卫）。
+   *
+   * 注意：从侧边栏返回时 List 可能尚未完成首帧布局（转场动画中），此刻 scrollToIndex
+   * 不生效；若布局未就绪，请求先挂起，由 onListFirstLayout() 在布局完成时触发，
+   * 避免"打开瞬间先停留在列表顶部"。
+   * 重试仅作兜底：主体钉底已由 onListItemHeightChanged（item 渲染增高即时驱动）负责，
+   * 故次数已缩减以降低空转。
+   * @param remain 剩余重试次数（120ms × N，默认约 720ms 兜底）
+   */
+  private pinToBottomAfterLoad(remain: number = 6): void {
+    if (this.isDestroyed || remain <= 0) {
+      return;
+    }
+    // List 尚未完成首帧布局 → 挂起，等 onListFirstLayout() 触发后再执行
+    if (!this.isListLayoutReady) {
+      this.pendingPinToBottom = true;
+      return;
+    }
+    // 用户已开始手动滚动或离开底部 → 停止自动钉底，避免干扰阅读
+    if (!this.isAtBottom || this.isUserScrolling) {
+      return;
+    }
+    this.scrollToBottom();
+    setTimeout(() => {
+      this.pinToBottomAfterLoad(remain - 1);
+    }, 120);
+  }
+
+  /**
+   * List 首帧布局完成回调（ChatPage 的 List.onAreaChange 首次触发）：
+   * 布局就绪后立即开始钉底，消除"打开瞬间停留在列表顶部"的现象
+   */
+  onListFirstLayout(): void {
+    if (this.isListLayoutReady) {
+      return;
+    }
+    this.isListLayoutReady = true;
+    // 若此前已有挂起的钉底请求（加载对话发生在布局就绪前）→ 立即执行
+    if (this.pendingPinToBottom) {
+      this.pendingPinToBottom = false;
+      this.pinToBottomAfterLoad();
+    }
+  }
+
+  /**
+   * 消息项高度变化回调（ChatPage 的 ListItem.onAreaChange）：
+   * Markdown 异步渲染完成后 item 增高 → 若当前处于钉底状态，立即重新滚动到底，
+   * 比固定间隔重试响应更快且无空转。流式期间由 scrollToBottomSmooth 统一负责平滑跟随，
+   * 这里跳过以避免无动画滚动打断动画。
+   * @param delta 高度增量（vp），负值（折叠/移除）忽略
+   */
+  onListItemHeightChanged(delta: number): void {
+    if (delta <= 0) {
+      return;
+    }
+    if (!this.isAtBottom || this.isUserScrolling) {
+      return;
+    }
+    if (this.isCurrentStreaming()) {
+      return; // 流式跟随交给 scrollToBottomSmooth（带动画）
+    }
+    this.scrollToBottom();
+  }
+
+  // 当前对话是否正在流式回复中（onListItemHeightChanged 据此跳过，避免与动画跟随竞争）
+  private isCurrentStreaming(): boolean {
+    const task = this.streamTasks.get(this.currentConversationId);
+    return task !== undefined && task.isStreaming;
   }
 
   /**
