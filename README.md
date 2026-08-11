@@ -31,7 +31,7 @@
 - **历史会话** — 对话自动持久化，侧边栏按时间分组（今天 / 昨天 / 7 天内 / 30 天内 / 年月）
 - **会话管理** — 搜索过滤、长按菜单（多选 / 删除）、批量删除、左边缘右滑进入历史页
 - **消息持久化** — 用户消息与 AI 回复（含思考内容）实时入库，支持历史加载回看
-- **智能滚动** — 自动跟随最新消息，用户手动滚动时暂停跟随
+- **智能滚动** — 自动跟随最新消息，Markdown 异步渲染增高；用户手动滚动时暂停跟随
 - **流式节流** — 增量文本 50ms 节流合并刷新，高频流式更新降至约 20fps
 - **多对话并发流式** — 每个对话独立 StreamTask，切换对话后原流在后台继续，缓冲互不串写
 - **流式中断** — 支持中断 / 取消进行中的流式回复，页面销毁时自动清理定时器防泄漏
@@ -39,6 +39,7 @@
 - **键盘避让** — RESIZE 模式，键盘弹出时输入栏自动钉底
 - **智能时间分割线** — 消息间隔超过 10 分钟自动显示
 - **Markdown 渲染** — AI 消息原生渲染 Markdown（LaTeX 公式、代码高亮、Mermaid 图表），流式输出增量自动重绘
+- **Markdown 渲染性能优化** — 屏幕外块懒渲染 + 线程渲染，仅预渲染可视区附近块；超长代码块自动折叠并显示行号；Markdown 库预热消除历史对话首次打开卡顿
 - **Markdown 深色模式适配** — 完全跟随系统深浅色：代码块 / Mermaid 主题、LaTeX 公式颜色随 colorMode 动态切换，字体色走 `$r()` 资源引用
 - **文本选中复制** — AI 消息长按选中一键复制（自行写入系统剪贴板），代码块右上角"复制"按钮，用户消息长按复制
 - **对话分支** — AI 回复支持「重新生成」（覆盖当前回复）与「新建分支」（保留旧回复生成新变体），同组变体通过气泡底栏「当前 / 总数」循环切换，旧分支保留在库中随时可切回
@@ -250,12 +251,19 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 
 - **LazyForEach**：自定义 `IDataSource` 懒加载，只渲染可视区域消息
 - **流式节流**：增量文本攒入缓冲区，每 50ms 合并刷新一次
+- **智能滚动（平滑跟随）**：流式跟随改为 50ms 防抖 + 200ms EaseOut 平滑动画（`scrollToBottomSmooth`，动画由页面注入 `getUIContext().animateTo` 执行），消除流式逐字刷新时的瞬移感；同时间只有一组动画，避免动画堆积抖动
+- **滚动定位优先 scrollEdge**：`scrollToBottom()` 优先 `scrollEdge(Edge.Bottom)` 直达底部边缘（不依赖末尾 item 是否已懒加载渲染，更可靠），个别平台不支持时回退 `scrollToIndex(末尾, END)`
+- **加载后多次钉底重试**：`pinToBottomAfterLoad()` 以 120ms 间隔重试最多 6 次，解决"分支多、Markdown 渲染重的对话打开时滚不到最后一条"（懒加载 + Markdown 异步渲染导致 item 高度后知后觉）
+- **首帧布局挂起**：List 首次 `onAreaChange` 触发 `onListFirstLayout()`；布局未就绪前的钉底请求先挂起（`pendingPinToBottom`），避免从侧边栏返回的转场期间"打开瞬间停留在列表顶部"
+- **消息项高度变化即时钉底**：ListItem `onAreaChange` 上报高度增量（`onListItemHeightChanged`），Markdown 异步渲染增高时立即重新钉底，比固定间隔重试响应更快且无空转；流式期间跳过，交由动画跟随统一处理
+- **Markdown 库预热**：ChatPage 内置一个 `Visibility.Hidden` + 零尺寸的 `Markdown` 组件，提前触发 lv-markdown-in 的 worker 初始化（进程内单例），消除历史对话首次打开时"正文卡顿"
 - **页面过渡动画**：ChatPage 与 SideBarPage 左右平移推入
 - **返回键拦截**：ChatPage 是栈底主页面（isEntry 入栈），系统返回键 = 退出应用；`onBackPressed` 拦截后 `terminateSelf()` 直接退出，避免 NavDestination 被弹出回到空白的 Navigation 首页
 
 ### 11. MessageBubble — Markdown 渲染与文本交互
 
 - AI 消息正文由 `@luvi/lv-markdown-in` 的 `Markdown` 组件原生渲染（完整 markdown 语法、LaTeX 公式、代码高亮，mermaid 由库内置处理，无需自建 WebView）；用户消息保持纯文本（气泡宽度自适应）
+- **渲染性能优化**：`setLazyRender(true)` + `setLazyPreloadBlockCount(2)` 让屏幕外块先以轻量占位渲染、仅预渲染可视区附近少量块；`setThreadRenderEnable(true)` 开启线程渲染；`setCodeBlockIdxState(true)` 为代码块显示行号、`setCodeBlockAutoCollapseEnable(true)` 让超过阈值（默认 10 行）的代码块自动折叠，缓解长代码块渲染压力
 - **深色模式适配**：字体色走 `$r()` 资源引用（系统自动加载 dark/ 目录对应色值）；代码块 / Mermaid 主题与 LaTeX 公式颜色通过 `on('environment')` 监听 colorMode 动态切换，`aboutToDisappear` 注销监听防泄漏
 - **文本复制**：`setTextSelectionEnable(true)` 开启长按选中 + `setTextSelectionCopyListener` 自行写入系统剪贴板（成功 / 失败均有 Toast）；代码块通过 `setCodeCopyListener` 注册"复制"按钮；用户消息通过 `copyOption(CopyOptions.LocalDevice)` 长按复制
 - **底部操作栏**：用户消息 [删除] [复制] [编辑] [切换分支]；AI 消息 [切换分支] [复制] [更多] 与 [删除] [新建分支] [重新生成]；「更多」弹纵向菜单：复制 / 选择文本 / 新建分支 / 重新生成 / 删除（红色警示置底）；多变体时显示「当前 / 总数」切换控件

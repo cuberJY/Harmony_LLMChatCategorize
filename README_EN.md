@@ -31,7 +31,7 @@ An AI chat application built on HarmonyOS NEXT, featuring SSE streaming conversa
 - **Conversation History** — Auto-persisted; sidebar groups by time (Today / Yesterday / 7 days / 30 days / Year-Month)
 - **Conversation Management** — Search filter, long-press menu (multi-select/delete), batch delete, swipe from left edge to open history page
 - **Message Persistence** — User messages and AI replies (including thinking content) saved in real time; reloadable from history
-- **Smart Scroll** — Auto-follows the latest message; pauses following when the user scrolls manually
+- **Smart Scroll** — Auto-follows the latest message; re-pins to bottom as Markdown async rendering grows items; pauses following when the user scrolls manually
 - **Streaming Throttle** — Incremental text merged every 50ms, reducing high-frequency stream updates to ~20fps
 - **Concurrent Multi-conversation Streaming** — Each conversation owns an independent StreamTask; switching away keeps the original stream running in the background without cross-writes
 - **Stream Interruption** — Interrupt/cancel an in-progress stream; timers cleaned up on page destroy to prevent leaks
@@ -39,6 +39,7 @@ An AI chat application built on HarmonyOS NEXT, featuring SSE streaming conversa
 - **Keyboard Avoidance** — RESIZE mode pins the input bar to the bottom when the keyboard appears
 - **Smart Time Divider** — Auto-shows a divider when message gaps exceed 10 minutes
 - **Markdown Rendering** — AI messages natively rendered in Markdown (LaTeX formulas, code highlighting, Mermaid charts); increments auto-re-render during streaming
+- **Markdown Rendering Performance** — Lazy rendering for off-screen blocks + threaded rendering, pre-rendering only blocks near the viewport; overlong code blocks auto-collapse and show line numbers; Markdown library preheating eliminates first-open jank in history conversations
 - **Markdown Dark Mode Adaptation** — Fully follows the system light/dark mode: code-block / Mermaid themes and LaTeX formula colors switch dynamically with colorMode; font colors use `$r()` resource references
 - **Text Selection & Copy** — Long-press select text in AI messages and copy with one tap (writes to the system clipboard yourself); "Copy" button on code blocks; user messages copyable via long-press
 - **Conversation Branching** — Regenerate an AI reply (overwrites it) or create a new branch (keeps the old reply as a new variant); cycle variants of the same group via the "current / total" switcher in the bubble action bar; inactive branches are kept in the database and can be switched back anytime
@@ -250,12 +251,19 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
 
 - **LazyForEach**: custom `IDataSource` for lazy loading, rendering only messages in the visible area
 - **Streaming throttle**: incremental text accumulated in a buffer, merged/refreshed every 50ms
+- **Smart Scroll (smooth follow)**: streaming follow switched to a 50ms debounce + 200ms EaseOut animation (`scrollToBottomSmooth`, animated via a `getUIContext().animateTo` executor injected by the page), eliminating the "jumping" feel of token-by-token refreshes; only one animation group at a time to avoid animation pile-up jitter
+- **scrollEdge-first positioning**: `scrollToBottom()` prefers `scrollEdge(Edge.Bottom)` to jump straight to the bottom edge (doesn't rely on whether the last item has been lazy-rendered, more reliable), falling back to `scrollToIndex(last, END)` on platforms that don't support it
+- **Repeated pin-after-load retries**: `pinToBottomAfterLoad()` retries at 120ms intervals up to 6 times, solving "conversations with many branches / heavy Markdown fail to scroll to the last message on open" (lazy loading + async Markdown rendering make item heights known too late)
+- **First-frame layout hold**: the List's first `onAreaChange` triggers `onListFirstLayout()`; pin-to-bottom requests issued before layout is ready are held (`pendingPinToBottom`), avoiding "sticking at the top when opened" during the transition back from the sidebar
+- **Instant re-pin on item height change**: ListItem `onAreaChange` reports the height delta (`onListItemHeightChanged`); when async Markdown rendering grows an item, the list re-pins to bottom immediately — faster than fixed-interval retries and idle-free; skipped while streaming, left to the animated follow
+- **Markdown library preheating**: ChatPage embeds a `Visibility.Hidden` zero-size `Markdown` component that triggers lv-markdown-in's worker initialization (a process-wide singleton), eliminating "body jank" on first open of a history conversation
 - **Page transition animations**: ChatPage and SideBarPage slide in horizontally
 - **Back key interception**: ChatPage is the bottom-of-stack main page (pushed via isEntry), so the system back key means "exit the app"; `onBackPressed` intercepts and calls `terminateSelf()` to exit directly, preventing the NavDestination from being popped back to an empty Navigation home (NavBar)
 
 ### 11. MessageBubble — Markdown Rendering & Text Interaction
 
 - AI message content is natively rendered by the `Markdown` component from `@luvi/lv-markdown-in` (full markdown syntax, LaTeX formulas, code highlighting; mermaid handled by the library's built-in renderer, no custom WebView needed); user messages stay as plain text (adaptive bubble width)
+- **Rendering performance**: `setLazyRender(true)` + `setLazyPreloadBlockCount(2)` render off-screen blocks as lightweight placeholders, pre-rendering only a few blocks near the viewport; `setThreadRenderEnable(true)` enables threaded rendering; `setCodeBlockIdxState(true)` shows line numbers on code blocks and `setCodeBlockAutoCollapseEnable(true)` auto-collapses code blocks over the threshold (10 lines by default), easing long-code-block rendering pressure
 - **Dark mode adaptation**: font colors use `$r()` resource references (the system auto-loads matching values from the dark/ directory); code-block / Mermaid themes and LaTeX formula colors are switched dynamically by listening to the system `colorMode` via `on('environment')`, with the listener removed in `aboutToDisappear` to prevent leaks
 - **Text copying**: `setTextSelectionEnable(true)` enables long-press selection and `setTextSelectionCopyListener` writes to the system clipboard (with success/failure Toasts); code blocks register the "Copy" button via `setCodeCopyListener`; user messages support long-press copy via `copyOption(CopyOptions.LocalDevice)`
 - **Action bar**: user messages get [Delete] [Copy] [Edit] [Branch switcher] at bottom-right; AI messages get [Branch switcher] [Copy] [More] at bottom-left and [Delete] [New branch] [Regenerate] at bottom-right; the "More" button opens a vertical menu: Copy / Select Text / New Branch / Regenerate / Delete (danger-styled, at the bottom); the "current / total" switcher shows when multiple variants exist
