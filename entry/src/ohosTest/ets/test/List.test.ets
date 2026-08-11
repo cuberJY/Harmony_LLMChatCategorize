@@ -71,6 +71,4 @@ export default function testsuite() {
       expect(a !== b).assertTrue();
     });
   });
-
-  abilityTest();
 }

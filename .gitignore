@@ -1,16 +1,10 @@
 /node_modules
-/.dump
 /oh_modules
 /local.properties
 /.idea
 **/build
 /.hvigor
 .cxx
-/.clangd
-/.clang-format
-/.clang-tidy
-**/.test
-/.appanalyzer
 # 签名/证书/密钥文件（防止 DevEco 自动签名密钥泄露）
 *.cer
 *.p7b
@@ -18,9 +12,10 @@
 *.pem
 *.key
 # 构建签名配置（本地保留，DevEco 会注入密钥，不入库）
-/build-profile.json5
 /entry/build-profile.json5
+/build-profile.json5
+# 调试临时目录
+/.dbg
+/.dump
 # 构建日志
 *.log
-# 调试环境文件
-/.dbg
