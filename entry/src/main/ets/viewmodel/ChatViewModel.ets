@@ -797,10 +797,15 @@ export class ChatViewModel {
     if (group.length === 0) {
       return { current: msg.variantIndex + 1, total: msg.variantIndex + 1 };
     }
+    // 按变体序号排序，用"组内位置"计算当前序号
+    // 原因：删除某条变体后 variantIndex 会留下空洞（如 0,1,2 删除 1 后剩 0,2），
+    // 若直接用 variantIndex+1 计算 current，会出现 current > total（如显示 3/2）
+    const sorted = group.slice().sort((a, b) => a.variantIndex - b.variantIndex);
+    const pos = sorted.findIndex(m => m.id === msg.id);
     // 组内去重统计变体数（variantIndex 唯一）
     const indexes = new Set<number>();
     group.forEach(m => indexes.add(m.variantIndex));
-    return { current: msg.variantIndex + 1, total: Math.max(1, indexes.size) };
+    return { current: Math.max(1, pos + 1), total: Math.max(1, indexes.size) };
   }
 
   /**
