@@ -13,16 +13,16 @@
 | UI 框架      | ArkUI 声明式开发（@State / @Observed 状态管理，LazyForEach 懒加载）  |
 | 数据持久化   | `@kit.ArkData` relationalStore 关系型数据库 + Preferences 配置存储   |
 | 凭据安全     | `@kit.AssetStoreKit` 加密存储 API Key（AES256-GCM，密钥存于 TEE）    |
-| 网络         | `@kit.NetworkKit`（HTTP SSE 流式请求 / Web Search API）              |
-| 大模型 API   | OpenAI 兼容接口（默认 DeepSeek，Provider 工厂模式可扩展）            |
-| 搜索 API     | 博查 AI Web Search API（国内直连，Provider 工厂模式可扩展）          |
+| 网络         | `@kit.NetworkKit`（HTTP SSE 流式请求，Responses API）            |
+| 大模型 API   | DeepSeek Responses API（供应商预设注册表 + Provider 工厂模式可扩展） |
+| 联网搜索     | DeepSeek 服务端 web_search 工具（本地不再调用第三方搜索 API）        |
 | Markdown 渲染 | `@luvi/lv-markdown-in` 原生渲染（LaTeX 公式、代码高亮、Mermaid 图表） |
 
 ## 功能特性
 
 - **流式 AI 对话** — SSE 逐字输出，思考内容（`reasoning_content`）与正文分通道展示
-- **深度思考（可开关）** — 使用 DeepSeek 官方 thinking 格式，开启时 `reasoning_effort=max`，关闭时显式禁用（V4 默认思考，必须显式控制）
-- **联网搜索** — 博查 Web Search 实时搜索，结果作为参考材料注入上下文驱动回答，失败自动降级为普通对话
+- **深度思考（可开关）** — 走 Responses API `reasoning.effort`，开启 `high` 深度推理，关闭 `low` 轻量思考
+- **联网搜索** — DeepSeek 服务端 `web_search` 工具实时检索，流中驱动"正在搜索…"状态；搜索未发生时自动标记降级
 - **设置页** — 应用内填写 API 地址 / Key / 模型，保存后持久化，重启不丢失
 - **密钥安全存储** — API Key 经 Asset Store Kit（TEE）加密落盘，明文不写盘；旧版本明文自动迁移并清除
 - **多级文件夹分类** — 无限层级文件夹，收藏 Tab 展示顶级文件夹，支持逐级下钻浏览
@@ -57,16 +57,14 @@
 
 应用内进入"设置"页填写（无需改代码，保存后持久化）：
 
-| 字段          | 说明                                                                        |
-| ------------- | --------------------------------------------------------------------------- |
-| API 地址      | 大模型接口地址，默认 `https://api.deepseek.com/chat/completions`（OpenAI 兼容格式） |
-| API Key       | 大模型密钥（密码输入框，加密存储）                                          |
-| 模型名称      | 例如 `deepseek-v4-flash`                                                    |
-| 搜索 API 地址 | 搜索接口地址，默认 `https://api.bochaai.com/v1/web-search`                  |
-| 搜索 API 密钥 | 博查密钥，留空则不启用联网搜索                                              |
+| 字段     | 说明                                                          |
+| -------- | ------------------------------------------------------------- |
+| 供应商   | 下拉选择，默认 DeepSeek（预设在 ModelPresets 注册表维护）     |
+| API Key  | 大模型密钥（密码输入框，加密存储）                            |
+| 模型名称 | 当前供应商可选的模型下拉，空则使用供应商默认模型              |
 
-- 大模型默认使用 DeepSeek，任何 OpenAI 兼容 API 均可直接替换
-- 联网搜索基于博查 AI（[open.bochaai.com](https://open.bochaai.com) 注册获取 Key），国内直连
+- 供应商对应的接口地址 / 模型 / 能力开关由代码内预设（`ModelPresets.ets`）推导，设置页只读展示，无需手动填写
+- 联网搜索由 DeepSeek 服务端 `web_search` 工具提供，无需单独配置搜索 API Key，在输入框开启开关即可
 - ⚠️ 未配置时聊天前会拦截提示，引导前往设置页
 
 ## 项目结构
@@ -94,14 +92,14 @@ ChatCategorize/
 │   │   │   └── CategoryRepository.ets    # 文件夹树构建 + 级联删除
 │   │   ├── service/          # 服务层（Provider 工厂模式）
 │   │   │   ├── LLMProviderFactory.ets    # 大模型 Provider 工厂
-│   │   │   ├── SearchProviderFactory.ets # 搜索 Provider 工厂
+│   │   │   ├── SearchProviderFactory.ets # 搜索 Provider 工厂（扩展点保留，占位实现）
 │   │   │   ├── StreamTask.ets            # 单个流式任务（缓冲 / 节流 / 占位消息隔离）
 │   │   │   ├── BackgroundRunGuardService.ets # 后台长时任务保活
 │   │   │   └── provider/
 │   │   │       ├── LLMProvider.ets       # 大模型抽象接口（SSE 流式）
-│   │   │       ├── DeepSeekProvider.ets  # DeepSeek 实现（OpenAI 兼容）
-│   │   │       ├── SearchProvider.ets    # 搜索抽象接口
-│   │   │       └── BochaSearchProvider.ets # 博查搜索实现
+│   │   │       ├── DeepSeekProvider.ets  # DeepSeek 实现（Responses API）
+│   │   │       ├── SearchProvider.ets    # 搜索抽象接口（扩展点保留）
+│   │   │       └── NotImplementedSearchProvider.ets # 自定义搜索占位实现
 │   │   ├── viewmodel/        # 状态管理层（MVVM 的 VM）
 │   │   │   ├── ChatViewModel.ets         # 聊天状态与消息流
 │   │   │   ├── FolderViewModel.ets       # 文件夹树状态
@@ -162,31 +160,33 @@ ChatCategorize/
 
 ```
 用户输入 → ChatViewModel → LLMProviderFactory.create()
-  → DeepSeekProvider.sendMessage()（HTTP POST, stream: true）
-  → dataReceive 逐 chunk 解析 SSE
-  → onReasoningChunk 输出思考内容（reasoning_content）
-  → onChunk 输出正文
-  → dataEnd / [DONE] 标记完成
+  → DeepSeekProvider.sendMessage()（Responses API, HTTP POST, stream: true）
+  → event: + data: 成对解析 SSE 事件
+  → response.reasoning_text.delta 输出思考增量
+  → response.output_text.delta 输出正文增量
+  → response.completed / incomplete / failed 标记结束或失败
 ```
 
-- `LLMProvider` 定义抽象接口（流式回调），`DeepSeekProvider` 实现 OpenAI 兼容调用
-- `LLMProviderFactory` 按渠道创建 Provider，新增模型只需实现接口并注册工厂
-- SSE 不完整 chunk 缓冲处理，`isFinished` 标记防止重复回调
+- `LLMProvider` 定义抽象接口（流式回调），`DeepSeekProvider` 实现 DeepSeek Responses API 调用
+- 请求体走 Responses API：`input` 消息列表 + `reasoning.effort`（思考强度）+ `tools.web_search`（联网搜索）
+- `LLMProviderFactory` 按 `providerId` 分发供应商；新增供应商只需在 ModelPresets 追加预设，必要时注册新 Provider
+- SSE 事件按 `event:` 行 + `data:` JSON 成对解析（兼容 data JSON 自带 type 字段），不完整 chunk 缓冲处理
 - 连接超时 15s，读取超时 60s
-- 深度思考走 DeepSeek 官方格式：`thinking.enabled/disabled` + `reasoning_effort=max`，`deepThinking` 开关由 ChatInput 传入
+- 深度思考走 `reasoning.effort`：开启 `high`、关闭 `low`（Responses API 无完全关闭开关），`deepThinking` 由 ChatInput 传入
 
-### 4. Search Provider — 联网搜索（工厂模式）
+### 4. Web Search — 服务端联网搜索
 
 ```
-开启联网 → ChatViewModel → SearchProviderFactory.create()
-  → BochaSearchProvider.search()（博查 Web Search API POST）
-  → 解析标题 / URL / 长摘要 → 拼接为 LLM 友好的 Markdown
-  → 作为 system 消息插入上下文，驱动 LLM 基于资料回答
+开启联网 → ChatViewModel → DeepSeekProvider（请求体携带 tools.web_search）
+  → 服务端执行 web_search 工具，流中下发 web_search_call 事件
+  → response.web_search_call.in_progress / searching → onWebSearchStart（"正在搜索…"）
+  → response.web_search_call.completed → onWebSearchEnd（恢复思考 / 回答）
 ```
 
-- `SearchProvider` 定义抽象接口，`BochaSearchProvider` 实现博查调用，与 LLM 完全解耦
-- 返回 5 条结果，每条摘要截断 800 字符控制 token
-- 搜索失败静默降级为普通对话，UI 显示降级提示
+- 联网搜索由 DeepSeek 服务端执行（Responses API `web_search` 工具），本地不再调用第三方搜索 API，无需搜索 Key
+- 搜索状态由服务端流事件驱动：`onWebSearchStart` / `onWebSearchEnd` 回调实时更新 UI 的"正在搜索…"提示
+- 收到正文增量即兜底退出搜索态；请求了搜索但整个流未出现任何搜索事件 → 标记搜索失败（降级提示）
+- `SearchProvider` 接口与 `SearchProviderFactory` 保留为「后续接入自定义网页搜索 API」的扩展点（占位实现恒不可用）
 
 ### 5. DatabaseHelper — 关系型数据库（DAO + Repository 分层）
 
@@ -283,5 +283,5 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 
 | 权限                              | 用途                         |
 | --------------------------------- | ---------------------------- |
-| `ohos.permission.INTERNET`        | 发起 LLM / 搜索网络请求      |
+| `ohos.permission.INTERNET`        | 发起 LLM 请求（联网搜索由服务端执行）     |
 | `ohos.permission.KEEP_BACKGROUND_RUNNING` | 后台保持流式连接不被冻结 |

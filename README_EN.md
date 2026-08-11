@@ -13,17 +13,17 @@ An AI chat application built on HarmonyOS NEXT, featuring SSE streaming conversa
 | UI Framework      | ArkUI declarative development (@State / @Observed state, LazyForEach)     |
 | Data Persistence  | `@kit.ArkData` relationalStore relational database + Preferences storage  |
 | Credential Secure | `@kit.AssetStoreKit` encrypted API Key storage (AES256-GCM, keys in TEE)  |
-| Networking        | `@kit.NetworkKit` (HTTP SSE streaming / Web Search API)                   |
-| LLM API           | OpenAI-compatible interface (DeepSeek by default, Provider factory pattern) |
-| Search API        | Bocha AI Web Search API (direct domestic access, Provider factory pattern) |
+| Networking        | `@kit.NetworkKit` (HTTP SSE streaming, Responses API)                 |
+| LLM API           | DeepSeek Responses API (provider preset registry + Provider factory pattern) |
+| Web Search        | DeepSeek server-side web_search tool (no local third-party search API) |
 | Markdown Rendering | `@luvi/lv-markdown-in` native rendering (LaTeX formulas, code highlight, Mermaid) |
 
 ## Features
 
 - **Streaming AI Chat** — SSE token-by-token output; reasoning content (`reasoning_content`) and main text shown in separate channels
-- **Deep Thinking (toggleable)** — Uses DeepSeek's official thinking format; `reasoning_effort=max` when on, explicitly disabled when off (V4 thinks by default, so it must be controlled explicitly)
-- **Web Search** — Bocha Web Search for real-time info; results injected as reference material to drive answers, auto-fallback to normal chat on failure
-- **Settings Page** — Fill in API URL / Key / model in-app; persisted after save, survives restarts
+- **Deep Thinking (toggleable)** — Uses Responses API `reasoning.effort`: `high` for deep reasoning when on, `low` for lightweight thinking when off
+- **Web Search** — DeepSeek server-side `web_search` tool for real-time retrieval; drives the "searching..." state from the stream; auto-marks as degraded when no search event occurs
+- **Settings Page** — Pick a provider / enter Key / choose a model in-app; persisted after save, survives restarts
 - **Secure Key Storage** — API Keys encrypted via Asset Store Kit (TEE), never written in plaintext; legacy plaintext auto-migrated and purged
 - **Multi-level Folder Categorization** — Unlimited folder depth; Favorites tab shows top-level folders with drill-down navigation
 - **Folder Management** — Create / rename / move / delete (with confirmation + cascading category-relation removal), 8 selectable icon colors
@@ -57,16 +57,14 @@ Open the project root with DevEco Studio, wait for dependency sync, connect a de
 
 Fill in the in-app **Settings** page (no code changes needed; persisted after saving):
 
-| Field            | Description                                                                  |
-| ---------------- | ---------------------------------------------------------------------------- |
-| API URL          | LLM endpoint, default `https://api.deepseek.com/chat/completions` (OpenAI-compatible) |
-| API Key          | LLM secret key (password input, stored encrypted)                            |
-| Model Name       | e.g. `deepseek-v4-flash`                                                     |
-| Search API URL   | Search endpoint, default `https://api.bochaai.com/v1/web-search`             |
-| Search API Key   | Bocha key; leave empty to disable web search                                 |
+| Field       | Description                                                           |
+| ----------- | --------------------------------------------------------------------- |
+| Provider    | Drop-down selection, DeepSeek by default (presets maintained in the ModelPresets registry) |
+| API Key     | LLM secret key (password input, stored encrypted)                     |
+| Model Name  | Drop-down of models available for the current provider; empty = provider default model |
 
-- The LLM defaults to DeepSeek; any OpenAI-compatible API can be used as a drop-in replacement
-- Web search is powered by Bocha AI ([open.bochaai.com](https://open.bochaai.com) to register for a Key), free with direct domestic access
+- The endpoint / models / capability toggles for a provider are derived from code-side presets (`ModelPresets.ets`); the Settings page shows them read-only, no manual entry needed
+- Web search is provided by DeepSeek's server-side `web_search` tool; no separate search API Key required — just enable the toggle in the input bar
 - ⚠️ When unconfigured, chatting is blocked with a prompt guiding you to the Settings page
 
 ## Project Structure
@@ -84,7 +82,8 @@ ChatCategorize/
 │   │   │   └── NavTransitionManager.ets  # Page navigation transition animations
 │   │   ├── config/           # App configuration
 │   │   │   ├── AppConfig.ets             # Config management (Preferences + Asset Store read/write)
-│   │   │   └── SecureKeyStore.ets        # Secure key storage (Asset Store Kit wrapper)
+│   │   │   ├── SecureKeyStore.ets        # Secure key storage (Asset Store Kit wrapper)
+│   │   │   └── ModelPresets.ets          # Provider preset registry (endpoint / models / capabilities)
 │   │   ├── database/         # Persistence layer (DAO + Repository)
 │   │   │   ├── DatabaseHelper.ets        # Schema creation + shared RdbStore singleton
 │   │   │   ├── ConversationDao.ets       # Conversation table CRUD
@@ -94,14 +93,14 @@ ChatCategorize/
 │   │   │   └── CategoryRepository.ets    # Folder tree + cascading delete
 │   │   ├── service/          # Service layer (Provider factory pattern)
 │   │   │   ├── LLMProviderFactory.ets    # LLM Provider factory
-│   │   │   ├── SearchProviderFactory.ets # Search Provider factory
+│   │   │   ├── SearchProviderFactory.ets # Search Provider factory (extension point, placeholder impl)
 │   │   │   ├── StreamTask.ets            # Single streaming task (isolated buffer/throttle/placeholder)
 │   │   │   ├── BackgroundRunGuardService.ets # Background keep-alive
 │   │   │   └── provider/
 │   │   │       ├── LLMProvider.ets       # LLM abstract interface (SSE streaming)
-│   │   │       ├── DeepSeekProvider.ets  # DeepSeek implementation (OpenAI-compatible)
-│   │   │       ├── SearchProvider.ets    # Search abstract interface
-│   │   │       └── BochaSearchProvider.ets # Bocha search implementation
+│   │   │       ├── DeepSeekProvider.ets  # DeepSeek implementation (Responses API)
+│   │   │       ├── SearchProvider.ets    # Search abstract interface (extension point)
+│   │   │       └── NotImplementedSearchProvider.ets # Placeholder for custom web search
 │   │   ├── viewmodel/        # State management layer (MVVM's VM)
 │   │   │   ├── ChatViewModel.ets         # Chat state & message flow
 │   │   │   ├── FolderViewModel.ets       # Folder tree state
@@ -162,31 +161,33 @@ ChatCategorize/
 
 ```
 User input → ChatViewModel → LLMProviderFactory.create()
-  → DeepSeekProvider.sendMessage() (HTTP POST, stream: true)
-  → dataReceive parses SSE chunk by chunk
-  → onReasoningChunk outputs thinking content (reasoning_content)
-  → onChunk outputs main text
-  → dataEnd / [DONE] marks completion
+  → DeepSeekProvider.sendMessage() (Responses API, HTTP POST, stream: true)
+  → Parses SSE events in event: + data: pairs
+  → response.reasoning_text.delta outputs reasoning deltas
+  → response.output_text.delta outputs main-text deltas
+  → response.completed / incomplete / failed marks end or failure
 ```
 
-- `LLMProvider` defines the abstract interface (streaming callbacks); `DeepSeekProvider` implements the OpenAI-compatible calls
-- `LLMProviderFactory` creates Providers by channel; adding a model only requires implementing the interface and registering with the factory
-- Buffers incomplete SSE chunks; `isFinished` flag prevents duplicate callbacks
+- `LLMProvider` defines the abstract interface (streaming callbacks); `DeepSeekProvider` implements DeepSeek's Responses API calls
+- Request body follows the Responses API: `input` message list + `reasoning.effort` (reasoning intensity) + `tools.web_search` (web search)
+- `LLMProviderFactory` dispatches providers by `providerId`; adding a provider only requires appending a preset to ModelPresets and, if needed, registering a new Provider
+- SSE events are parsed in `event:` + `data:` JSON pairs (also compatible with data JSON carrying its own type field); incomplete chunks are buffered
 - Connect timeout 15s, read timeout 60s
-- Deep thinking uses DeepSeek's official format: `thinking.enabled/disabled` + `reasoning_effort=max`; the `deepThinking` toggle is passed from ChatInput
+- Deep thinking uses `reasoning.effort`: `high` when on, `low` when off (the Responses API has no full-off switch); the `deepThinking` toggle is passed from ChatInput
 
-### 4. Search Provider — Web Search (Factory Pattern)
+### 4. Web Search — Server-side Web Search
 
 ```
-Web search on → ChatViewModel → SearchProviderFactory.create()
-  → BochaSearchProvider.search() (Bocha Web Search API POST)
-  → Parses title/URL/long summary → builds LLM-friendly Markdown
-  → Injected as a system message to drive LLM answers grounded in the material
+Web search on → ChatViewModel → DeepSeekProvider (request body carries tools.web_search)
+  → Server executes the web_search tool, emitting web_search_call events in the stream
+  → response.web_search_call.in_progress / searching → onWebSearchStart ("searching...")
+  → response.web_search_call.completed → onWebSearchEnd (resume thinking / answering)
 ```
 
-- `SearchProvider` defines the abstract interface; `BochaSearchProvider` implements Bocha calls, fully decoupled from the LLM
-- Returns 5 results, each summary truncated to 800 chars to control tokens
-- On failure, silently falls back to a normal conversation; UI shows a degradation hint
+- Web search is executed server-side by DeepSeek (Responses API `web_search` tool); no third-party search API is called locally and no search Key is needed
+- The search state is driven by server stream events: `onWebSearchStart` / `onWebSearchEnd` update the UI's "searching..." hint in real time
+- Receiving a main-text delta is the fallback exit from the searching state; if search was requested but no search event appeared in the whole stream → marked as failed (degradation hint)
+- The `SearchProvider` interface and `SearchProviderFactory` remain as the extension point for "custom web search API in the future" (the placeholder implementation is always unavailable)
 
 ### 5. DatabaseHelper — Relational Database (DAO + Repository Layers)
 
@@ -283,5 +284,5 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
 
 | Permission                           | Purpose                                    |
 | ------------------------------------ | ------------------------------------------- |
-| `ohos.permission.INTERNET`           | LLM / search network requests              |
+| `ohos.permission.INTERNET`           | LLM requests (web search runs server-side)     |
 | `ohos.permission.KEEP_BACKGROUND_RUNNING` | Keep the SSE connection alive in background |
