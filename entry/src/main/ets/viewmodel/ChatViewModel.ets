@@ -761,7 +761,9 @@ export class ChatViewModel {
     const total = group.length;
     // 循环切换：支持跨 0 → total-1 与 total-1 → 0
     const target = group[(((curPos + delta) % total) + total) % total];
-    this.rebuildActiveChain(target.id);
+    // 传入 scrollToTargetId（目标变体）与 fromId（切换前的当前消息）：
+    // 两者是"同位置兄弟"，替换数据前先滚到旧消息位置锁定区域，避免替换后闪烁
+    this.rebuildActiveChain(target.id, target.id, msg.id);
   }
 
   /**
@@ -825,9 +827,12 @@ export class ChatViewModel {
   /**
    * 重建激活链（切换分支核心）：
    * 1. 全量熄灭 → 2. 点亮目标变体的祖先路径 → 3. 点亮目标变体的后续链
-   * 4. 持久化激活状态 → 5. 重载列表
+   * 4. 持久化激活状态 → 5. 重载列表 → 6.（可选）滚动到目标消息底部
+   * @param targetId 点亮的目标变体 id
+   * @param scrollToTargetId 可选：重载后滚动到该消息，使其操作栏与列表底部对齐（切换分支用）
+   * @param fromId 可选：切换前的当前消息 id（与目标变体同位置兄弟，用于替换数据前锁定滚动区域）
    */
-  private async rebuildActiveChain(targetId: string): Promise<void> {
+  private async rebuildActiveChain(targetId: string, scrollToTargetId?: string, fromId?: string): Promise<void> {
     const convId = this.currentConversationId;
     // 1. 全部熄灭（内存 + DB 批量）
     this.allMessages.forEach((m: Message) => {
@@ -871,7 +876,41 @@ export class ChatViewModel {
     });
 
     // 5. 重载激活链列表
-    this.reloadActiveList();
+    const chain = this.buildActiveChain(this.allMessages);
+
+    if (scrollToTargetId !== undefined && scrollToTargetId.length > 0) {
+      // 5.1 切换分支（预滚动）：替换数据前，基于旧列表先滚动到"切换前的当前消息"位置。
+      // 旧列表 item 已渲染，此滚动必然生效；目标变体与它是同 index 的兄弟（同位置），
+      // 替换后目标消息就地显示 → 滚动区域被锁定，避免"替换后回弹到顶部再跳回"的闪烁
+      const oldList = this.messageDataSource.getAll();
+      const oldIdx = oldList.findIndex(m => m.id === fromId);
+      if (oldIdx >= 0) {
+        this.listScroller.scrollToIndex(oldIdx, false, ScrollAlign.END);
+      }
+      this.messageDataSource.replaceAll(chain);
+
+      // 5.2 对齐微调：变体内容高度可能不同，等 item 渲染完成后按新内容重新对齐底部
+      // （操作栏贴底）。因 5.1 已锁定在同一区域，此滚动幅度小，无视觉跳变
+      setTimeout(() => {
+        this.scrollMessageToBottom(scrollToTargetId);
+      }, 50);
+    } else {
+      // 非切换分支（新建分支/编辑等）：直接替换 + 滚到底部
+      this.messageDataSource.replaceAll(chain);
+      this.scrollToBottom();
+    }
+  }
+
+  /**
+   * 滚动到指定消息：让该消息底部（操作栏所在位置）与列表可视区底部对齐
+   * 不受 isAtBottom / isUserScrolling 守卫限制（切换分支属用户主动操作，需强制滚动）
+   */
+  private scrollMessageToBottom(messageId: string): void {
+    const list = this.messageDataSource.getAll();
+    const idx = list.findIndex(m => m.id === messageId);
+    if (idx < 0) return; // 目标不在激活链上（异常兜底）
+    // ScrollAlign.END：目标消息的底部贴齐可视区底部，操作栏即落在输入区上方
+    this.listScroller.scrollToIndex(idx, false, ScrollAlign.END);
   }
 
   /** 将节点及其激活后续链全部置为非激活（创建新分支时熄灭旧分支），同步持久化 */
@@ -1039,14 +1078,13 @@ export class ChatViewModel {
     this.isAtBottom = value;
   }
 
-  // 滚动到最底部（确保最新消息可见）
-  scrollToBottom(): void {
-    // 不在最底部 或 用户正在操作 → 不回滚
-    if (!this.isAtBottom || this.isUserScrolling) {
-      return;
-    }
-    // 优先 scrollEdge 直达底部边缘：不依赖末尾 item 是否已懒加载渲染，比 scrollToIndex 更可靠；
-    // 个别平台版本不支持时回退到 scrollToIndex(末尾, END)
+  // 是否处于"自动跟随"状态（用户未手动滚动且停留在底部时才允许自动钉底）
+  private shouldAutoScroll(): boolean {
+    return this.isAtBottom && !this.isUserScrolling;
+  }
+
+  // 底层滚动：直达列表底部边缘，无任何守卫（scrollEdge 优先，个别版本回退 scrollToIndex）
+  private scrollToBottomEdge(): void {
     try {
       this.listScroller.scrollEdge(Edge.Bottom);
     } catch (e) {
@@ -1056,25 +1094,26 @@ export class ChatViewModel {
         ScrollAlign.END,
       );
     }
+  }
+
+  // 滚动到最底部（确保最新消息可见）
+  scrollToBottom(): void {
+    // 不在最底部 或 用户正在操作 → 不回滚
+    if (!this.shouldAutoScroll()) {
+      return;
+    }
+    this.scrollToBottomEdge();
   }
 
   // 悬浮按钮强制滚到底（用户主动点击，不依赖 isAtBottom 守卫；scrollToBottom 有守卫不适用）
   jumpToBottom(): void {
     this.setAtBottom(true); // 兜底：滚完直接隐藏按钮（个别版本 scrollEdge 可能不触发 onReachEnd）
-    try {
-      this.listScroller.scrollEdge(Edge.Bottom);
-    } catch (e) {
-      this.listScroller.scrollToIndex(
-        this.messageDataSource.totalCount() - 1,
-        false,
-        ScrollAlign.END,
-      );
-    }
+    this.scrollToBottomEdge();
   }
 
   // 流式跟随的平滑滚动：50ms 防抖 + 200ms EaseOut 动画（防抖保证同时间只有一组动画，避免动画堆积抖动）
   private scrollToBottomSmooth(): void {
-    if (!this.isAtBottom || this.isUserScrolling) {
+    if (!this.shouldAutoScroll()) {
       return;
     }
     if (this.followAnimationTimerId >= 0) {
@@ -1082,7 +1121,7 @@ export class ChatViewModel {
     }
     this.followAnimationTimerId = setTimeout(() => {
       this.followAnimationTimerId = -1;
-      if (!this.isAtBottom || this.isUserScrolling) {
+      if (!this.shouldAutoScroll()) {
         return;
       }
       if (this.scrollAnimator !== undefined) {
@@ -1123,7 +1162,7 @@ export class ChatViewModel {
       return;
     }
     // 用户已开始手动滚动或离开底部 → 停止自动钉底，避免干扰阅读
-    if (!this.isAtBottom || this.isUserScrolling) {
+    if (!this.shouldAutoScroll()) {
       return;
     }
     this.scrollToBottom();
@@ -1159,7 +1198,7 @@ export class ChatViewModel {
     if (delta <= 0) {
       return;
     }
-    if (!this.isAtBottom || this.isUserScrolling) {
+    if (!this.shouldAutoScroll()) {
       return;
     }
     if (this.isCurrentStreaming()) {
