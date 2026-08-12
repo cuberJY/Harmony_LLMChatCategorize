@@ -14,6 +14,7 @@
  */
 
 import { Message } from "../../model/Message";
+import { LLMError } from "../LLMError";
 
 /**
  * 流式回调接口
@@ -26,11 +27,14 @@ export interface StreamCallbacks {
   onChunk: (deltaText: string) => void;
   // 全部文本接收完成时触发
   onComplete: (fullText: string) => void;
-  // 发生错误时触发
-  onError: (errorMessage: string) => void;
+  // 达到输出上限被服务端截断时触发（response.incomplete）：
+  // 内容完整保留，但生成未走完，调用方应进入"暂停"态允许用户「继续生成」
+  onIncomplete: (fullText: string, error: LLMError) => void;
+  // 发生错误时触发（error 为供应商归一化后的统一错误对象）
+  onError: (error: LLMError) => void;
   // 流被异常中断时触发（网络出问题、连接被掐断等，未收到正常结束事件）：
   // 调用方应进入"暂停"态，保留已接收内容并允许用户「继续生成」
-  onInterrupted: () => void;
+  onInterrupted: (reason: LLMError) => void;
   // 服务端开始执行联网搜索（web_search 工具由服务端执行，UI 显示"正在搜索…"）
   onWebSearchStart: () => void;
   // 服务端联网搜索完成（模型开始基于搜索结果回答）

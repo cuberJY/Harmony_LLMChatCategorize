@@ -25,11 +25,37 @@ export class StreamTask {
   searchEventSeen: boolean = false; // 是否收到过服务端搜索事件（web_search_call.*）
   deepThinkingEnabled: boolean = false; // 本次流使用的深度思考开关（「继续生成」时复用，保持风格一致）
   abortHandler: AbortHandle | null = null; // 底层 HTTP 请求的中止句柄（「暂停生成」时调用 abort()）
+  thinkingMs: number = 0; // 多阶段思考累计耗时（毫秒）：
+  // Agent 式模型会"思考→输出部分正文→再思考/搜索→再输出"，本字段跨阶段累加，
+  // 保证「已思考（用时 X 秒）」统计的是总思考时长，而非仅第一次正文前的时长
 
   constructor(conversationId: string, aiMsg: Message, targetConv: Conversation) {
     this.conversationId = conversationId;
     this.aiMsg = aiMsg;
     this.targetConv = targetConv;
+  }
+
+  /**
+   * 进入/恢复思考阶段（收到 reasoning 增量时调用）
+   * 多阶段思考下 isThinking 会反复切换：每次从"非思考"进入"思考"都重新计起始时间戳
+   */
+  beginThinking(): void {
+    if (!this.aiMsg.isThinking) {
+      this.aiMsg.isThinking = true;
+      this.aiMsg.thinkingStartTime = Date.now();
+    }
+  }
+
+  /**
+   * 结束当前思考阶段（收到正文 / 完成 / 错误 / 中断时调用）
+   * 将本阶段耗时累加到 thinkingMs 并刷新 thinkingDuration（跨阶段累计）
+   */
+  endThinking(): void {
+    if (this.aiMsg.isThinking) {
+      this.thinkingMs += Date.now() - this.aiMsg.thinkingStartTime;
+      this.aiMsg.isThinking = false;
+      this.aiMsg.thinkingDuration = Math.round(this.thinkingMs / 100) / 10;
+    }
   }
 
   /**

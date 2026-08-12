@@ -61,6 +61,14 @@
       "value": "#FF6B70"
     },
     {
+      "name": "text_error_1",
+      "value": "#FFD338"
+    },
+    {
+      "name": "text_error_2",
+      "value": "#FF9F45"
+    },
+    {
       "name": "input_bg",
       "value": "#171717"
     },

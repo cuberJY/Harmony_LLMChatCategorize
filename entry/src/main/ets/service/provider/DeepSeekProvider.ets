@@ -21,6 +21,10 @@ import { http } from "@kit.NetworkKit";
 import { Message } from "../../model/Message";
 import { AppConfig } from "../../config/AppConfig";
 import { AbortHandle, LLMProvider, StreamCallbacks } from "./LLMProvider";
+import { LLMError, ErrorCode, buildError } from "../LLMError";
+
+// 供应商标识（错误对象 provider 字段 / 日志定位）
+const PROVIDER_NAME = "deepseek";
 
 // API 请求中的消息格式（Responses API 的 input item：message 类型）
 interface ApiMessage {
@@ -55,18 +59,20 @@ interface ResponsesEventData {
   error?: ErrorDetail; // response.failed 时的错误详情
 }
 
-// 错误详情
+// 错误详情（DeepSeek Responses API：error.code 可能是字符串或数字）
 interface ErrorDetail {
+  code?: string | number;
   message?: string;
 }
 
 // SSE 单行解析结果
 interface SSEResult {
-  kind: "none" | "chunk" | "reasoning" | "searchStart" | "searchEnd" | "done" | "failed";
+  kind: "none" | "chunk" | "reasoning" | "searchStart" | "searchEnd" | "done" | "incomplete" | "failed";
   text: string; // 增量文本（chunk / reasoning 时有效）
   done: boolean; // 是否流结束（response.completed / incomplete）
   failed: boolean; // 是否失败（response.failed）
-  errorMsg: string; // 失败原因
+  errorCode: string; // 供应商错误码（response.failed 的 error.code）
+  errorMsg: string; // 供应商错误信息（response.failed 的 error.message）
 }
 
 /**
@@ -140,7 +146,8 @@ export class DeepSeekProvider implements LLMProvider {
   ): AbortHandle {
     // 未配置时提前拦截，提示用户前往设置
     if (!this.isConfigured()) {
-      callbacks.onError("尚未配置 API，请先前往「设置」填写 API Key");
+      callbacks.onError(buildError(
+        ErrorCode.CFG_NOT_CONFIGURED, "API key not configured", undefined, PROVIDER_NAME));
       // 请求从未真正发起，返回空操作的中止句柄（幂等安全）
       return new StreamAbortHandle((): void => {});
     }
@@ -157,25 +164,37 @@ export class DeepSeekProvider implements LLMProvider {
     let fullReasoning = "";
     let isFinished = false; // 防止 onComplete/onError/onInterrupted 重复调用
     let gotTerminalEvent = false; // 是否收到过正常结束事件（response.completed/incomplete/failed/[DONE]）
+    // HTTP 错误处理：错误响应体是 JSON（非 SSE），需等 dataEnd 收齐后解析 error.code/message 归一化上报
+    let httpErrorStatus = 0; // 响应码 >= 400 时记录（>0 表示处于 HTTP 错误态）
+    let errorBody = ""; // HTTP 错误响应体累积缓冲
 
-    // 安全调用回调的辅助函数
+    // 安全调用回调的辅助函数（统一错误对象，幂等防重）
     const safeComplete = (text: string): void => {
       if (!isFinished) {
         isFinished = true;
         callbacks.onComplete(text);
       }
     };
-    const safeError = (msg: string): void => {
+    // 达到输出上限被服务端截断（response.incomplete）：内容完整保留，走"暂停"态供用户「继续生成」
+    const safeIncomplete = (text: string): void => {
       if (!isFinished) {
         isFinished = true;
-        callbacks.onError(msg);
+        callbacks.onIncomplete(
+          text,
+          buildError(ErrorCode.OUT_TRUNCATED, "output truncated by max_output_tokens", undefined, PROVIDER_NAME));
+      }
+    };
+    const safeError = (err: LLMError): void => {
+      if (!isFinished) {
+        isFinished = true;
+        callbacks.onError(err);
       }
     };
     // 网络异常中断（未收到正常结束事件）→ 通知调用方进入"暂停"态，允许继续生成
-    const safeInterrupted = (): void => {
+    const safeInterrupted = (reason: LLMError): void => {
       if (!isFinished) {
         isFinished = true;
-        callbacks.onInterrupted();
+        callbacks.onInterrupted(reason);
       }
     };
     const cleanup = (): void => {
@@ -187,6 +206,11 @@ export class DeepSeekProvider implements LLMProvider {
     // 1. 流式数据接收
     httpRequest.on("dataReceive", (data: ArrayBuffer) => {
       const chunk = this.arrayBufferToString(data);
+      // HTTP 错误响应：原始 body 是 JSON（非 SSE），只累积不解析，留待 dataEnd 归一化上报
+      if (httpErrorStatus > 0) {
+        errorBody += chunk;
+        return;
+      }
       sseBuffer += chunk;
 
       const lines = sseBuffer.split("\n");
@@ -229,15 +253,19 @@ export class DeepSeekProvider implements LLMProvider {
             callbacks.onWebSearchEnd();
             continue;
           }
-          // 流结束 / 失败
+          // 流结束（正常完成 / 输出截断）
           if (result.done) {
             gotTerminalEvent = true;
-            safeComplete(fullText);
+            if (result.kind === "incomplete") {
+              safeIncomplete(fullText); // 截断：内容保留，由调用方进入"暂停"态可续写
+            } else {
+              safeComplete(fullText);
+            }
             return;
           }
           if (result.failed) {
             gotTerminalEvent = true;
-            safeError(result.errorMsg.length > 0 ? `API 错误: ${result.errorMsg}` : "API 请求失败");
+            safeError(this.mapResponseFailed(result.errorCode, result.errorMsg));
             return;
           }
           // 思考内容增量
@@ -256,12 +284,19 @@ export class DeepSeekProvider implements LLMProvider {
 
     // 2. 数据接收完毕 → 在这里清理资源
     httpRequest.on("dataEnd", () => {
+      // HTTP 错误响应：等 body 收齐后解析 error.code/message，按状态码归一化上报
+      if (httpErrorStatus > 0) {
+        safeError(this.mapHttpError(httpErrorStatus, this.extractErrorMessage(errorBody)));
+        cleanup();
+        return;
+      }
       if (!gotTerminalEvent) {
         // 未收到正常结束事件（response.completed/incomplete/failed/[DONE]）就结束了
         // = 连接被掐断/网络异常中断（已收到的内容保留，由调用方进入"暂停"态供用户继续生成）
-        safeInterrupted();
+        safeInterrupted(
+          buildError(ErrorCode.NET_DISCONNECTED, "stream ended without terminal event", undefined, PROVIDER_NAME));
       } else if (fullText.length === 0 && fullReasoning.length === 0) {
-        safeError("未收到有效响应数据");
+        safeError(buildError(ErrorCode.EMPTY_RESPONSE, "no valid response data received", undefined, PROVIDER_NAME));
       } else {
         safeComplete(fullText);
       }
@@ -306,24 +341,36 @@ export class DeepSeekProvider implements LLMProvider {
         extraData: requestBody,
         usingProtocol: http.HttpProtocol.HTTP1_1,
         connectTimeout: 15000,
-        readTimeout: 60000,
+        readTimeout: 120000, // 多阶段思考/联网搜索期间可能长时间无增量事件，读超时放宽到 120s
       })
       .then((responseCode: number) => {
-        // 只处理 HTTP 错误码，不调用 destroy（关键修改！）
+        // HTTP 错误码：不立即结束，标记错误态后等 dataEnd 收齐错误响应体，
+        // 再解析 error.code/message 归一化上报（错误 body 是 JSON，非 SSE）
         if (responseCode >= 400) {
-          safeError(`API 错误 (${responseCode})`);
-          cleanup();
+          httpErrorStatus = responseCode;
+          // 兜底：若错误响应体迟迟未收完（dataEnd 未触发），8s 后按已收到内容上报，避免界面卡死
+          setTimeout(() => {
+            if (!isFinished && httpErrorStatus > 0) {
+              safeError(this.mapHttpError(httpErrorStatus, this.extractErrorMessage(errorBody)));
+              cleanup();
+            }
+          }, 8000);
           return;
         }
         // 正常情况（200）：不做任何事，等待 dataReceive 和 dataEnd
       })
-      .catch((error: Error) => {
+      .catch((error: BusinessError) => {
         // 已收到部分内容后连接失败 → 视为网络异常中断（进入"暂停"态可继续生成）；
-        // 尚未收到任何内容 → 请求级失败，按普通错误处理
+        // 尚未收到任何内容 → 请求级失败，按错误上报（区分超时 / 普通失败）
+        const rawMessage: string =
+          error.message !== undefined && error.message.length > 0 ? error.message : JSON.stringify(error);
         if (fullText.length > 0 || fullReasoning.length > 0) {
-          safeInterrupted();
+          safeInterrupted(buildError(ErrorCode.NET_DISCONNECTED, rawMessage, undefined, PROVIDER_NAME));
         } else {
-          safeError(`网络请求失败: ${error.message}`);
+          const isTimeout: boolean = rawMessage.toLowerCase().includes("timeout");
+          safeError(buildError(
+            isTimeout ? ErrorCode.NET_TIMEOUT : ErrorCode.NET_REQUEST_FAILED,
+            rawMessage, undefined, PROVIDER_NAME));
         }
         cleanup();
       });
@@ -357,7 +404,7 @@ export class DeepSeekProvider implements LLMProvider {
    */
   private parseEventData(eventName: string, jsonStr: string): SSEResult {
     // ArkTS 要求对象字面量必须对应已声明的 interface
-    const result: SSEResult = { kind: "none", text: "", done: false, failed: false, errorMsg: "" };
+    const result: SSEResult = { kind: "none", text: "", done: false, failed: false, errorCode: "", errorMsg: "" };
     let parsed: ResponsesEventData;
     try {
       parsed = JSON.parse(jsonStr) as ResponsesEventData;
@@ -387,20 +434,91 @@ export class DeepSeekProvider implements LLMProvider {
     } else if (type === "response.web_search_call.completed") {
       // 服务端搜索完成
       result.kind = "searchEnd";
-    } else if (type === "response.completed" || type === "response.incomplete") {
-      // 正常完成 / 截断完成 → 均视为流结束
+    } else if (type === "response.completed") {
+      // 正常完成 → 流结束
       result.kind = "done";
       result.done = true;
+    } else if (type === "response.incomplete") {
+      // 输出达到上限被服务端截断：同样终止流，但语义是"未走完"（供调用方进入暂停态续写）
+      result.kind = "incomplete";
+      result.done = true;
     } else if (type === "response.failed") {
-      // 失败
+      // 失败：提取供应商错误码与错误信息，由调用方按统一错误码归一化上报
       result.kind = "failed";
       result.failed = true;
-      result.errorMsg = parsed.error !== undefined && parsed.error.message !== undefined
-        ? parsed.error.message
-        : "";
+      if (parsed.error !== undefined) {
+        result.errorCode = parsed.error.code !== undefined ? `${parsed.error.code}` : "";
+        result.errorMsg = parsed.error.message !== undefined ? parsed.error.message : "";
+      }
     }
     // 其余事件（response.created / in_progress / output_item.* / content_part.* 等）忽略
     return result;
+  }
+
+  /**
+   * 从 HTTP 错误响应体提取用户可读的错误信息（JSON error.message）
+   * 响应体格式（DeepSeek）：{"error": {"code": ..., "message": "..."}}
+   * 解析失败时截断返回原始 body（避免详情区展示超长内容）
+   */
+  private extractErrorMessage(body: string): string {
+    if (body.length === 0) {
+      return "";
+    }
+    try {
+      const parsed = JSON.parse(body) as ResponsesEventData;
+      if (parsed.error !== undefined && parsed.error.message !== undefined && parsed.error.message.length > 0) {
+        return parsed.error.message;
+      }
+    } catch (e) {
+      // 非 JSON（网关错误页等）：走下方截断兜底
+    }
+    const trimmed = body.trim();
+    return trimmed.length > 300 ? `${trimmed.substring(0, 300)}…` : trimmed;
+  }
+
+  /**
+   * HTTP 状态码 → 统一错误码映射（供应商归一化核心）
+   * 不同供应商的错误码映射各不相同，接入新供应商时在此处（或对应 Provider 内）维护各自规则
+   */
+  private mapHttpError(status: number, rawMessage: string): LLMError {
+    switch (status) {
+      case 401:
+        return buildError(ErrorCode.AUTH_INVALID_KEY, rawMessage, status, PROVIDER_NAME);
+      case 429:
+        return buildError(ErrorCode.RATE_LIMITED, rawMessage, status, PROVIDER_NAME);
+      case 400: {
+        // 400 需结合错误信息判断：上下文超限（含 context/token 字样）否则按服务端错误处理
+        const lower = rawMessage.toLowerCase();
+        if (lower.includes("context") || lower.includes("token")) {
+          return buildError(ErrorCode.CTX_OVERFLOW, rawMessage, status, PROVIDER_NAME);
+        }
+        return buildError(ErrorCode.SRV_ERROR, rawMessage, status, PROVIDER_NAME);
+      }
+      default:
+        if (status >= 500) {
+          return buildError(ErrorCode.SRV_ERROR, rawMessage, status, PROVIDER_NAME);
+        }
+        return buildError(ErrorCode.UNKNOWN, rawMessage, status, PROVIDER_NAME);
+    }
+  }
+
+  /**
+   * response.failed 事件 → 统一错误码映射（无 HTTP 状态码，按供应商 error.code/message 特征判断）
+   * DeepSeek error.code 常见值：rate_limit_exceeded / context_length_exceeded / invalid_api_key 等
+   */
+  private mapResponseFailed(errorCode: string, errorMsg: string): LLMError {
+    const raw = errorMsg.length > 0 ? errorMsg : errorCode;
+    const code = errorCode.toLowerCase();
+    if (code.includes("rate") || code.includes("limit")) {
+      return buildError(ErrorCode.RATE_LIMITED, raw, undefined, PROVIDER_NAME);
+    }
+    if (code.includes("context") || code.includes("token")) {
+      return buildError(ErrorCode.CTX_OVERFLOW, raw, undefined, PROVIDER_NAME);
+    }
+    if (code.includes("auth") || code.includes("api_key") || code.includes("invalid")) {
+      return buildError(ErrorCode.AUTH_INVALID_KEY, raw, undefined, PROVIDER_NAME);
+    }
+    return buildError(ErrorCode.SRV_ERROR, raw, undefined, PROVIDER_NAME);
   }
 
   /**

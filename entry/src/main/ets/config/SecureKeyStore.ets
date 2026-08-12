@@ -76,9 +76,7 @@ export class SecureKeyStore {
     }
   }
 
-  /**
-   * 删除密钥（用于清除/重置场景）
-   */
+  // 删除密钥（用于清除/重置场景）
   static async remove(alias: string): Promise<void> {
     try {
       const query: asset.AssetMap = new Map();

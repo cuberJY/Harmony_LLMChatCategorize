@@ -20,6 +20,7 @@ import { StreamTask } from "../service/StreamTask";
 import { LLMProviderFactory } from "../service/LLMProviderFactory";
 import { AppConfig } from "../config/AppConfig";
 import { showToast } from "../common/Utils";
+import { LLMError, errorMessageResource } from "../service/LLMError";
 import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
 
 /**
@@ -405,6 +406,7 @@ export class ChatViewModel {
       // 思考内容增量 → 攒到任务缓冲，节流刷新
       onReasoningChunk: (deltaReasoning: string) => {
         if (this.isDestroyed) return; // 页面已销毁：跳过 UI 更新
+        task.beginThinking(); // 多阶段思考：每段思考开始时恢复"思考中"状态（重新计时）
         task.reasoningBuffer += deltaReasoning;
         this.scheduleFlush(task);
       },
@@ -415,11 +417,8 @@ export class ChatViewModel {
         if (aiMsg.isSearching) {
           aiMsg.isSearching = false; // 收到正文 = 服务端搜索已结束
         }
-        // 收到正文 = 思考结束（状态立即变更，不延迟）
-        if (aiMsg.isThinking) {
-          aiMsg.isThinking = false;
-          aiMsg.thinkingDuration = Math.round((Date.now() - aiMsg.thinkingStartTime) / 100) / 10;
-        }
+        // 收到正文 = 当前思考阶段结束（结算该阶段耗时并累计；后续可能再进入下一段思考）
+        task.endThinking();
         task.streamBuffer += deltaText;
         this.scheduleFlush(task);
       },
@@ -436,15 +435,17 @@ export class ChatViewModel {
         aiMsg.isSearching = false;
       },
       onComplete: (fullText: string) => {
-        // 清除定时器并丢弃缓冲区（baseContent+fullText 包含完整内容）
+        // 先把未 flush 的增量写入消息（重点：思考内容尾部不能丢），再统一收尾
+        task.flush();
         task.clearTimer();
+        task.endThinking(); // 若流结束时仍处于思考阶段，结算累计耗时
         task.isStreaming = false;
         task.isPaused = false;
         aiMsg.isStreaming = false; // 流式结束
-        aiMsg.isThinking = false;
         aiMsg.isPaused = false; // 生成完成，不再显示「继续生成」
         aiMsg.generationStatus = "complete"; // 完整生成（重启后不再显示「继续生成」）
-        // baseContent（暂停前已生成）+ 本次请求的全文（新增增量）
+        aiMsg.error = undefined; // 生成成功，清除历史错误信息（错误卡片随之消失）
+        // baseContent（暂停前已生成）+ 本次请求的全文（新增增量，覆盖上面 flush 写入的正文）
         aiMsg.content = baseContent + fullText;
         // 请求了联网搜索但整个流中未出现任何搜索事件 → 标记搜索失败（提示已降级）
         if (task.webSearchEnabled && !task.searchEventSeen) {
@@ -469,33 +470,63 @@ export class ChatViewModel {
           this.scrollToBottom();
         }
       },
-      onError: (errorMessage: string) => {
+      // 输出达到上限被服务端截断（response.incomplete）：
+      // 已生成内容完整保留，但语义上"没走完" → 与暂停一样进入可续写态（气泡显示「继续生成」）
+      onIncomplete: (fullText: string, error: LLMError) => {
+        task.flush();
         task.clearTimer();
+        task.endThinking();
+        task.isStreaming = false;
+        task.isPaused = true;
+        aiMsg.isStreaming = false;
+        aiMsg.isSearching = false;
+        aiMsg.isPaused = true; // 暂停态 → 气泡右上角显示「继续生成」
+        aiMsg.generationStatus = "partial"; // 未走完（进程终止重启后也能识别并恢复）
+        aiMsg.error = error; // 结构化错误信息（错误卡片展示错误码/文案/详情）
+        aiMsg.content = baseContent + fullText; // 截断前已生成的全部内容
+        task.abortHandler = null;
+        this.streamPersistTime.delete(task.conversationId);
+        // 任务保留在 streamTasks 表（isPaused=true），「继续生成」直接复用
+        this.syncBackgroundGuardCount(); // 不再有活跃网络请求，保活计数减一
+        this.refreshStreamState();
+        // 持久化已接收内容（继续生成时以此为基础）
+        ConversationRepository.getInstance().updateMessage(aiMsg);
+        // 仅当该对话仍在前台展示时更新 UI 状态并提示（Toast 只显示一句文案，详情在气泡错误卡片）
+        if (this.isDestroyed) return;
+        if (this.currentConversationId === task.conversationId) {
+          this.streamState = "paused";
+          this.scrollToBottom();
+          showToast(errorMessageResource(error.code));
+        }
+      },
+      // 发生错误（鉴权失败/限流/上下文超限/服务端错误等，通常不可续写）：
+      // 内容保持纯净，错误信息以结构化 LLMError 记录并展示在气泡错误卡片
+      onError: (error: LLMError) => {
+        task.clearTimer();
+        task.endThinking(); // 结算当前思考阶段耗时（若有）
         task.isStreaming = false;
         task.isPaused = false;
         aiMsg.isStreaming = false; // 异常结束同样退出流式态
-        aiMsg.isThinking = false;
         aiMsg.isSearching = false;
         aiMsg.isPaused = false; // 错误收尾，不再显示「继续生成」
         aiMsg.generationStatus = "partial"; // 未完整生成（重启后仍可「继续生成」）
+        aiMsg.error = error; // 结构化错误信息（错误卡片展示错误码/文案/详情）
         task.abortHandler = null;
         this.streamPersistTime.delete(task.conversationId); // 清理节流写库状态
         this.streamTasks.delete(task.conversationId);
         this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
         this.refreshStreamState();
-        // 保留已接收的流式内容，末尾追加错误提示（不再整体覆盖）
-        const received = aiMsg.content;
-        aiMsg.content =
-          received.length > 0 ? `${received}\n\n[错误] ${errorMessage}` : `[错误] ${errorMessage}`;
-        ConversationRepository.getInstance().updateMessage(aiMsg); // 错误消息也入库，方便用户从历史中复盘
+        // 错误消息也入库（含结构化错误信息），方便用户从历史中复盘
+        ConversationRepository.getInstance().updateMessage(aiMsg);
         if (this.isDestroyed) return;
         if (this.currentConversationId === task.conversationId) {
           this.scrollToBottom();
+          showToast(errorMessageResource(error.code));
         }
       },
       // 网络异常中断（连接被掐断等，未收到正常结束事件）→ 进入"暂停"态：
       // 保留已接收内容，任务留在表中，供用户点击「继续生成」从未完成处续写
-      onInterrupted: () => {
+      onInterrupted: (reason: LLMError) => {
         if (this.isDestroyed) return;
         task.clearTimer();
         task.isStreaming = false;
@@ -504,19 +535,17 @@ export class ChatViewModel {
         aiMsg.isSearching = false;
         aiMsg.isPaused = true; // 暂停态 → 气泡操作栏右上角显示「继续生成」
         aiMsg.generationStatus = "partial"; // 未完整生成（进程终止重启后也能识别并恢复）
-        if (aiMsg.isThinking) {
-          aiMsg.isThinking = false;
-          aiMsg.thinkingDuration = Math.round((Date.now() - aiMsg.thinkingStartTime) / 100) / 10;
-        }
+        aiMsg.error = reason; // 结构化错误信息（错误卡片展示错误码/文案/详情）
+        task.endThinking(); // 结算当前思考阶段耗时（若有）
         task.abortHandler = null;
         this.syncBackgroundGuardCount(); // 不再有活跃网络请求，保活计数减一
         // 持久化已接收内容（继续生成时以此为基础）
         ConversationRepository.getInstance().updateMessage(aiMsg);
-        // 仅当该对话仍在前台展示时更新 UI 状态并提示
+        // 仅当该对话仍在前台展示时更新 UI 状态并提示（Toast 只显示一句文案，详情在气泡错误卡片）
         if (this.currentConversationId === task.conversationId) {
           this.streamState = "paused";
           this.scrollToBottom();
-          showToast($r("app.string.stream_interrupted"));
+          showToast(errorMessageResource(reason.code));
         }
       },
     };
@@ -549,10 +578,7 @@ export class ChatViewModel {
     task.aiMsg.isSearching = false;
     task.aiMsg.isPaused = true; // 暂停态 → 气泡操作栏右上角显示「继续生成」
     task.aiMsg.generationStatus = "partial"; // 未完整生成（进程终止重启后也能识别并恢复）
-    if (task.aiMsg.isThinking) {
-      task.aiMsg.isThinking = false;
-      task.aiMsg.thinkingDuration = Math.round((Date.now() - task.aiMsg.thinkingStartTime) / 100) / 10;
-    }
+    task.endThinking(); // 结算当前思考阶段耗时（若有）
     this.streamState = "paused";
     this.syncBackgroundGuardCount(); // 网络请求已中止，保活计数减一
     // 4. 持久化已接收内容（继续生成时以此为基础）
@@ -603,6 +629,7 @@ export class ChatViewModel {
     aiMsg.isSearching = false;
     aiMsg.searchFailed = false;
     aiMsg.isPaused = false; // 恢复生成，隐藏气泡上的「继续生成」
+    aiMsg.error = undefined; // 重新开始生成，立即清除旧错误卡片
     aiMsg.generationStatus = "partial"; // 续写期间保持未完成标记（防再次中断时丢状态）
     aiMsg.isThinking = true;
     aiMsg.thinkingStartTime = Date.now();
@@ -728,6 +755,8 @@ export class ChatViewModel {
     aiMsg.content = "";
     aiMsg.reasoning = "";
     aiMsg.searchFailed = false;
+    aiMsg.error = undefined; // 重新开始生成，立即清除旧错误卡片
+    aiMsg.isPaused = false; // 重置暂停态（防止残留「继续生成」按钮与流式态并存）
     aiMsg.isThinking = true;
     aiMsg.isStreaming = true;
     aiMsg.thinkingStartTime = Date.now();

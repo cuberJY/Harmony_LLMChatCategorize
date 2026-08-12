@@ -112,7 +112,7 @@ export struct ChatPage {
         .onClick(() => {
           // 已在空白"新对话"中 → 提示，不重复创建
           if (this.vm.messageDataSource.totalCount() === 0) {
-            showToast($r('app.string.already_in_new_conversation'), 160);
+            showToast($r('app.string.already_in_new_conversation'));
             return;
           }
           // 创建新对话对象，清空消息列表（不立即入库，等待首条用户消息）

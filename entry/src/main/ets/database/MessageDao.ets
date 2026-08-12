@@ -7,6 +7,7 @@ import { relationalStore } from "@kit.ArkData";
 import { Message } from "../model/Message";
 import { DatabaseHelper } from "./DatabaseHelper";
 import { Logger } from "../common/Logger";
+import { errorToJson, jsonToError } from "../service/LLMError";
 
 export class MessageDao {
   private static instance: MessageDao;
@@ -37,6 +38,7 @@ export class MessageDao {
         content: msg.content,
         reasoning: msg.reasoning,
         generation_status: msg.generationStatus,
+        error_text: errorToJson(msg.error),
         created_at: msg.createdAt,
         parent_id: msg.parentId,
         branch_group_id: msg.branchGroupId,
@@ -60,6 +62,7 @@ export class MessageDao {
         content: msg.content,
         reasoning: msg.reasoning,
         generation_status: msg.generationStatus,
+        error_text: errorToJson(msg.error),
       };
       const predicates = new relationalStore.RdbPredicates("message");
       predicates.equalTo("id", msg.id);
@@ -179,6 +182,12 @@ export class MessageDao {
         msg.generationStatus = rs.getString(rs.getColumnIndex("generation_status")) === "partial" ? "partial" : "complete";
       } catch (e) {
         // 旧库无该列：保持默认 complete
+      }
+      // 统一错误信息（旧库迁移前可能缺失，读取失败则保持无错误）
+      try {
+        msg.error = jsonToError(rs.getString(rs.getColumnIndex("error_text")));
+      } catch (e) {
+        // 旧库无该列：保持无错误
       }
       msg.createdAt = rs.getLong(rs.getColumnIndex("created_at"));
       // 分支字段（旧库迁移前可能缺失，读取失败则保持默认值）

@@ -79,6 +79,7 @@ export class DatabaseHelper {
       content TEXT NOT NULL DEFAULT '',  -- 消息正文
       reasoning TEXT NOT NULL DEFAULT '',-- AI 思考内容（仅 assistant 有值）
       generation_status TEXT NOT NULL DEFAULT 'complete', -- 生成状态：complete 完整 / partial 未完成（中断/暂停/进程终止）
+      error_text TEXT NOT NULL DEFAULT '', -- 生成终止时的统一错误信息（LLMError JSON 序列化，空串 = 无错误）
       created_at INTEGER NOT NULL,       -- 发送时间戳（毫秒）
       parent_id TEXT NOT NULL DEFAULT '',-- 父消息 ID（分支链：被回复的消息，根消息为空串）
       branch_group_id TEXT NOT NULL DEFAULT '', -- 分支组 ID（= parent_id，同组消息互为变体）
@@ -147,6 +148,7 @@ export class DatabaseHelper {
         "variant_index INTEGER NOT NULL DEFAULT 0",
         "is_active INTEGER NOT NULL DEFAULT 1",
         "generation_status TEXT NOT NULL DEFAULT 'complete'",
+        "error_text TEXT NOT NULL DEFAULT ''",
       ];
       for (const def of newCols) {
         const colName = def.split(' ')[0]; // 取列名（定义首词）

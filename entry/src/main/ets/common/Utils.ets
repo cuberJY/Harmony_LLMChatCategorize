@@ -20,9 +20,9 @@ export function generateId(): string {
 /**
  * 统一 Toast 提示（行为与直接调用 promptAction.showToast({ message }) 一致）
  * @param message 提示文案
- * @param bottom Toast 底部与屏幕底部的距离（vp，越大越靠上）。不传则用系统默认值
+ * @param bottom Toast 底部与屏幕底部的距离（vp，越大越靠上）。不传则用默认值（160vp）
  */
-export function showToast(message: string | Resource, bottom?: number): void {
+export function showToast(message: string | Resource, bottom: number = 160): void {
   const options: promptAction.ShowToastOptions = { message: message };
   if (bottom !== undefined) {
     options.bottom = bottom;

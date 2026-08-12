@@ -73,8 +73,60 @@
       "value": "继续生成"
     },
     {
-      "name": "stream_interrupted",
-      "value": "网络中断，已暂停生成"
+      "name": "error_cfg_not_configured",
+      "value": "尚未配置 API Key，请先在设置中填写"
+    },
+    {
+      "name": "error_auth_invalid_key",
+      "value": "API Key 无效或已过期，请检查设置"
+    },
+    {
+      "name": "error_rate_limited",
+      "value": "请求过于频繁，请稍后重试"
+    },
+    {
+      "name": "error_ctx_overflow",
+      "value": "对话内容超出模型上下文窗口，请新建对话"
+    },
+    {
+      "name": "error_srv_error",
+      "value": "模型服务暂时不可用，请稍后重试"
+    },
+    {
+      "name": "error_out_truncated",
+      "value": "已达输出上限，已暂停生成"
+    },
+    {
+      "name": "error_net_timeout",
+      "value": "网络请求超时，已暂停生成"
+    },
+    {
+      "name": "error_net_disconnected",
+      "value": "网络连接中断，已暂停生成"
+    },
+    {
+      "name": "error_net_request_failed",
+      "value": "网络请求失败，请检查网络后重试"
+    },
+    {
+      "name": "error_empty_response",
+      "value": "未收到有效响应，请重试"
+    },
+    {
+      "name": "error_unknown",
+      "value": "生成异常，请稍后重试"
+    },
+    {
+      "name": "error_title_interrupted",
+      "value": "生成中断"
+    },
+    {
+      "name": "error_title_failed",
+      "value": "生成失败"
+    },
+    {
+      "name": "error_title_abnormal",
+      "value": "生成异常"
     },
     {
       "name": "already_in_new_conversation",
