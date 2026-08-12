@@ -1058,6 +1058,20 @@ export class ChatViewModel {
     }
   }
 
+  // 悬浮按钮强制滚到底（用户主动点击，不依赖 isAtBottom 守卫；scrollToBottom 有守卫不适用）
+  jumpToBottom(): void {
+    this.setAtBottom(true); // 兜底：滚完直接隐藏按钮（个别版本 scrollEdge 可能不触发 onReachEnd）
+    try {
+      this.listScroller.scrollEdge(Edge.Bottom);
+    } catch (e) {
+      this.listScroller.scrollToIndex(
+        this.messageDataSource.totalCount() - 1,
+        false,
+        ScrollAlign.END,
+      );
+    }
+  }
+
   // 流式跟随的平滑滚动：50ms 防抖 + 200ms EaseOut 动画（防抖保证同时间只有一组动画，避免动画堆积抖动）
   private scrollToBottomSmooth(): void {
     if (!this.isAtBottom || this.isUserScrolling) {

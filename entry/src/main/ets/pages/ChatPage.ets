@@ -45,6 +45,30 @@ export struct ChatPage {
     NavTransitionManager.getInstance().unregister(0);
   }
 
+  // 右下角"回到底部"悬浮按钮
+  @Builder
+  scrollToBottomFab() {
+    Button() {
+      SymbolGlyph($r("sys.symbol.chevron_down"))
+        .fontSize($r('app.float.font_icon_xl'))
+        .fontWeight(700)
+        .fontColor([$r('app.color.text_primary')])
+    }
+    .width(32)
+    .height(32)
+    .type(ButtonType.Circle)
+    .backgroundColor($r('app.color.bubble_bg_ai'))
+    .border({ width: 1, color: $r('app.color.divider') })
+    .margin({
+      right: $r('app.float.space_xl'),
+      bottom: $r('app.float.space_xl')
+    })
+    .onClick(() => {
+      // 强制滚动到最底部（绕过自动跟随守卫）
+      this.vm.jumpToBottom();
+    })
+  }
+
   build() {
     // ChatPage 作为 NavDestination 首页（HomePage 以 isEntry 方式入栈）
     // 使自定义转场（customNavContentTransition）能同时驱动聊天页与侧边栏的位移动画
@@ -88,7 +112,7 @@ export struct ChatPage {
         .onClick(() => {
           // 已在空白"新对话"中 → 提示，不重复创建
           if (this.vm.messageDataSource.totalCount() === 0) {
-            showToast($r('app.string.already_in_new_conversation'));
+            showToast($r('app.string.already_in_new_conversation'), 160);
             return;
           }
           // 创建新对话对象，清空消息列表（不立即入库，等待首条用户消息）
@@ -105,7 +129,8 @@ export struct ChatPage {
         color: { bottom: $r('app.color.divider') },
       })
 
-      // 消息列表区域
+      // 消息列表区域（Stack 叠加右下角"回到底部"悬浮按钮）
+      Stack({ alignContent: Alignment.BottomEnd }) {
       List({ scroller: this.vm.listScroller }) {
         /**
          * LazyForEach：懒加载列表，只渲染可视区域内的消息（方案 C）
@@ -169,8 +194,7 @@ export struct ChatPage {
           (msg: Message) => msg.id, // 用 msg.id 作为唯一 key
         )
       }
-      // layoutWeight(1)：占据 Column 去掉标题栏和输入框后的全部剩余空间
-      .layoutWeight(1)
+      .height("100%")
       // 内容从顶部排布：首条消息在顶部，显示不下才滚动；
       // 超出屏幕后的"钉到底部"由 scrollToBottom() 的 scrollToIndex(END) 保证
       .onAreaChange((oldValue: Area, newValue: Area) => {
@@ -208,6 +232,15 @@ export struct ChatPage {
       .backgroundColor($r('app.color.page_bg'))
       // 列表宽高反向排列（新消息在底部）→ 不需要，正常从上到下即可
       .edgeEffect(EdgeEffect.Spring) // 滑动到顶/底部有弹性效果
+
+        // 右下角悬浮按钮：不在最底部时显示，点击强制滚到底（样式与输入区发送键一致）
+        if (!this.vm.isAtBottom) {
+          this.scrollToBottomFab();
+        }
+      }
+      // 占据 Column 去掉标题栏和输入框后的全部剩余空间
+      .layoutWeight(1)
+      .width("100%")
 
       // 底部输入区域
       ChatInput({
