@@ -77,6 +77,10 @@
       "value": "网络中断，已暂停生成"
     },
     {
+      "name": "already_in_new_conversation",
+      "value": "已在新对话中"
+    },
+    {
       "name": "config_incomplete",
       "value": "请填写 API Key"
     },

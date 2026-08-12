@@ -7,6 +7,7 @@ import { MessageBubble } from "../components/chat/MessageBubble";
 import { ChatInput } from "../components/chat/ChatInput";
 import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
+import { showToast } from "../common/Utils";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 
@@ -85,6 +86,11 @@ export struct ChatPage {
         .width(40)
         .justifyContent(FlexAlign.End)
         .onClick(() => {
+          // 已在空白"新对话"中 → 提示，不重复创建
+          if (this.vm.messageDataSource.totalCount() === 0) {
+            showToast($r('app.string.already_in_new_conversation'));
+            return;
+          }
           // 创建新对话对象，清空消息列表（不立即入库，等待首条用户消息）
           this.vm.newConversation();
         })

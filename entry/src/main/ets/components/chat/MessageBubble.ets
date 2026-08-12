@@ -618,7 +618,7 @@ export struct MessageBubble {
   @Builder
   resumeButton() {
     Text($r('app.string.continue_generate'))
-      .fontSize($r('app.float.font_button'))
+      .fontSize($r('app.float.font_toggle'))
       .fontColor($r('app.color.text_ai'))
       .padding({
         left: $r('app.float.space_sm'),
@@ -629,7 +629,7 @@ export struct MessageBubble {
       .height(30)
       .borderRadius(15)
       .backgroundColor($r('app.color.bubble_bg_ai'))
-      .border({ width: 1, color: $r('app.color.bubble_bg_thinking') })
+      .border({ width: 1, color: $r('app.color.operation_icon') })
       .onClick(() => {
         this.onResume(this.message);
       })
