@@ -35,6 +35,7 @@ An AI chat application built on HarmonyOS NEXT, featuring SSE streaming conversa
 - **Streaming Throttle** — Incremental text merged every 50ms, reducing high-frequency stream updates to ~20fps
 - **Concurrent Multi-conversation Streaming** — Each conversation owns an independent StreamTask; switching away keeps the original stream running in the background without cross-writes
 - **Pause / Resume Generation** — The send button turns into a pause button while generating; tapping it aborts the request but keeps the received content; network hiccups auto-enter the paused state, and one tap resumes generation from where it left off (reusing the original task and toggles); generated content is throttled-persisted every 2.5s with a `partial` mark, so after the process is killed and the app restarts, "Resume" is restored automatically
+- **Structured Error Card** — Generation failures / interruptions are no longer appended into the message body; an error card renders at the bottom of the bubble (category title + unified message + expandable provider raw info / HTTP status), keeping the body clean; Toast and card share the same code-normalized copy
 - **Background Streaming Keep-alive** — Requests a `dataTransfer` continuous task when in background with active streams so the SSE connection isn't frozen by the system
 - **Keyboard Avoidance** — RESIZE mode pins the input bar to the bottom when the keyboard appears
 - **Smart Time Divider** — Auto-shows a divider when message gaps exceed 10 minutes
@@ -172,8 +173,12 @@ User input → ChatViewModel → LLMProviderFactory.create()
 - Request body follows the Responses API: `input` message list + `reasoning.effort` (reasoning intensity) + `tools.web_search` (web search)
 - `LLMProviderFactory` dispatches providers by `providerId`; adding a provider only requires appending a preset to ModelPresets and, if needed, registering a new Provider
 - SSE events are parsed in `event:` + `data:` JSON pairs (also compatible with data JSON carrying its own type field); incomplete chunks are buffered
-- Connect timeout 15s, read timeout 60s
+- Connect timeout 15s, read timeout 120s (multi-stage thinking / web search may pause increments for a while)
 - Deep thinking uses `reasoning.effort`: `high` when on, `low` when off (the Responses API has no full-off switch); the `deepThinking` toggle is passed from ChatInput
+- **Unified error model** (`LLMError`): provider errors (HTTP status codes / vendor-specific error structures) are normalized inside each Provider into a unified `ErrorCode` + `category` (config / auth / rate_limit / context / output / server / network); `retryable` decides whether "Resume" is kept after an error; copy is decoupled from codes (`errorMessageResource()` resolves string.json by code, no hardcoded text) and serialized into the message table's `error_text` column, so error cards survive restarts
+- **Error-code mapping**: HTTP 401 → `AUTH_INVALID_KEY`, 429 → `RATE_LIMITED`, 400 (message containing context/token) → `CTX_OVERFLOW`, 5xx → `SRV_ERROR`; `response.failed` maps by the vendor `error.code` characteristics; read timeout / connection drop / request failure are distinguished as `NET_TIMEOUT` / `NET_DISCONNECTED` / `NET_REQUEST_FAILED`
+- **Output truncation** (`onIncomplete`): `response.incomplete` means "generation did not finish" (hit `max_output_tokens`); the generated content is fully kept and enters the resumable paused state (same as "Resume"), unlike non-resumable hard errors
+- **Multi-stage thinking timing**: `StreamTask.beginThinking() / endThinking()` accumulate `thinkingMs` across stages (Agent-style "think → text → think again" switching), so "thought (Xs)" reflects the whole session, not just the first segment
 
 ### 4. Web Search — Server-side Web Search
 
@@ -196,12 +201,12 @@ Based on `relationalStore`, three tables:
 | Table           | Fields                                                                                             | Description                                  |
 | --------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `conversation`  | id, title, category_id, created_at, updated_at                                                     | Conversation table                           |
-| `message`       | id, conversation_id, role, content, reasoning, created_at, parent_id, branch_group_id, variant_index, is_active | Message table (thinking content & branch fields) |
+| `message`       | id, conversation_id, role, content, reasoning, generation_status, error_text, created_at, parent_id, branch_group_id, variant_index, is_active | Message table (thinking content, generation status, error info & branch fields) |
 | `category`      | id, name, parent_id, color, sort_order, created_at                                                 | Folder/category table (multi-level nesting)  |
 
 - Layered design: `*Dao` for flat single-table CRUD (errors propagate up); `*Repository` for cross-table aggregation and transactions (folder tree, cascading delete)
 - Singleton pattern; `init()` idempotently creates tables (IF NOT EXISTS)
-- Legacy DB compatibility: if the message table lacks branch / generation-status columns, `ensureMessageColumns()` adds them idempotently via ALTER TABLE (including `generation_status`)
+- Legacy DB compatibility: if the message table lacks branch / generation-status / error columns, `ensureMessageColumns()` adds them idempotently via ALTER TABLE (including `generation_status` and `error_text`)
 - High-frequency query indexes: `message(conversation_id)`, `conversation(updated_at DESC)`
 - Delayed conversation insertion: a record is created only on the first user message, avoiding empty conversations polluting history
 - Deleting a conversation cascades message deletion (IN condition); deleting a folder recursively collects descendants via `deleteCategoryCascade()` and removes their category relations (conversations themselves are kept)
