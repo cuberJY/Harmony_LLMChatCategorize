@@ -22,7 +22,7 @@ An AI chat application built on HarmonyOS NEXT, featuring SSE streaming conversa
 
 - **Streaming AI Chat** — SSE token-by-token output; reasoning content (`reasoning_content`) and main text shown in separate channels
 - **Deep Thinking (toggleable)** — Uses Responses API `reasoning.effort`: `high` for deep reasoning when on, `low` for lightweight thinking when off
-- **Web Search** — DeepSeek server-side `web_search` tool for real-time retrieval; drives the "searching..." state from the stream; auto-marks as degraded when no search event occurs
+- **Web Search** — DeepSeek server-side `web_search` tool for real-time retrieval; **visualized search process**: search terms ("searching: xx") and pages the model actively browses (domains) are interleaved into the thinking stream in real arrival order; the bubble shows an "x pages" button that opens a web list, and tapping a row opens the page via the system browser; auto-marks as degraded when no search event occurs
 - **Settings Page** — Pick a provider / enter Key / choose a model in-app; persisted after save, survives restarts
 - **Secure Key Storage** — API Keys encrypted via Asset Store Kit (TEE), never written in plaintext; legacy plaintext auto-migrated and purged
 - **Multi-level Folder Categorization** — Unlimited folder depth; Favorites tab shows top-level folders with drill-down navigation
@@ -174,10 +174,10 @@ User input → ChatViewModel → LLMProviderFactory.create()
 - Request body follows the Responses API: `input` message list + `reasoning.effort` (reasoning intensity) + `tools.web_search` (web search)
 - `LLMProviderFactory` dispatches providers by `providerId`; adding a provider only requires appending a preset to ModelPresets and, if needed, registering a new Provider
 - SSE events are parsed in `event:` + `data:` JSON pairs (also compatible with data JSON carrying its own type field); incomplete chunks are buffered
-- Connect timeout 15s, read timeout 120s (multi-stage thinking / web search may pause increments for a while)
+- Connect timeout 20s, read timeout 180s (multi-stage thinking / web search may pause increments for a while)
 - Deep thinking uses `reasoning.effort`: `high` when on, `low` when off (the Responses API has no full-off switch); the `deepThinking` toggle is passed from ChatInput
 - **Unified error model** (`LLMError`): provider errors (HTTP status codes / vendor-specific error structures) are normalized inside each Provider into a unified `ErrorCode` + `category` (config / auth / rate_limit / context / output / server / network); `retryable` decides whether "Resume" is kept after an error; copy is decoupled from codes (`errorMessageResource()` resolves string.json by code, no hardcoded text) and serialized into the message table's `error_text` column, so error cards survive restarts
-- **Error-code mapping**: HTTP 401 → `AUTH_INVALID_KEY`, 429 → `RATE_LIMITED`, 400 (message containing context/token) → `CTX_OVERFLOW`, 5xx → `SRV_ERROR`; `response.failed` maps by the vendor `error.code` characteristics; read timeout / connection drop / request failure are distinguished as `NET_TIMEOUT` / `NET_DISCONNECTED` / `NET_REQUEST_FAILED`
+- **Error-code mapping**: HTTP 401 → `AUTH_INVALID_KEY`, 429 → `RATE_LIMITED`, 400 (message containing context/token) → `CTX_OVERFLOW`, 5xx → `SRV_ERROR`; `response.failed` maps by the vendor `error.code` characteristics; `response.completed` with empty main text → `EMPTY_ANSWER` (auto-retried); read timeout / connection drop / request failure are distinguished as `NET_TIMEOUT` / `NET_DISCONNECTED` / `NET_REQUEST_FAILED`
 - **Output truncation** (`onIncomplete`): `response.incomplete` means "generation did not finish" (hit `max_output_tokens`); the generated content is fully kept and enters the resumable paused state (same as "Resume"), unlike non-resumable hard errors
 - **Multi-stage thinking timing**: `StreamTask.beginThinking() / endThinking()` accumulate `thinkingMs` across stages (Agent-style "think → text → think again" switching), so "thought (Xs)" reflects the whole session, not just the first segment
 
@@ -202,7 +202,7 @@ Based on `relationalStore`, three tables:
 | Table           | Fields                                                                                             | Description                                  |
 | --------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `conversation`  | id, title, category_id, created_at, updated_at                                                     | Conversation table                           |
-| `message`       | id, conversation_id, role, content, reasoning, generation_status, error_text, created_at, parent_id, branch_group_id, variant_index, is_active | Message table (thinking content, generation status, error info & branch fields) |
+| `message`       | id, conversation_id, role, content, reasoning, searched_webs, generation_status, error_text, created_at, parent_id, branch_group_id, variant_index, is_active | Message table (thinking content, search-browsing records, generation status, error info & branch fields) |
 | `category`      | id, name, parent_id, color, sort_order, created_at                                                 | Folder/category table (multi-level nesting)  |
 
 - Layered design: `*Dao` for flat single-table CRUD (errors propagate up); `*Repository` for cross-table aggregation and transactions (folder tree, cascading delete)

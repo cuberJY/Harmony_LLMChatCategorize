@@ -22,7 +22,7 @@
 
 - **流式 AI 对话** — SSE 逐字输出，思考内容（`reasoning_content`）与正文分通道展示
 - **深度思考（可开关）** — 走 Responses API `reasoning.effort`，开启 `high` 深度推理，关闭 `low` 轻量思考
-- **联网搜索** — DeepSeek 服务端 `web_search` 工具实时检索，流中驱动"正在搜索…"状态；搜索未发生时自动标记降级
+- **联网搜索** — DeepSeek 服务端 `web_search` 工具实时检索；**搜索过程可视化**：搜索词（「正在搜索：xx」）、模型主动浏览的网页（域名）按真实时序穿插进思考过程，气泡显示「x 个网页」按钮，点击弹出网页列表并可调系统浏览器打开；搜索未发生时自动标记降级
 - **设置页** — 应用内填写 API 地址 / Key / 模型，保存后持久化，重启不丢失
 - **密钥安全存储** — API Key 经 Asset Store Kit（TEE）加密落盘，明文不写盘；旧版本明文自动迁移并清除
 - **多级文件夹分类** — 无限层级文件夹，收藏 Tab 展示顶级文件夹，支持逐级下钻浏览
@@ -176,7 +176,7 @@ ChatCategorize/
 - 连接超时 15s，读取超时 120s（多阶段思考 / 联网搜索期间可能长时间无增量事件）
 - 深度思考 `reasoning.effort`：开启 `high`、关闭 `low`（Responses API 无完全关闭开关），`deepThinking` 由 ChatInput 传入
 - **统一错误模型**（`LLMError`）：各供应商错误（HTTP 状态码 / 各自 error 结构）在 Provider 内归一化为统一错误码 `ErrorCode` + 分类 `category`（config / auth / rate_limit / context / output / server / network），`retryable` 决定错误后是否保留「继续生成」；错误与文案分离（`errorMessageResource()` 按码取 string.json，无硬编码文案），序列化存入消息表 `error_text` 列，重启后错误卡片仍可复现
-- **错误码映射**：HTTP 401 → `AUTH_INVALID_KEY`、429 → `RATE_LIMITED`、400（含 context/token 字样）→ `CTX_OVERFLOW`、5xx → `SRV_ERROR`；`response.failed` 按供应商 `error.code` 特征映射；读取超时 / 连接中断 / 请求失败区分 `NET_TIMEOUT` / `NET_DISCONNECTED` / `NET_REQUEST_FAILED`
+- **错误码映射**：HTTP 401 → `AUTH_INVALID_KEY`、429 → `RATE_LIMITED`、400（含 context/token 字样）→ `CTX_OVERFLOW`、5xx → `SRV_ERROR`；`response.failed` 按供应商 `error.code` 特征映射；`response.completed` 但正文为空 → `EMPTY_ANSWER`（自动重试）；读取超时 / 连接中断 / 请求失败区分 `NET_TIMEOUT` / `NET_DISCONNECTED` / `NET_REQUEST_FAILED`
 - **输出截断处理**（`onIncomplete`）：`response.incomplete` 语义为「生成未走完」（已达 `max_output_tokens`），已生成内容完整保留并进入可续写暂停态（同「继续生成」），区别于不可续写的硬错误
 - **多阶段思考计时**：`StreamTask.beginThinking() / endThinking()` 跨阶段累计 `thinkingMs`（Agent 式「思考→正文→再思考」反复切换），「已思考（用时 X 秒）」统计全程而非仅首段
 
@@ -201,7 +201,7 @@ ChatCategorize/
 | 表             | 字段                                                                                          | 说明                              |
 | -------------- | --------------------------------------------------------------------------------------------- | --------------------------------- |
 | `conversation` | id, title, category_id, created_at, updated_at                                                | 对话表                            |
-| `message`      | id, conversation_id, role, content, reasoning, generation_status, error_text, created_at, parent_id, branch_group_id, variant_index, is_active | 消息表（含思考内容 / 生成状态 / 错误信息与分支字段）    |
+| `message`      | id, conversation_id, role, content, reasoning, searched_webs, generation_status, error_text, created_at, parent_id, branch_group_id, variant_index, is_active | 消息表（含思考内容 / 搜索浏览记录 / 生成状态 / 错误信息与分支字段）    |
 | `category`     | id, name, parent_id, color, sort_order, created_at                                            | 文件夹 / 分类表（支持多级嵌套）   |
 
 - 分层设计：`*Dao` 平铺单表 CRUD（异常上抛），`*Repository` 跨表聚合与事务（文件夹树、级联删除）
