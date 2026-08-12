@@ -34,7 +34,7 @@
 - **智能滚动** — 自动跟随最新消息，Markdown 异步渲染增高；用户手动滚动时暂停跟随；不在底部时右下角显示「回到底部」悬浮按钮（点击强制滚底）
 - **流式节流** — 增量文本 50ms 节流合并刷新，高频流式更新降至约 20fps
 - **多对话并发流式** — 每个对话独立 StreamTask，切换对话后原流在后台继续，缓冲互不串写
-- **暂停 / 继续生成** — 生成中发送键变为暂停键，点击中止请求并保留已生成内容；网络异常自动进入暂停态，可一键从未完成处续写（沿用原任务与开关设置）
+- **暂停 / 继续生成** — 生成中发送键变为暂停键，点击中止请求并保留已生成内容；网络异常自动进入暂停态，可一键从未完成处续写（沿用原任务与开关设置）；生成内容每 2.5s 节流落库并标记 `partial`，进程被终止后重启可自动恢复「继续生成」
 - **后台流式保活** — 退后台且有流式任务时申请 `dataTransfer` 长时任务，SSE 连接不被系统冻结
 - **键盘避让** — RESIZE 模式，键盘弹出时输入栏自动钉底
 - **智能时间分割线** — 消息间隔超过 10 分钟自动显示
@@ -195,12 +195,12 @@ ChatCategorize/
 | 表             | 字段                                                                                          | 说明                              |
 | -------------- | --------------------------------------------------------------------------------------------- | --------------------------------- |
 | `conversation` | id, title, category_id, created_at, updated_at                                                | 对话表                            |
-| `message`      | id, conversation_id, role, content, reasoning, created_at, parent_id, branch_group_id, variant_index, is_active | 消息表（含思考内容与分支字段）    |
+| `message`      | id, conversation_id, role, content, reasoning, generation_status, created_at, parent_id, branch_group_id, variant_index, is_active | 消息表（含思考内容 / 生成状态与分支字段）    |
 | `category`     | id, name, parent_id, color, sort_order, created_at                                            | 文件夹 / 分类表（支持多级嵌套）   |
 
 - 分层设计：`*Dao` 平铺单表 CRUD（异常上抛），`*Repository` 跨表聚合与事务（文件夹树、级联删除）
 - 单例模式，`init()` 幂等建表（IF NOT EXISTS）
-- 旧库兼容：message 表缺少分支字段时，`ensureMessageColumns()` 通过 ALTER TABLE 幂等补列
+- 旧库兼容：message 表缺少分支 / 生成状态字段时，`ensureMessageColumns()` 通过 ALTER TABLE 幂等补列（含 `generation_status`）
 - 高频查询索引：`message(conversation_id)`、`conversation(updated_at DESC)`
 - 对话延迟入库：首条用户消息时才创建对话记录，避免空白对话污染历史
 - 删除对话级联删除消息（IN 条件）；删除文件夹时 `deleteCategoryCascade()` 递归收集子孙后移除分类关系（对话本身不删除）

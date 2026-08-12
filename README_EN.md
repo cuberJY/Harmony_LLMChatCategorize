@@ -34,7 +34,7 @@ An AI chat application built on HarmonyOS NEXT, featuring SSE streaming conversa
 - **Smart Scroll** — Auto-follows the latest message; re-pins to bottom as Markdown async rendering grows items; pauses following when the user scrolls manually; when not at the bottom, a "back to bottom" floating button appears in the bottom-right corner (tap to force-scroll)
 - **Streaming Throttle** — Incremental text merged every 50ms, reducing high-frequency stream updates to ~20fps
 - **Concurrent Multi-conversation Streaming** — Each conversation owns an independent StreamTask; switching away keeps the original stream running in the background without cross-writes
-- **Pause / Resume Generation** — The send button turns into a pause button while generating; tapping it aborts the request but keeps the received content; network hiccups auto-enter the paused state, and one tap resumes generation from where it left off (reusing the original task and toggles)
+- **Pause / Resume Generation** — The send button turns into a pause button while generating; tapping it aborts the request but keeps the received content; network hiccups auto-enter the paused state, and one tap resumes generation from where it left off (reusing the original task and toggles); generated content is throttled-persisted every 2.5s with a `partial` mark, so after the process is killed and the app restarts, "Resume" is restored automatically
 - **Background Streaming Keep-alive** — Requests a `dataTransfer` continuous task when in background with active streams so the SSE connection isn't frozen by the system
 - **Keyboard Avoidance** — RESIZE mode pins the input bar to the bottom when the keyboard appears
 - **Smart Time Divider** — Auto-shows a divider when message gaps exceed 10 minutes
@@ -201,7 +201,7 @@ Based on `relationalStore`, three tables:
 
 - Layered design: `*Dao` for flat single-table CRUD (errors propagate up); `*Repository` for cross-table aggregation and transactions (folder tree, cascading delete)
 - Singleton pattern; `init()` idempotently creates tables (IF NOT EXISTS)
-- Legacy DB compatibility: if the message table lacks branch columns, `ensureMessageColumns()` adds them idempotently via ALTER TABLE
+- Legacy DB compatibility: if the message table lacks branch / generation-status columns, `ensureMessageColumns()` adds them idempotently via ALTER TABLE (including `generation_status`)
 - High-frequency query indexes: `message(conversation_id)`, `conversation(updated_at DESC)`
 - Delayed conversation insertion: a record is created only on the first user message, avoiding empty conversations polluting history
 - Deleting a conversation cascades message deletion (IN condition); deleting a folder recursively collects descendants via `deleteCategoryCascade()` and removes their category relations (conversations themselves are kept)
