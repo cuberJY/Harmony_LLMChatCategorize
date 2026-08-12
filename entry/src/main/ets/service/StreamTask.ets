@@ -26,6 +26,7 @@ export class StreamTask {
   deepThinkingEnabled: boolean = false; // 本次流使用的深度思考开关（「继续生成」时复用，保持风格一致）
   abortHandler: AbortHandle | null = null; // 底层 HTTP 请求的中止句柄（「暂停生成」时调用 abort()）
   timestampUpdated: boolean = false; // 本次流是否已更新对话 updatedAt（首次输出正文时置顶一次，避免每个 chunk 反复写库）
+  autoRetryCount: number = 0; // 空回复自动续试次数（completed 但无正文时 ChatViewModel 自动重试，超过上限才提示用户）
   thinkingMs: number = 0; // 多阶段思考累计耗时（毫秒）：
   // Agent 式模型会"思考→输出部分正文→再思考/搜索→再输出"，本字段跨阶段累加，
   // 保证「已思考（用时 X 秒）」统计的是总思考时长，而非仅第一次正文前的时长

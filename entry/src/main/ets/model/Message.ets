@@ -4,6 +4,12 @@ import { LLMError } from "../service/LLMError";
 // 消息角色类型
 export type MessageRole = "user" | "assistant" | "system";
 
+// 思考过程中浏览过的网页（服务端 web_search 的 open_page 动作；结构化记录供「xx个网页」面板展示）
+export interface WebPage {
+  url: string; // 网页完整 URL（点击可打开）
+  domain: string; // 提取的域名（用于列表展示）
+}
+
 /**
  * 单条消息数据模型（状态管理 V2）
  * 一条消息属于一个对话
@@ -20,6 +26,7 @@ export class Message {
   @Trace role: MessageRole = "user"; // 消息角色：用户 or AI
   @Trace content: string = ""; // 消息正文（AI 消息可能包含 Markdown）
   @Trace reasoning: string = ""; // AI 思考内容（仅 assistant 有值）
+  @Trace searchedWebs: WebPage[] = []; // 思考过程中浏览过的网页（open_page 动作；@Trace 驱动「xx个网页」按钮数量实时刷新）
   @Trace generationStatus: "complete" | "partial" = "complete"; // 生成状态（持久化）：complete 完整 / partial 未完成
   //（进程终止/网络中断/暂停/生成中均为 partial；重启加载对话时据此恢复「继续生成」按钮）
   @Trace error: LLMError | undefined = undefined; // 生成终止时的统一错误信息（结构化存储，独立于正文；进程重启后从库恢复展示）

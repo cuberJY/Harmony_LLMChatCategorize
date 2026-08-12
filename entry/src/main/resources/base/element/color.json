@@ -69,6 +69,10 @@
       "value": "#CA6E1C"
     },
     {
+      "name": "search_icon",
+      "value": "#2D65F8"
+    },
+    {
       "name": "input_bg",
       "value": "#FFFFFF"
     },

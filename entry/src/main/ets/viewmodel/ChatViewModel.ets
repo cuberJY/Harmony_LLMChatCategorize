@@ -20,8 +20,12 @@ import { StreamTask } from "../service/StreamTask";
 import { LLMProviderFactory } from "../service/LLMProviderFactory";
 import { AppConfig } from "../config/AppConfig";
 import { showToast } from "../common/Utils";
-import { LLMError, errorMessageResource } from "../service/LLMError";
+import { LLMError, ErrorCode, errorMessageResource } from "../service/LLMError";
 import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
+
+// 空回复自动续试次数上限：completed 但无正文（联网搜索后模型空回复）时自动重试，
+// 连续重试达到上限仍无正文才落回"暂停态"提示用户
+const MAX_AUTO_RETRY: number = 2;
 
 /**
  * 分支组变体信息（用于气泡左下角渲染 "< 当前 / 总数 >"）
@@ -436,6 +440,25 @@ export class ChatViewModel {
         task.searchEventSeen = true;
         aiMsg.isSearching = true;
       },
+      // 搜索词已确定（output_item.done 携带）：把"正在搜索：xxx"活动行追加到过程序列
+      // 过程序列即 aiMsg.reasoning：思考增量与搜索活动按真实到达顺序穿插累积，UI 按行渲染时自然穿插显示
+      onSearchQuery: (queries: string[]) => {
+        if (this.isDestroyed) return;
+        // 先写入未 flush 的思考增量，保证活动行严格插在已产生的思考文本之后（时间顺序）
+        task.flush();
+        aiMsg.reasoning += `\n【搜索】正在搜索：${queries.join("、")}`;
+      },
+      // 模型正在浏览页面（open_page 动作）：把"正在浏览 xxx 域名"活动行追加到过程序列
+      onSearchBrowse: (url: string) => {
+        if (this.isDestroyed) return;
+        task.flush();
+        aiMsg.reasoning += `\n【浏览】正在浏览 ${this.extractDomain(url)}`;
+        // 结构化记录浏览过的网页（按完整 URL 去重）：@Trace 驱动「xx个网页」按钮数量与面板列表实时刷新
+        const exists = aiMsg.searchedWebs.find(w => w.url === url) !== undefined;
+        if (!exists) {
+          aiMsg.searchedWebs.push({ url: url, domain: this.extractDomain(url) });
+        }
+      },
       // 服务端搜索完成（模型开始基于搜索结果回答）
       onWebSearchEnd: () => {
         if (this.isDestroyed) return;
@@ -537,6 +560,12 @@ export class ChatViewModel {
       // 保留已接收内容，任务留在表中，供用户点击「继续生成」从未完成处续写
       onInterrupted: (reason: LLMError) => {
         if (this.isDestroyed) return;
+        // 空回复自动续试：服务端 completed 但无正文（联网搜索后模型空回复）→ 不打断用户，
+        // 自动以相同上下文重新生成；连续重试超过上限仍空才落回暂停态提示
+        if (reason.code === ErrorCode.EMPTY_ANSWER && task.autoRetryCount < MAX_AUTO_RETRY) {
+          this.autoRetryAfterEmpty(task);
+          return;
+        }
         task.clearTimer();
         task.isStreaming = false;
         task.isPaused = true;
@@ -562,6 +591,37 @@ export class ChatViewModel {
     // 调用 LLM（通过工厂获取 Provider，业务层不依赖具体供应商）
     // 返回值 = 中止句柄，暂停生成时调用（ChatViewModel.pauseStreaming）
     task.abortHandler = LLMProviderFactory.create().sendMessage(context, callbacks, deepThinking, webSearch);
+  }
+
+  /**
+   * 空回复自动重试：completed 但无正文时重新发起请求，用户无感。
+   *  - 上下文 = aiMsg 之前的全部消息，不含这条空 AI 消息（模型获得全新一次回答机会）
+   *  - 保留已产生的思考过程展示（aiMsg.reasoning 不清空），新一轮思考增量继续追加
+   *  - 开关沿用本次请求的设置（深度思考 / 联网搜索），保证风格一致
+   */
+  private autoRetryAfterEmpty(task: StreamTask): void {
+    const aiMsg = task.aiMsg;
+    task.autoRetryCount++;
+    task.clearTimer();
+    task.endThinking(); // 结算上一轮思考耗时
+    task.isStreaming = true;
+    task.isPaused = false;
+    task.searchEventSeen = false; // 新一轮请求，重新判断搜索是否发生
+    task.reasoningBuffer = "";
+    task.streamBuffer = "";
+    task.abortHandler = null; // 旧请求已结束，句柄失效（新一轮 startProviderStream 会重新赋值）
+    aiMsg.isStreaming = true;
+    aiMsg.isSearching = false;
+    aiMsg.searchFailed = false;
+    aiMsg.error = undefined; // 重试期间不展示错误卡片
+    aiMsg.isPaused = false;
+    aiMsg.isThinking = true; // 恢复"思考中"状态
+    aiMsg.thinkingStartTime = Date.now();
+    this.streamState = "streaming";
+    this.syncBackgroundGuardCount(); // 任务仍在表中，保活计数保持不变
+    // 上下文不含这条空回复消息本身
+    const context = this.buildContextBefore(aiMsg.id);
+    this.startProviderStream(task, context, task.deepThinkingEnabled, task.webSearchEnabled, "");
   }
 
   /**
@@ -1143,6 +1203,23 @@ export class ChatViewModel {
   private findPromptOf(aiMsg: Message): string {
     const parent = this.allMessages.find(m => m.id === aiMsg.parentId);
     return parent !== undefined ? parent.content : "";
+  }
+
+  /** 从被浏览页面的完整 URL 提取域名（去掉协议/路径/查询/锚点与追踪尾巴，用于"正在浏览 xxx 域名"展示） */
+  private extractDomain(url: string): string {
+    let u = url;
+    const hashIdx = u.indexOf('#');
+    if (hashIdx >= 0) u = u.substring(0, hashIdx);
+    const qIdx = u.indexOf('?');
+    if (qIdx >= 0) u = u.substring(0, qIdx);
+    const protoIdx = u.indexOf('://');
+    if (protoIdx >= 0) u = u.substring(protoIdx + 3);
+    const pathIdx = u.indexOf('/');
+    if (pathIdx >= 0) u = u.substring(0, pathIdx);
+    const portIdx = u.indexOf(':');
+    if (portIdx >= 0) u = u.substring(0, portIdx);
+    if (u.startsWith('www.')) u = u.substring(4);
+    return u.length > 0 ? u : url;
   }
 
   /** 依据 allMessages 的 isActive 状态重建列表（激活链）并钉到底部 */

@@ -3,7 +3,7 @@
  * - 用户消息：右对齐，浅蓝背景
  * - AI 消息：左对齐，白色背景
  */
-import { Message } from "../../model/Message";
+import { Message, WebPage } from "../../model/Message";
 import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../common/AppConstants";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.AbilityKit';
@@ -13,32 +13,61 @@ import { ErrorCategory, errorMessageResource, errorTitleResource } from "../../s
 @ComponentV2
 export struct MessageBubble {
   /**
-   * @Param：父组件传入的 @ObservedV2 消息对象
-   * message 上的 @Trace 属性（content/reasoning/isThinking/isStreaming 等）变化时自动刷新本组件
-   *（流式输出过程即依赖此机制实时重绘气泡）
+   * @Param 父组件传入的 @ObservedV2 消息对象。
+   * message 上的 @Trace 属性（content / reasoning / isThinking / isStreaming 等）变化时自动刷新本组件，
+   * 流式输出过程即依赖此机制实时重绘气泡。
    */
   @Param message: Message = new Message("", "user", "");
-  @Local isReasoningExpanded: boolean = true; // 是否展开思考内容
-  // 错误详情展开状态：按"错误身份签名"记录（code|httpStatus|rawMessage）。
-  // 组件实例可能被列表复用 / 同一气泡先后出现多个不同错误，
-  // 用签名而非 boolean，保证每次新错误都默认收起，仅同一错误保持展开
+
+  // UI 本地状态（@Local，仅组件内部维护）
+  @Local isReasoningExpanded: boolean = true; // 是否展开思考/搜索过程块
+  /**
+   * 错误详情展开状态：按"错误身份签名"（code|httpStatus|rawMessage）记录而非 boolean——
+   * 组件实例可能被列表复用、同一气泡先后出现多个不同错误，用签名可保证每次新错误默认收起，仅同一错误保持展开
+   */
   @Local expandedErrorSignature: string = "";
   @Local isDarkMode: boolean = false; // 跟随系统深浅色（驱动代码块/思维导图主题切换）
-  @Local isTextSheetShow: boolean = false; // 「选择文本」半模态面板显示状态（bindSheet $$ 双向绑定）
+  /**
+   * 半模态面板：bindSheet 是普通属性，同一组件多次调用会互相覆盖，只能绑定一个布尔变量 isSheetShow，
+   * 面板内容（「选择文本」/「xx个网页」）由 sheetKind 在 sheetContent() 内分支渲染
+   */
+  @Local isSheetShow: boolean = false; // 面板显示状态（$$ 双向绑定，拖拽/点遮罩关闭时自动置回 false）
+  @Local sheetKind: "none" | "text" | "web" = "none"; // 当前面板类型：「选择文本」/「xx个网页」
+
+  // 监听流式状态：每次停止输出（正常完成 / 暂停 / 异常中断）时自动折叠思考过程。
+  // 延迟 500ms 折叠，让用户能短暂瞥见停止瞬间的最后内容；组件销毁时需取消定时器。
+  @Monitor('message.isStreaming')
+  onStreamingStopped(): void {
+    if (this.message.isStreaming) {
+      return; // 开始输出：保持用户当前的展开状态，不干预
+    }
+    if (this.foldTimerId !== -1) {
+      clearTimeout(this.foldTimerId);
+    }
+    this.foldTimerId = setTimeout(() => {
+      this.isReasoningExpanded = false;
+      this.foldTimerId = -1;
+    }, 500);
+  }
+
   // 对话分支：变体信息与操作回调（父组件注入）
+  /**
+   * 注意：不通过 @Param 传入"流式生成中"标志——@Param 在渲染时冻结，流式结束后不会刷新，
+   * 会导致操作栏永久隐藏（必须切页面重建列表才恢复）。改用 message.isStreaming（@Trace 实时驱动）。
+   */
   @Param variantCurrent: number = 0; // 当前变体序号（1 起，驱动 "< 4 / 5 >" 中的 4）
   @Param variantTotal: number = 0; // 分支组变体总数（驱动 "5"）
-  // 注意：不通过 @Param 传入"流式生成中"标志——@Param 在渲染时冻结，流式结束后不会刷新，
-  // 会导致操作栏永久隐藏（必须切页面重建列表才恢复）。改用 message.isStreaming（@Trace 实时驱动）。
   @Event onRegenerate: (msg: Message) => void = () => {}; // 「重新生成」：覆盖当前回复
   @Event onCreateBranch: (msg: Message) => void = () => {}; // 「新建分支」：保留旧回复生成新变体
   @Event onEdit: (msg: Message) => void = () => {}; // 「编辑」：回填输入框创建新分支
   @Event onSwitchBranch: (msg: Message, delta: number) => void = () => {}; // 「< >」切换变体
   @Event onDelete: (msg: Message) => void = () => {}; // 「删除」：删除单条消息（含后续分支）
   @Event onResume: (msg: Message) => void = () => {}; // 「继续生成」：暂停态下从未完成处续写
-  // lv-markdown-in 的样式/拦截控制器（普通成员即可，无需响应式）
-  private mdController: MarkdownController = new MarkdownController();
+
+  // 非响应式成员（普通成员即可，无需观察）
+  private mdController: MarkdownController = new MarkdownController(); // lv-markdown-in 样式/拦截控制器
   private envCallbackId: number = -1; // 系统环境监听回调 ID（aboutToDisappear 注销用）
+  private foldTimerId: number = -1; // 停止输出后自动折叠思考的定时器 ID（组件销毁时取消）
 
   aboutToAppear(): void {
     // 依据当前系统颜色模式配置 Markdown 颜色与代码块/思维导图主题
@@ -71,6 +100,11 @@ export struct MessageBubble {
 
   aboutToDisappear(): void {
     this.unregisterEnvironmentListener();
+    // 取消自动折叠定时器（组件销毁后回调不再有意义）
+    if (this.foldTimerId !== -1) {
+      clearTimeout(this.foldTimerId);
+      this.foldTimerId = -1;
+    }
   }
 
   /**
@@ -203,9 +237,9 @@ export struct MessageBubble {
       top: $r('app.float.space_sm'),
       bottom: $r('app.float.space_sm'),
     })
-    // 「选择文本」半模态面板：从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏（顶部与标题栏下缘对齐）
-    // 双向绑定：拖拽/点遮罩关闭时框架自动把 isTextSheetShow 置回 false
-    .bindSheet($$this.isTextSheetShow, this.textSheet(), {
+    // 半模态面板（「选择文本」/「xx个网页」共用）：从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏（顶部与标题栏下缘对齐）
+    // 双向绑定：拖拽/点遮罩关闭时框架自动把 isSheetShow 置回 false；内容由 sheetKind 分支（bindSheet 不可多次链式调用）
+    .bindSheet($$this.isSheetShow, this.sheetContent(), {
       height: this.textSheetHeight(),
       dragBar: false,
       showClose: false,
@@ -213,15 +247,27 @@ export struct MessageBubble {
     });
   }
 
+  // 半模态面板内容：按当前面板类型分支渲染（sheetKind 在打开前设置）
+  @Builder
+  sheetContent() {
+    if (this.sheetKind === "text") {
+      this.textSheet();
+    } else if (this.sheetKind === "web") {
+      this.webSheet();
+    }
+  }
+
   @Builder
   reasoningBlock() {
     Column() {
-      // 标题行：点击可折叠/展开
+      // 标题行：点击可折叠/展开（阶段优先：搜索 > 思考 > 已思考）
       Row() {
         Text(
-          this.message.isThinking
-            ? "思考中…"
-            : `已思考（用时 ${this.message.thinkingDuration} 秒）`,
+          this.message.isSearching
+            ? "搜索中…"
+            : this.message.isThinking
+              ? "思考中…"
+              : `已思考（用时 ${this.message.thinkingDuration} 秒）`,
         )
           .fontSize($r('app.float.font_body'))
           .fontColor($r('app.color.text_secondary'))
@@ -242,17 +288,18 @@ export struct MessageBubble {
         this.isReasoningExpanded = !this.isReasoningExpanded;
       })
 
-      // 思考内容正文（展开时显示）
+      /**
+       * 过程内容正文（展开时显示）：思考文本与搜索/浏览活动按真实到达顺序穿插在同一序列（reasoning）里，
+       * 逐行识别前缀渲染：思考行纯文本，【搜索】行带放大镜图标，【浏览】行带链接图标
+       */
       if (this.isReasoningExpanded) {
-        Row() {
-          Text(this.message.reasoning)
-            .constraintSize({ maxWidth: "95%" })
-            .fontSize($r('app.float.font_thinking'))
-            .fontColor($r('app.color.text_secondary'))
-            .margin({ top: $r('app.float.space_sm') })
-        }
-        .width("100%")
-        .justifyContent(FlexAlign.End);
+        ForEach(this.message.reasoning.split('\n'), (line: string) => {
+          if (line.trim().length > 0) {
+            this.processLine(line);
+          }
+          // key 必须含 index：思考行常出现长度相同且前 12 字符相同的重复行（如连续短句/重复活动行），
+          // 仅用「行长+前缀」会生成重复 key，触发 ForEach id 唯一性告警导致渲染错乱
+        }, (line: string, index: number) => `line_${this.message.id}_${index}_${line.length}_${line.substring(0, 12)}`)
       }
     }
     .width("100%")
@@ -265,9 +312,75 @@ export struct MessageBubble {
     })
     .backgroundColor($r('app.color.bubble_bg_thinking'))
     .borderRadius($r('app.float.bubble_radius'))
-    .margin({
-      bottom: $r('app.float.space_xs'),
-    });
+    .margin({ bottom: $r('app.float.space_xs') });
+  }
+
+  /**
+   * 过程块单行渲染
+   *
+   * 用文本前缀标记：
+   *   思考内容是连续流式文本，搜索/浏览是离散动作事件，两者要按真实时间顺序穿插在同一个气泡内展示。
+   *   实现上让 ChatViewModel 在收到搜索/浏览事件时，把活动行以「前缀 + 文案」的形式直接追加到
+   *   reasoning 字符串末尾——追加顺序即真实时间顺序，无需额外字段即可精确穿插；
+   *   且 reasoning 已有数据库列，穿插结果随消息一起持久化，重启后仍完整还原。
+   *
+   * 前缀约定（行首 4 字符，ChatViewModel 写入）：
+   *   【搜索】→ 搜索活动行，如"【搜索】正在搜索：北京 今天 天气"
+   *   【浏览】→ 浏览活动行，如"【浏览】正在浏览 weather.com"
+   *   其余行 → 思考文本（模型输出的原始思维链）
+   *
+   * 解析规则：startsWith 匹配前缀分流渲染，substring(4) 去掉前缀后展示文案，
+   * 因此界面不显示方括号本身，只显示"图标 + 文案"。两个前缀均为 4 字符（中文括号 2 + 汉字 2），
+   * 统一 substring(4) 有效；模型思维链内容几乎不可能以【搜索】/【浏览】起行，标记冲突风险可忽略。
+   */
+  @Builder
+  processLine(line: string) {
+    if (line.startsWith("【搜索】")) {
+      Row() {
+        SymbolGlyph($r("sys.symbol.AI_search"))
+          .fontSize($r('app.float.font_icon_sm'))
+          .fontWeight(600)
+          .fontColor([$r('app.color.search_icon')])
+          .margin({ right: $r('app.float.space_sm') })
+        Text(line.substring(4))
+          .fontSize($r('app.float.font_thinking'))
+          .fontColor($r('app.color.text_secondary'))
+          .layoutWeight(1)
+      }
+      .alignItems(VerticalAlign.Center)
+      .margin({
+        left: $r('app.float.space_xxl'),
+        right: $r('app.float.space_xl'),
+        top: $r('app.float.space_sm')
+      })
+    } else if (line.startsWith("【浏览】")) {
+      Row() {
+        SymbolGlyph($r("sys.symbol.link"))
+          .fontSize($r('app.float.font_icon_sm'))
+          .fontWeight(600)
+          .fontColor([$r('app.color.search_icon')])
+          .margin({ right: $r('app.float.space_sm') })
+        Text(line.substring(4))
+          .fontSize($r('app.float.font_thinking'))
+          .fontColor($r('app.color.text_secondary'))
+          .layoutWeight(1)
+      }
+      .alignItems(VerticalAlign.Center)
+      .margin({
+        left: $r('app.float.space_xxl'),
+        right: $r('app.float.space_xl'),
+        top: $r('app.float.space_sm')
+      })
+    } else {
+      Text(line)
+        .fontSize($r('app.float.font_thinking'))
+        .fontColor($r('app.color.text_secondary'))
+        .margin({
+          left: $r('app.float.space_xl'),
+          right: $r('app.float.space_xs'),
+          top: $r('app.float.space_sm')
+        })
+    }
   }
 
   @Builder
@@ -317,8 +430,11 @@ export struct MessageBubble {
         maxWidth: `${(this.message.isUser() ? BUBBLE_MAX_WIDTH_RATIO_USER : BUBBLE_MAX_WIDTH_RATIO_AI) * 100}%`,
       });
     } else {
-      // AI 消息、正文为空：显示阶段状态（优先级：搜索 > 失败 > 思考中）
-      if (this.message.isSearching) {
+      /**
+       * AI 消息、正文为空：显示阶段状态（优先级：搜索 > 失败 > 思考中）
+       * 搜索细节（正在搜索/正在浏览）已写入 reasoning 时由过程块展示，这里仅在过程为空时显示扫描线提示，避免重复
+       */
+      if (this.message.isSearching && this.message.reasoning.length === 0) {
         this.statusHint("正在搜索…");
       } else if (this.message.searchFailed) {
         this.statusHint("联网搜索失败，使用普通模式回答");
@@ -539,14 +655,14 @@ export struct MessageBubble {
         // 右上角关闭按钮（叉）
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize($r('app.float.font_icon_md'))
+            .fontSize($r('app.float.font_icon_lg'))
             .fontWeight(700)
-            .fontColor([$r('app.color.text_secondary')])
+            .fontColor([$r('app.color.text_primary')])
         }
         .width($r('app.float.space_xxl'))
         .justifyContent(FlexAlign.Center)
         .onClick(() => {
-          this.isTextSheetShow = false;
+          this.isSheetShow = false;
         })
       }
       .width("100%")
@@ -624,17 +740,25 @@ export struct MessageBubble {
   @Builder
   actionBar() {
     Column() {
-      // 第一行（仅暂停态 AI 消息显示）：右上角「继续生成」，其余操作按钮移到第二行
-      if (!this.message.isUser() && this.message.isPaused) {
+      // 第一行（AI 消息）：左侧「xx个网页」按钮（有浏览记录即显示，与是否暂停对话无关）+ 右上角「继续生成」（仅暂停态）
+      if (!this.message.isUser() && (this.message.isPaused || this.message.searchedWebs.length > 0)) {
         Row() {
+          // 左「xx个网页」按钮（仅当有浏览记录时显示）
+          if (this.message.searchedWebs.length > 0) {
+            this.webButton();
+          }
           Row()
             .layoutWeight(1) // 占位，把「继续生成」推到最右
-          this.resumeButton();
+          // 右「继续生成」（仅暂停态显示）
+          if (this.message.isPaused) {
+            this.resumeButton();
+          }
         }
         .width("100%")
-        .justifyContent(FlexAlign.End)
-        .margin({ right: $r('app.float.space_xs') })
+        .justifyContent(FlexAlign.Start)
         .padding({
+          left: $r('app.float.space_sm'),
+          right: $r('app.float.space_sm'),
           top: $r('app.float.space_md'),
           bottom: $r('app.float.space_sm')
         })
@@ -674,7 +798,10 @@ export struct MessageBubble {
             this.iconButton($r("sys.symbol.circle_and_plus"),
               () => this.onCreateBranch(this.message));
             this.iconButton($r("sys.symbol.arrow_clockwise"),
-              () => this.onRegenerate(this.message));
+              () => {
+                this.isReasoningExpanded = true; // 重新生成时自动展开思考过程
+                this.onRegenerate(this.message);
+              });
           }
           .margin({ right: $r('app.float.space_xs') })
           .justifyContent(FlexAlign.End)
@@ -734,7 +861,8 @@ export struct MessageBubble {
       })
         .onChange(() => {
           // 打开「选择文本」半模态面板（显示渲染前的原文）
-          this.isTextSheetShow = true;
+          this.sheetKind = "text";
+          this.isSheetShow = true;
         })
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.circle_and_plus'))
@@ -754,6 +882,7 @@ export struct MessageBubble {
         content: $r('app.string.regenerate'),
       })
         .onChange(() => {
+          this.isReasoningExpanded = true; // 重新生成时自动展开思考过程
           this.onRegenerate(this.message);
         })
       // 删除：置于菜单最下面，图标与文字变红（危险操作醒目提示）
@@ -787,8 +916,8 @@ export struct MessageBubble {
       bottom: $r('app.float.space_xs'),
     })
     .margin({
-      left: $r('app.float.space_xs'),
-      right: $r('app.float.space_xs'),
+      left: $r('app.float.space_sm'),
+      right: $r('app.float.space_sm'),
       top: $r('app.float.space_xs'),
       bottom: $r('app.float.space_xs')
     })
@@ -816,8 +945,163 @@ export struct MessageBubble {
       .backgroundColor($r('app.color.bubble_bg_ai'))
       .border({ width: 1, color: $r('app.color.operation_icon') })
       .onClick(() => {
+        this.isReasoningExpanded = true; // 继续生成时自动展开思考过程
         this.onResume(this.message);
       })
+  }
+
+  /**
+   * 「xx个网页」按钮：展示该消息思考过程中浏览过的网页数量
+   *  - 位于操作栏第一行最左侧（与「继续生成」同行），点击弹出网页面板
+   *  - 显示条件仅 message.searchedWebs 非空，与是否暂停对话无关
+   */
+  @Builder
+  webButton() {
+    Row() {
+      SymbolGlyph($r("sys.symbol.pc_ic_tab_index"))
+        .fontSize($r('app.float.font_icon_lg'))
+        .fontWeight(600)
+        .fontColor([$r('app.color.search_icon')])
+        .margin({ right: $r('app.float.space_xs') })
+      Text(` ${this.message.searchedWebs.length} 个网页`)
+        .fontSize($r('app.float.font_toggle'))
+        .fontColor($r('app.color.text_ai'))
+    }
+    .padding({
+      left: $r('app.float.space_sm'),
+      right: $r('app.float.space_sm'),
+      top: $r('app.float.space_xs'),
+      bottom: $r('app.float.space_xs'),
+    })
+    .height(30)
+    .borderRadius(15)
+    .backgroundColor($r('app.color.bubble_bg_ai'))
+    .border({ width: 1, color: $r('app.color.operation_icon') })
+    .onClick(() => {
+      // 打开「xx个网页」半模态面板
+      this.sheetKind = "web";
+      this.isSheetShow = true;
+    })
+  }
+
+  /**
+   * 「xx个网页」半模态面板：展示该消息思考过程中浏览过的网页列表
+   *  - 结构与「选择文本」面板一致：上方居中标题 + 右上角叉号，顶部与页面标题栏下缘对齐
+   *  - 列表每项：域名 + 完整 URL，点击调用系统浏览器打开
+   */
+  @Builder
+  webSheet() {
+    Column() {
+      // 标题行：左右等宽占位保证标题居中
+      Row() {
+        Row().width($r('app.float.space_xxl')) // 左侧占位（与右侧关闭按钮等宽，保证标题视觉居中）
+        Text(`${this.message.searchedWebs.length}个网页`)
+          .fontSize($r('app.float.font_title'))
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.text_primary'))
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+        // 右上角关闭按钮（叉）
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize($r('app.float.font_icon_lg'))
+            .fontWeight(700)
+            .fontColor([$r('app.color.text_primary')])
+        }
+        .width($r('app.float.space_xxl'))
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          this.isSheetShow = false;
+        })
+      }
+      .width("100%")
+      .height($r('app.float.title_bar_height'))
+      .padding({
+        left: $r('app.float.space_xl'),
+        right: $r('app.float.space_xl'),
+      })
+      // 标题行底部分割线
+      .border({
+        width: { bottom: 1 },
+        color: { bottom: $r('app.color.divider') },
+      })
+
+      // 网页列表：每项 = 图标 + 域名 + 完整 URL，点击打开
+      List() {
+        ForEach(this.message.searchedWebs, (web: WebPage) => {
+          ListItem() {
+            this.webRow(web);
+          }
+        }, (web: WebPage) => web.url)
+      }
+      .width("100%")
+      .layoutWeight(1)
+      .scrollBar(BarState.Auto)
+      .divider({
+        strokeWidth: 1,
+        color: $r('app.color.divider'),
+        startMargin: $r('app.float.space_xl'),
+        endMargin: $r('app.float.space_xl'),
+      })
+    }
+    .width("100%")
+    .height("100%")
+    .backgroundColor($r('app.color.dialog_bg'))
+  }
+
+  // 网页列表单行：图标 + 域名（主行）+ 完整 URL（次行），点击打开
+  @Builder
+  webRow(web: WebPage) {
+    Row() {
+      SymbolGlyph($r("sys.symbol.link"))
+        .fontSize($r('app.float.font_icon_lg'))
+        .fontWeight(600)
+        .fontColor([$r('app.color.search_icon')])
+        .margin({ right: $r('app.float.space_md') })
+      Column() {
+        Text(web.domain)
+          .fontSize($r('app.float.font_body'))
+          .fontWeight(400)
+          .fontColor($r('app.color.text_primary'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(web.url)
+          .fontSize($r('app.float.font_thinking'))
+          .fontColor($r('app.color.text_secondary'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .margin({ top: $r('app.float.space_xxs') })
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      // 打开指示箭头
+      SymbolGlyph($r("sys.symbol.arrow_up_right"))
+        .fontSize($r('app.float.font_icon_md'))
+        .fontWeight(600)
+        .fontColor([$r('app.color.operation_icon')])
+    }
+    .width("100%")
+    .padding({
+      left: $r('app.float.space_xl'),
+      right: $r('app.float.space_xl'),
+      top: $r('app.float.space_md'),
+      bottom: $r('app.float.space_md'),
+    })
+    .onClick(() => {
+      this.openWebUrl(web.url);
+    })
+  }
+
+  // 调用系统浏览器打开网页（openLink API 12+）
+  private openWebUrl(url: string): void {
+    try {
+      const host = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+      if (host !== undefined) {
+        host.openLink(url);
+      }
+    } catch (e) {
+      this.getUIContext().getPromptAction().showToast({ message: "无法打开网页" });
+    }
   }
 
   // 分支切换控件：< 当前 / 总数 >（点击两侧箭头在变体间循环切换；操作栏仅在非流式时显示，恒可切换）

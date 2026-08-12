@@ -37,6 +37,12 @@ export interface StreamCallbacks {
   onInterrupted: (reason: LLMError) => void;
   // 服务端开始执行联网搜索（web_search 工具由服务端执行，UI 显示"正在搜索…"）
   onWebSearchStart: () => void;
+  // 服务端搜索词已确定（来自 web_search_call item 的 action.queries，已过滤 ws_call_id 追踪尾巴）
+  // @param queries 搜索词列表（可能多个）
+  onSearchQuery: (queries: string[]) => void;
+  // 模型正在浏览的网页地址已确定（来自 web_search_call item 的 action.url，open_page 动作）
+  // @param url 被浏览页面的完整 URL
+  onSearchBrowse: (url: string) => void;
   // 服务端联网搜索完成（模型开始基于搜索结果回答）
   onWebSearchEnd: () => void;
 }

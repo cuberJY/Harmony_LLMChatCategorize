@@ -113,6 +113,10 @@
       "value": "未收到有效响应，请重试"
     },
     {
+      "name": "error_empty_answer",
+      "value": "模型未生成正文（可能联网搜索未取到有效内容），可点击继续生成重试"
+    },
+    {
       "name": "error_unknown",
       "value": "生成异常，请稍后重试"
     },

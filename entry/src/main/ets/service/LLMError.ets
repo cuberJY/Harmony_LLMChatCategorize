@@ -53,6 +53,7 @@ export enum ErrorCode {
   NET_DISCONNECTED = "NET_DISCONNECTED",     // 连接中断（dataEnd 无终止事件 / 收到部分后断连）
   NET_REQUEST_FAILED = "NET_REQUEST_FAILED", // 未收到任何内容时的请求失败
   EMPTY_RESPONSE = "EMPTY_RESPONSE",         // 流正常结束但无有效数据
+  EMPTY_ANSWER = "EMPTY_ANSWER",             // completed 但无正文（联网搜索后模型空回复，可继续生成）
   UNKNOWN = "UNKNOWN",                       // 兜底
 }
 
@@ -68,6 +69,7 @@ function categoryOf(code: ErrorCode): ErrorCategory {
     case ErrorCode.CTX_OVERFLOW:
       return "context";
     case ErrorCode.OUT_TRUNCATED:
+    case ErrorCode.EMPTY_ANSWER:
       return "output";
     case ErrorCode.SRV_ERROR:
       return "server";
@@ -89,6 +91,7 @@ function retryableOf(code: ErrorCode): boolean {
     case ErrorCode.NET_REQUEST_FAILED:
     case ErrorCode.SRV_ERROR:
     case ErrorCode.EMPTY_RESPONSE:
+    case ErrorCode.EMPTY_ANSWER:
     case ErrorCode.UNKNOWN:
       return true;
     default:
@@ -148,6 +151,8 @@ export function errorMessageResource(code: string): Resource {
       return $r("app.string.error_net_request_failed");
     case ErrorCode.EMPTY_RESPONSE:
       return $r("app.string.error_empty_response");
+    case ErrorCode.EMPTY_ANSWER:
+      return $r("app.string.error_empty_answer");
     default:
       return $r("app.string.error_unknown");
   }

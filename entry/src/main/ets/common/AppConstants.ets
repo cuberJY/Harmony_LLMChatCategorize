@@ -28,6 +28,6 @@ export const FOLDER_COLORS: string[] = [
 export const DEFAULT_FOLDER_COLOR: string = FOLDER_COLORS[0];
 
 // 用户气泡最大宽度占屏幕比例（constraintSize 需拼 "75%" 形式字符串，无法用资源表达）
-export const BUBBLE_MAX_WIDTH_RATIO_USER: number = 0.75;
+export const BUBBLE_MAX_WIDTH_RATIO_USER: number = 0.8;
 // AI 气泡最大宽度占屏幕比例（=100%，即不限制）
 export const BUBBLE_MAX_WIDTH_RATIO_AI: number = 1;

@@ -87,7 +87,7 @@ export struct ChatInput {
           .fontSize($r('app.float.font_model_name'))
           .fontColor($r('app.color.text_secondary'))
           .layoutWeight(1) // 占据剩余空间，把取消按钮推到最右
-          .margin({ left: $r('app.float.space_sm') })
+          .margin({ left: $r('app.float.space_xs') })
 
         // 编辑态：右侧 xmark 取消编辑（清空输入框并退出编辑态）
         if (this.isEditing) {

@@ -56,7 +56,22 @@ interface ResponsesEventData {
   type?: string; // 事件类型（data JSON 自带时使用）
   event?: string; // 事件类型（部分实现用 event 字段）
   delta?: string; // 正文/思考增量
+  item?: SearchCallItem; // output_item.done 时的完整 item（web_search_call 的 action 在此）
   error?: ErrorDetail; // response.failed 时的错误详情
+}
+
+// output_item.done 的 item（仅关注 web_search_call；message/function_call 等忽略）
+interface SearchCallItem {
+  type?: string; // "web_search_call"
+  status?: string; // "completed"
+  action?: SearchCallAction; // 搜索/浏览动作详情
+}
+
+// web_search_call 的 action（实测：searching/completed 事件 action=null，只有 output_item.done 才带）
+interface SearchCallAction {
+  type?: string; // "search"（仅搜索词） | "open_page"（含浏览 URL）
+  queries?: string[]; // 形态1：搜索词列表（混入 "ws_call_id=xxx" 追踪尾巴，需过滤）
+  url?: string; // 形态2：模型主动打开的页面 URL（可能带 #ws_call_id= 尾巴）
 }
 
 // 错误详情（DeepSeek Responses API：error.code 可能是字符串或数字）
@@ -67,8 +82,11 @@ interface ErrorDetail {
 
 // SSE 单行解析结果
 interface SSEResult {
-  kind: "none" | "chunk" | "reasoning" | "searchStart" | "searchEnd" | "done" | "incomplete" | "failed";
+  kind: "none" | "chunk" | "reasoning" | "searchStart" | "searchEnd" | "searchQuery" | "searchBrowse"
+    | "done" | "incomplete" | "failed";
   text: string; // 增量文本（chunk / reasoning 时有效）
+  searchQueries: string[]; // 搜索词列表（kind=searchQuery 时有效，已过滤 ws_call_id 尾巴）
+  searchUrl: string; // 被浏览页面的 URL（kind=searchBrowse 时有效）
   done: boolean; // 是否流结束（response.completed / incomplete）
   failed: boolean; // 是否失败（response.failed）
   errorCode: string; // 供应商错误码（response.failed 的 error.code）
@@ -253,11 +271,25 @@ export class DeepSeekProvider implements LLMProvider {
             callbacks.onWebSearchEnd();
             continue;
           }
-          // 流结束（正常完成 / 输出截断）
+          // 搜索词已确定（output_item.done 的 search 动作）→ 供 UI 展示"正在搜索：xxx"
+          if (result.kind === "searchQuery") {
+            callbacks.onSearchQuery(result.searchQueries);
+            continue;
+          }
+          // 模型正在浏览页面（output_item.done 的 open_page 动作）→ 供 UI 展示"正在浏览 xxx"
+          if (result.kind === "searchBrowse") {
+            callbacks.onSearchBrowse(result.searchUrl);
+            continue;
+          }
+          // 流结束（正常完成 / 输出截断 / 空回复）
           if (result.done) {
             gotTerminalEvent = true;
             if (result.kind === "incomplete") {
               safeIncomplete(fullText); // 截断：内容保留，由调用方进入"暂停"态可续写
+            } else if (fullText.length === 0) {
+              // completed 但无正文（常见于联网搜索后模型空回复）：
+              // 语义上"未走完"→ 按可继续生成处理（进入暂停态，保留思考内容），不当作成功收尾
+              safeInterrupted(buildError(ErrorCode.EMPTY_ANSWER, "model completed with empty output", undefined, PROVIDER_NAME));
             } else {
               safeComplete(fullText);
             }
@@ -340,8 +372,8 @@ export class DeepSeekProvider implements LLMProvider {
         },
         extraData: requestBody,
         usingProtocol: http.HttpProtocol.HTTP1_1,
-        connectTimeout: 15000,
-        readTimeout: 120000, // 多阶段思考/联网搜索期间可能长时间无增量事件，读超时放宽到 120s
+        connectTimeout: 20 * 1000, // 连接超时 20s
+        readTimeout: 180 * 1000, // 多阶段思考/联网搜索超时 180s
       })
       .then((responseCode: number) => {
         // HTTP 错误码：不立即结束，标记错误态后等 dataEnd 收齐错误响应体，
@@ -404,7 +436,16 @@ export class DeepSeekProvider implements LLMProvider {
    */
   private parseEventData(eventName: string, jsonStr: string): SSEResult {
     // ArkTS 要求对象字面量必须对应已声明的 interface
-    const result: SSEResult = { kind: "none", text: "", done: false, failed: false, errorCode: "", errorMsg: "" };
+    const result: SSEResult = {
+      kind: "none",
+      text: "",
+      searchQueries: [],
+      searchUrl: "",
+      done: false,
+      failed: false,
+      errorCode: "",
+      errorMsg: "",
+    };
     let parsed: ResponsesEventData;
     try {
       parsed = JSON.parse(jsonStr) as ResponsesEventData;
@@ -434,6 +475,33 @@ export class DeepSeekProvider implements LLMProvider {
     } else if (type === "response.web_search_call.completed") {
       // 服务端搜索完成
       result.kind = "searchEnd";
+    } else if (type === "response.output_item.done") {
+      // 搜索动作细节（queries / url）实测只在 output_item.done 携带，searching/completed 事件 action=null
+      if (parsed.item !== undefined && parsed.item.type === "web_search_call" && parsed.item.action !== undefined) {
+        const action = parsed.item.action;
+        if (action.type === "search" && action.queries !== undefined) {
+          // 形态1：search 动作 → 搜索词列表（过滤 "ws_call_id=xxx" 追踪尾巴与空白项）
+          const clean: string[] = [];
+          for (const q of action.queries) {
+            const t = q.trim();
+            if (t.length > 0 && !t.startsWith("ws_call_id=")) {
+              clean.push(t);
+            }
+          }
+          if (clean.length > 0) {
+            result.kind = "searchQuery";
+            result.searchQueries = clean;
+          }
+        } else if (action.type === "open_page" && action.url !== undefined) {
+          // 形态2：open_page 动作 → 模型主动打开并浏览的页面 URL（去掉 #ws_call_id= 追踪尾巴）
+          const url = action.url.trim();
+          if (url.length > 0) {
+            result.kind = "searchBrowse";
+            const tailIdx = url.indexOf("#ws_call_id=");
+            result.searchUrl = tailIdx >= 0 ? url.substring(0, tailIdx) : url;
+          }
+        }
+      }
     } else if (type === "response.completed") {
       // 正常完成 → 流结束
       result.kind = "done";

@@ -4,7 +4,7 @@
  */
 
 import { relationalStore } from "@kit.ArkData";
-import { Message } from "../model/Message";
+import { Message, WebPage } from "../model/Message";
 import { DatabaseHelper } from "./DatabaseHelper";
 import { Logger } from "../common/Logger";
 import { errorToJson, jsonToError } from "../service/LLMError";
@@ -37,6 +37,7 @@ export class MessageDao {
         role: msg.role,
         content: msg.content,
         reasoning: msg.reasoning,
+        searched_webs: JSON.stringify(msg.searchedWebs),
         generation_status: msg.generationStatus,
         error_text: errorToJson(msg.error),
         created_at: msg.createdAt,
@@ -61,6 +62,7 @@ export class MessageDao {
       const values: relationalStore.ValuesBucket = {
         content: msg.content,
         reasoning: msg.reasoning,
+        searched_webs: JSON.stringify(msg.searchedWebs),
         generation_status: msg.generationStatus,
         error_text: errorToJson(msg.error),
       };
@@ -177,6 +179,15 @@ export class MessageDao {
       msg.role = rs.getString(rs.getColumnIndex("role")) as "user" | "assistant" | "system";
       msg.content = rs.getString(rs.getColumnIndex("content"));
       msg.reasoning = rs.getString(rs.getColumnIndex("reasoning"));
+      // 思考过程中浏览过的网页（旧库迁移前可能缺失，读取失败则保持空列表）
+      try {
+        const raw = rs.getString(rs.getColumnIndex("searched_webs"));
+        if (raw.length > 0) {
+          msg.searchedWebs = JSON.parse(raw) as WebPage[];
+        }
+      } catch (e) {
+        // 旧库无该列或 JSON 非法：保持空列表
+      }
       // 生成状态（旧库迁移前可能缺失，读取失败则保持默认 complete）
       try {
         msg.generationStatus = rs.getString(rs.getColumnIndex("generation_status")) === "partial" ? "partial" : "complete";
