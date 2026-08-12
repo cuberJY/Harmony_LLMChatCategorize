@@ -31,7 +31,7 @@
 - **历史会话** — 对话自动持久化，侧边栏按时间分组（今天 / 昨天 / 7 天内 / 30 天内 / 年月）
 - **会话管理** — 搜索过滤、长按菜单（多选 / 删除）、批量删除、左边缘右滑进入历史页
 - **消息持久化** — 用户消息与 AI 回复（含思考内容）实时入库，支持历史加载回看
-- **智能滚动** — 自动跟随最新消息，Markdown 异步渲染增高；用户手动滚动时暂停跟随
+- **智能滚动** — 自动跟随最新消息，Markdown 异步渲染增高；用户手动滚动时暂停跟随；不在底部时右下角显示「回到底部」悬浮按钮（点击强制滚底）
 - **流式节流** — 增量文本 50ms 节流合并刷新，高频流式更新降至约 20fps
 - **多对话并发流式** — 每个对话独立 StreamTask，切换对话后原流在后台继续，缓冲互不串写
 - **暂停 / 继续生成** — 生成中发送键变为暂停键，点击中止请求并保留已生成内容；网络异常自动进入暂停态，可一键从未完成处续写（沿用原任务与开关设置）
@@ -234,7 +234,7 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 - **新建分支**（`createBranch`）：创建同父新变体并重新生成，旧回复及其后续链整条熄灭（`deactivateBranchFrom`）但保留在数据库
 - **消息编辑**（`startEdit` / `editUserMessage`）：「编辑」回填输入框（`editingMessageId` + `editingPrefill`），发送时创建新用户消息变体并重新生成 AI 回复
 - **删除单条消息**（`deleteMessage`）：沿 parentId 广度遍历收集该消息 + 全部后代 → 从 DB 与内存缓存同步删除 → 被删消息正在流式输出时先中止对应流任务 → 列表重建；全部删空时重置为新对话
-- **切换分支**（`switchBranch`）：在分支组内按 ±1 循环切换变体，`rebuildActiveChain()` 全量熄灭 → 点亮目标变体祖先路径 → 延伸其激活后续链 → 持久化 → 重载列表
+- **切换分支**（`switchBranch`）：在分支组内按 ±1 循环切换变体，`rebuildActiveChain()` 全量熄灭 → 点亮目标变体祖先路径 → 延伸其激活后续链 → 持久化 → 重载列表（切换时预滚动锁定可视区域、重载后对齐目标消息底部防闪跳，见第 10 节）
 - **变体计数**（`getVariantInfo`）：返回 `{ current, total }` 驱动气泡底栏「当前 / 总数」，多变体时显示
 - `allMessages` 缓存当前对话全量消息（含非激活变体），作为分支切换 / 变体统计 / 激活链重建的唯真源
 - 兼容旧数据：全部消息 `parentId` 为空时按时间正序渲染，分支功能不影响原有体验
@@ -257,6 +257,8 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 - **加载后多次钉底重试**：`pinToBottomAfterLoad()` 以 120ms 间隔重试最多 6 次，解决"分支多、Markdown 渲染重的对话打开时滚不到最后一条"（懒加载 + Markdown 异步渲染导致 item 高度后知后觉）
 - **首帧布局挂起**：List 首次 `onAreaChange` 触发 `onListFirstLayout()`；布局未就绪前的钉底请求先挂起（`pendingPinToBottom`），避免从侧边栏返回的转场期间"打开瞬间停留在列表顶部"
 - **消息项高度变化即时钉底**：ListItem `onAreaChange` 上报高度增量（`onListItemHeightChanged`），Markdown 异步渲染增高时立即重新钉底，比固定间隔重试响应更快且无空转；流式期间跳过，交由动画跟随统一处理
+- **变体切换滚动对齐（防闪跳）**：切换分支时目标变体与当前消息是"同位兄弟"——先基于旧列表 `scrollToIndex(fromId, END)` 滚动到同位位置锁定可视区域（旧 item 已渲染，必生效），`replaceAll` 重载后延时 `scrollMessageToBottom(targetId)`（`ScrollAlign.END`，不受自动跟随守卫限制）将目标消息底部（操作栏）与可视区底部对齐，避免"替换后回弹顶部再跳回"的闪跳
+- **滚动守卫重构**：`shouldAutoScroll()`（= `isAtBottom && !isUserScrolling`）统一判定自动跟随；底层 `scrollToBottomEdge()`（无守卫，`scrollEdge` 优先、个别版本回退 `scrollToIndex`）供 `scrollToBottom` / `jumpToBottom` 复用
 - **Markdown 库预热**：ChatPage 内置一个 `Visibility.Hidden` + 零尺寸的 `Markdown` 组件，提前触发 lv-markdown-in 的 worker 初始化（进程内单例），消除历史对话首次打开时"正文卡顿"
 - **页面过渡动画**：ChatPage 与 SideBarPage 左右平移推入
 - **返回键拦截**：ChatPage 是栈底主页面（isEntry 入栈），系统返回键 = 退出应用；`onBackPressed` 拦截后 `terminateSelf()` 直接退出，避免 NavDestination 被弹出回到空白的 Navigation 首页
