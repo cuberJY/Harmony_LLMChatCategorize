@@ -394,7 +394,7 @@ export struct MessageBubble {
         this.expandedErrorSignature = this.isErrorExpanded() ? "" : this.errorSignature();
       })
 
-      // 展开后的详情区：供应商原始错误信息 + HTTP 状态码（排查用，普通用户不关心）
+      // 展开后的详情区：供应商原始错误信息 + HTTP 状态码
       if (this.isErrorExpanded()) {
         Column() {
           Row() {

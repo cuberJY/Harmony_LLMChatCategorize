@@ -232,19 +232,22 @@ export class ChatViewModel {
     // 3. 构建激活链替换列表；若有进行中的流任务，用实时 aiMsg 替换 DB 占位（避免重复）
     // 暂停任务同样处理：暂停时已把部分内容持久化，DB 会返回新实例，
     // 需用内存中的 task.aiMsg（含流式缓冲）替换链中同名占位，保证「继续生成」的增量能实时刷新到列表
-    const task = this.streamTasks.get(conv.id);
-    if (task !== undefined && (task.isStreaming || task.isPaused) && msgs.indexOf(task.aiMsg) < 0) {
-      // 流任务消息不在 DB 中（重建期间）→ 追加到缓存，保证链上引用一致
-      this.allMessages.push(task.aiMsg);
-    }
+    const liveTasks = this.tasksOfConversation(conv.id);
+    const hasLiveTask = liveTasks.some((t: StreamTask) => t.isStreaming || t.isPaused);
+    // 流任务消息不在 DB 中（重建期间）→ 追加到缓存，保证链上引用一致
+    liveTasks.forEach((t: StreamTask) => {
+      if (msgs.findIndex((m: Message) => m.id === t.aiMsg.id) < 0) {
+        this.allMessages.push(t.aiMsg);
+      }
+    });
     let chain = this.buildActiveChain(this.allMessages);
-    if (task !== undefined && (task.isStreaming || task.isPaused)) {
-      // 流任务消息已激活 → 替换链中同名占位，保证流式填充实时刷新
-      chain = chain.map((m: Message) => (m.id === task.aiMsg.id ? task.aiMsg : m));
-    }
-    // 恢复"进程被终止中断"的未完成消息（仅当无内存流任务时判定）：
-    // 链尾是 partial 且有内容的 AI 消息 → 标记暂停态，气泡显示「继续生成」
-    if (task === undefined) {
+    // 按消息 id 逐条替换（多分支各自替换自己的任务占位，互不干扰）
+    chain = chain.map((m: Message) => {
+      const t = this.streamTasks.get(m.id);
+      return t !== undefined && (t.isStreaming || t.isPaused) ? t.aiMsg : m;
+    });
+    // 无任何活跃/暂停任务时才做"进程被终止"的恢复判定（有任务时内存态为准）
+    if (!hasLiveTask) {
       this.restoreInterruptedMessage(chain);
     }
     this.messageDataSource.replaceAll(chain);
@@ -359,21 +362,22 @@ export class ChatViewModel {
     deepThinking: boolean,
     searchQuery: string,
   ): Promise<void> {
-    // 0. 若该对话已有"暂停"的任务，先清理（新请求接管；暂停的 AI 消息作为普通消息留在列表中）
-    const existing = this.streamTasks.get(sendConvId);
+    // 0. 若 aiMsg 本身已登记"暂停"任务（重新生成/编辑复用同一条消息）→ 新请求接管。
+    //    仅清理同一条消息的任务，不误删其他分支的暂停任务（多分支互不干扰）
+    const existing = this.streamTasks.get(aiMsg.id);
     if (existing !== undefined && existing.isPaused) {
       existing.clearTimer();
       existing.aiMsg.isPaused = false; // 任务被新请求接管，气泡上不再显示「继续生成」
-      this.streamTasks.delete(sendConvId);
+      this.streamTasks.delete(aiMsg.id);
     }
 
-    // 1. 登记流式任务（替代原全局 isStreaming 标志，实现按对话隔离）
+    // 1. 登记流式任务（替代原全局 isStreaming 标志，实现按消息/分支隔离）
     const task = new StreamTask(sendConvId, aiMsg, targetConv);
     task.webSearchEnabled = webSearch; // 记录本次是否请求联网搜索（onComplete 据此判断搜索是否发生过）
     task.deepThinkingEnabled = deepThinking; // 记录本次深度思考开关（「继续生成」时复用）
     // 流式进行中 → 生成状态标记为未完成（进程终止时重启可识别并恢复「继续生成」）
     aiMsg.generationStatus = "partial";
-    this.streamTasks.set(sendConvId, task);
+    this.streamTasks.set(task.aiMsg.id, task);
     // 同步进行中任务数到保活服务（退后台时据此决定是否申请长时任务）
     this.syncBackgroundGuardCount();
     // 当前对话正是发起方 → UI 进入"生成中"态（发送键变为暂停键）
@@ -407,6 +411,8 @@ export class ChatViewModel {
       onReasoningChunk: (deltaReasoning: string) => {
         if (this.isDestroyed) return; // 页面已销毁：跳过 UI 更新
         task.beginThinking(); // 多阶段思考：每段思考开始时恢复"思考中"状态（重新计时）
+        // AI 首次思考 → 对话置顶（排序依据 updatedAt）
+        this.markConversationActive(task);
         task.reasoningBuffer += deltaReasoning;
         this.scheduleFlush(task);
       },
@@ -419,6 +425,8 @@ export class ChatViewModel {
         }
         // 收到正文 = 当前思考阶段结束（结算该阶段耗时并累计；后续可能再进入下一段思考）
         task.endThinking();
+        // AI 首次输出正文 → 对话置顶（覆盖 普通发送/继续生成/重新生成/新建分支/编辑）
+        this.markConversationActive(task);
         task.streamBuffer += deltaText;
         this.scheduleFlush(task);
       },
@@ -452,8 +460,8 @@ export class ChatViewModel {
           aiMsg.searchFailed = true;
         }
         task.abortHandler = null; // 请求已结束，句柄失效
-        this.streamPersistTime.delete(task.conversationId); // 清理节流写库状态
-        this.streamTasks.delete(task.conversationId); // 任务结束，从表中移除
+        this.streamPersistTime.delete(task.aiMsg.id); // 清理节流写库状态
+        this.streamTasks.delete(task.aiMsg.id); // 任务结束，从表中移除
         this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
         this.refreshStreamState(); // 任务已移除 → 当前对话（若为该对话）恢复 idle
 
@@ -461,7 +469,8 @@ export class ChatViewModel {
         ConversationRepository.getInstance().updateMessage(aiMsg);
         // 刷新捕获对话的 updated_at：仅更新时间戳，
         // 避免整体 update 覆盖流式期间侧边栏的重命名/收藏等字段
-        task.targetConv.updatedAt = aiMsg.createdAt;
+        // 用完成时刻而非 aiMsg.createdAt（请求发起时刻）：思考较久时 createdAt 偏早，会拉回排序时间
+        task.targetConv.updatedAt = Date.now();
         ConversationRepository.getInstance().updateTimestampOnly(task.targetConv.id, task.targetConv.updatedAt);
         // 页面已销毁：跳过滚动
         if (this.isDestroyed) return;
@@ -485,7 +494,7 @@ export class ChatViewModel {
         aiMsg.error = error; // 结构化错误信息（错误卡片展示错误码/文案/详情）
         aiMsg.content = baseContent + fullText; // 截断前已生成的全部内容
         task.abortHandler = null;
-        this.streamPersistTime.delete(task.conversationId);
+        this.streamPersistTime.delete(task.aiMsg.id);
         // 任务保留在 streamTasks 表（isPaused=true），「继续生成」直接复用
         this.syncBackgroundGuardCount(); // 不再有活跃网络请求，保活计数减一
         this.refreshStreamState();
@@ -512,8 +521,8 @@ export class ChatViewModel {
         aiMsg.generationStatus = "partial"; // 未完整生成（重启后仍可「继续生成」）
         aiMsg.error = error; // 结构化错误信息（错误卡片展示错误码/文案/详情）
         task.abortHandler = null;
-        this.streamPersistTime.delete(task.conversationId); // 清理节流写库状态
-        this.streamTasks.delete(task.conversationId);
+        this.streamPersistTime.delete(task.aiMsg.id); // 清理节流写库状态
+        this.streamTasks.delete(task.aiMsg.id);
         this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
         this.refreshStreamState();
         // 错误消息也入库（含结构化错误信息），方便用户从历史中复盘
@@ -556,14 +565,26 @@ export class ChatViewModel {
   }
 
   /**
+   * AI 首次输出内容（思考或正文均算）→ 对话置顶：
+   * 更新会话 updatedAt 并写库（侧边栏 onShown 重查即显示最新排序）。
+   * 每个流仅置顶一次（timestampUpdated 标记），避免反复写库
+   */
+  private markConversationActive(task: StreamTask): void {
+    if (task.timestampUpdated) return;
+    task.timestampUpdated = true;
+    task.targetConv.updatedAt = Date.now(); // 输出时刻（思考/正文首次到达时）
+    ConversationRepository.getInstance().updateTimestampOnly(task.targetConv.id, task.targetConv.updatedAt);
+  }
+
+  /**
    * 暂停当前对话的生成（生成中点击暂停键触发）
    * - 将缓冲区 flush 到消息，保留已生成的全部内容
    * - 中止底层 HTTP 请求（abort 后 Provider 不再触发任何回调，避免残留事件）
    * - 任务保留在 streamTasks 表中（isPaused=true），供「继续生成」复用
    */
   pauseStreaming(): void {
-    const convId = this.currentConversationId;
-    const task = this.streamTasks.get(convId);
+    // 暂停当前激活链尾的生成任务（多分支下仅作用于当前分支，不干扰其他分支的任务）
+    const task = this.tailTask();
     if (task === undefined || !task.isStreaming || task.isPaused) return;
     // 1. 合并缓冲区到消息（保留已生成内容）并清除节流定时器
     task.flush();
@@ -597,18 +618,22 @@ export class ChatViewModel {
     await this.dbInitPromise;
     if (this.isDestroyed) return;
     const convId = this.currentConversationId;
-    let task = this.streamTasks.get(convId);
+    // 仅定位当前激活链尾的任务：多分支下各分支任务独立，互不干扰
+    let task = this.tailTask();
     let aiMsg: Message;
     let deepThinking: boolean;
     let webSearch: boolean;
     let baseContent: string;
     if (task !== undefined && task.isPaused) {
-      // 场景 1：内存暂停任务（同一会话内），复用原开关设置
+      // 场景 1：本分支的暂停任务（同一会话内），复用原开关设置
+      task.timestampUpdated = false; // 重置置顶标记：继续生成后首次输出正文再次把对话排到最前
       aiMsg = task.aiMsg;
       deepThinking = task.deepThinkingEnabled;
       webSearch = task.webSearchEnabled;
       baseContent = task.aiMsg.content;
     } else {
+      // 链尾有其他活跃流（正在生成中）→ 不满足"继续生成"条件，拒绝恢复
+      if (task !== undefined && task.isStreaming) return;
       // 场景 2：进程终止后恢复 —— 链尾存在未完成的 AI 消息则重建任务续写
       const restored = this.findLastPartialMessage();
       if (restored === undefined) return;
@@ -619,7 +644,7 @@ export class ChatViewModel {
       task = new StreamTask(convId, aiMsg, this.currentConversation);
       task.deepThinkingEnabled = deepThinking;
       task.webSearchEnabled = webSearch;
-      this.streamTasks.set(convId, task);
+      this.streamTasks.set(task.aiMsg.id, task);
     }
     // 1. 重置为流式态
     task.isPaused = false;
@@ -642,9 +667,9 @@ export class ChatViewModel {
     this.startProviderStream(task, context, deepThinking, webSearch, baseContent);
   }
 
-  /** 依据当前对话的流式任务状态刷新 UI 状态（任务结束 / 对话切换等场景） */
+  /** 依据当前激活链尾的任务状态刷新 UI 状态（任务结束 / 对话切换等场景） */
   private refreshStreamState(): void {
-    const task = this.streamTasks.get(this.currentConversationId);
+    const task = this.tailTask();
     if (task === undefined) {
       this.streamState = "idle";
     } else if (task.isPaused) {
@@ -652,6 +677,30 @@ export class ChatViewModel {
     } else {
       this.streamState = "streaming";
     }
+  }
+
+  /**
+   * 按对话 id 收集该对话的全部流任务（key = aiMsg.id，需遍历筛选）
+   * 一个对话的不同分支可各自持有暂停/进行中的任务，互不干扰
+   */
+  private tasksOfConversation(convId: string): StreamTask[] {
+    const result: StreamTask[] = [];
+    this.streamTasks.forEach((task: StreamTask) => {
+      if (task.conversationId === convId) {
+        result.push(task);
+      }
+    });
+    return result;
+  }
+
+  /**
+   * 获取当前激活链尾消息对应的流任务（生成中/暂停的消息必然位于链尾）
+   * 用于 pause / resume / streamState 判定，保证操作只作用于当前分支
+   */
+  private tailTask(): StreamTask | undefined {
+    const list = this.messageDataSource.getAll();
+    if (list.length === 0) return undefined;
+    return this.streamTasks.get(list[list.length - 1].id);
   }
 
   /**
@@ -873,22 +922,6 @@ export class ChatViewModel {
     const convId = this.currentConversationId;
     if (convId.length === 0) return; // 空白新对话尚未入库，无可删除
 
-    // 1. 若被删消息正是当前流式任务正在填充的消息，先中止任务
-    const task = this.streamTasks.get(convId);
-    if (task !== undefined && task.aiMsg.id === msg.id) {
-      task.clearTimer();
-      task.isStreaming = false;
-      task.isPaused = false;
-      msg.isStreaming = false;
-      msg.isPaused = false;
-      task.abortHandler?.abort(); // 中止底层 HTTP 请求（若仍在生成中）
-      task.abortHandler = null;
-      this.streamPersistTime.delete(convId); // 清理节流写库状态
-      this.streamTasks.delete(convId);
-      this.syncBackgroundGuardCount();
-      this.refreshStreamState();
-    }
-
     // 2. 收集子树 id 集合：该消息 + 所有后代（含各变体分支），沿 parentId 广度遍历
     const deleteIds: string[] = [];
     const stack: string[] = [msg.id];
@@ -902,6 +935,31 @@ export class ChatViewModel {
           stack.push(m.id);
         }
       });
+    }
+
+    // 2.5 清理子树内所有消息对应的流任务（含其他分支暂停/生成中的任务），按消息 id 精确清理
+    let clearedTask = false;
+    deleteIds.forEach((id: string) => {
+      const t = this.streamTasks.get(id);
+      if (t !== undefined) {
+        t.clearTimer();
+        t.abortHandler?.abort(); // 中止底层 HTTP 请求（若仍在生成中）
+        t.abortHandler = null;
+        t.isStreaming = false;
+        t.isPaused = false;
+        if (t.aiMsg.id === msg.id) {
+          // 被删消息自身若正在生成，清除其 UI 流式态
+          t.aiMsg.isStreaming = false;
+          t.aiMsg.isPaused = false;
+        }
+        this.streamPersistTime.delete(id); // 清理节流写库状态
+        this.streamTasks.delete(id);
+        clearedTask = true;
+      }
+    });
+    if (clearedTask) {
+      this.syncBackgroundGuardCount();
+      this.refreshStreamState();
     }
 
     // 3. 持久化：删除消息（子树）；若全部删空，同时删除已无内容的对话记录
@@ -1120,8 +1178,7 @@ export class ChatViewModel {
    * @param conversationId 对话 id
    */
   private isStreamingFor(conversationId: string): boolean {
-    const task = this.streamTasks.get(conversationId);
-    return task !== undefined && task.isStreaming;
+    return this.tasksOfConversation(conversationId).some((t: StreamTask) => t.isStreaming);
   }
 
   /**
@@ -1156,11 +1213,11 @@ export class ChatViewModel {
       task.flush();
       // 节流持久化：每 2.5s 把已生成内容落库一次（generation_status=partial）。
       // 进程被终止时，DB 已保存最近 2.5s 内的全部内容，重启后可恢复「继续生成」；
-      // 异步 fire-and-forget，不阻塞 UI 线程
+      // 异步 fire-and-forget，不阻塞 UI 线程（按消息粒度节流，多分支互不干扰）
       const now = Date.now();
-      const last = this.streamPersistTime.get(task.conversationId);
+      const last = this.streamPersistTime.get(task.aiMsg.id);
       if (last === undefined || now - last >= 2500) {
-        this.streamPersistTime.set(task.conversationId, now);
+        this.streamPersistTime.set(task.aiMsg.id, now);
         ConversationRepository.getInstance().updateMessage(task.aiMsg);
       }
       // 仅当前对话正在展示该任务时才滚动，避免 A 对话的流把 B 对话列表拖到底部
@@ -1311,9 +1368,9 @@ export class ChatViewModel {
     this.scrollToBottom();
   }
 
-  // 当前对话是否正在流式回复中（onListItemHeightChanged 据此跳过，避免与动画跟随竞争）
+  // 当前激活链尾是否正在流式回复中（onListItemHeightChanged 据此跳过，避免与动画跟随竞争）
   private isCurrentStreaming(): boolean {
-    const task = this.streamTasks.get(this.currentConversationId);
+    const task = this.tailTask();
     return task !== undefined && task.isStreaming;
   }
 
