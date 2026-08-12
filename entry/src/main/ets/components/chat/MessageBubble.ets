@@ -458,7 +458,7 @@ export struct MessageBubble {
       // 第二行：常规操作按钮（用户消息靠右一组 / AI 消息左组+右组）
       Row() {
         if (this.message.isUser()) {
-          // 用户消息：一组按钮靠右（删除在复制左端，普通图标无特殊颜色）
+          // 用户消息：一组按钮靠右
           Row() {
             this.iconButton($r("sys.symbol.trash"), () => this.confirmDelete());
             this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
@@ -677,7 +677,7 @@ export struct MessageBubble {
     .backgroundColor($r('app.color.bubble_bg_ai'))
   }
 
-  /** 复制整条消息正文到系统剪贴板 */
+  // 复制整条消息正文到系统剪贴板
   private copyMessage(): void {
     const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.message.content);
     pasteboard.getSystemPasteboard().setData(data)

@@ -265,6 +265,10 @@ export struct ChatPage {
         onPause: () => {
           this.vm.pauseStreaming();
         },
+        // 编辑态点击顶部右侧 xmark → 退出编辑态并清空输入框（@Monitor 联动清空）
+        onCancelEdit: () => {
+          this.vm.exitEditMode();
+        },
       })
 
       // Markdown 库预热：提前创建 Markdown 组件，触发 lv-markdown-in 的 worker 初始化，

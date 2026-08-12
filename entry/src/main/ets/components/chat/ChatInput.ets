@@ -15,6 +15,7 @@
  */
 
 import { LengthMetrics } from "@kit.ArkUI";
+import { inputMethod } from "@kit.IMEKit";
 @ComponentV2
 export struct ChatInput {
   // 输入文本
@@ -53,6 +54,15 @@ export struct ChatInput {
   onPrefillChanged(): void {
     if (this.prefillText.length > 0) {
       this.inputText = this.prefillText;
+      // 编辑回填后自动弹出输入法：先清焦点再请求焦点（确保已聚焦时也能重新弹起键盘）
+      const focus = this.getUIContext().getFocusController();
+      focus.clearFocus();
+      setTimeout(() => {
+        focus.requestFocus('chat_input');
+      }, 0);
+    } else {
+      // 编辑态取消/新建对话（prefillText 被清空）→ 同步清空输入框
+      this.inputText = "";
     }
   }
 
@@ -62,28 +72,60 @@ export struct ChatInput {
   @Event onChange: (text: string) => void = (text: string) => {};
   // 暂停生成回调（生成中点击暂停键时触发，由 VM 中止流式请求）
   @Event onPause: () => void = () => {};
+  // 取消编辑回调（编辑态点击顶部右侧 xmark 时触发，由 VM 退出编辑态并清空输入框）
+  @Event onCancelEdit: () => void = () => {};
 
   build() {
     Column() {
-      // 1. 模型名称 / 编辑提示（编辑态时优先显示编辑提示）
-      Text(
-        this.isEditing
-          ? $r('app.string.edit_mode_hint')
-          : (this.modelName.length > 0 ? this.modelName : "未配置模型，请前往设置"),
-      )
-        .fontSize($r('app.float.font_model_name'))
-        .fontColor($r('app.color.text_secondary'))
-        .width("100%")
-        .margin({
-          left: $r('app.float.space_sm'),
-          bottom: $r('app.float.space_xs'),
-        })
+      // 1. 顶部信息行：左侧模型名称/编辑提示，右侧「取消编辑」按钮（仅编辑态显示）
+      Row() {
+        Text(
+          this.isEditing
+            ? $r('app.string.edit_mode_hint')
+            : (this.modelName.length > 0 ? this.modelName : "未配置模型，请前往设置"),
+        )
+          .fontSize($r('app.float.font_model_name'))
+          .fontColor($r('app.color.text_secondary'))
+          .layoutWeight(1) // 占据剩余空间，把取消按钮推到最右
+          .margin({ left: $r('app.float.space_sm') })
+
+        // 编辑态：右侧 xmark 取消编辑（清空输入框并退出编辑态）
+        if (this.isEditing) {
+          Button() {
+            SymbolGlyph($r("sys.symbol.xmark"))
+              .fontSize($r('app.float.font_icon_lg'))
+              .fontWeight(700)
+              .fontColor([$r('app.color.text_primary')])
+          }
+          .width(26)
+          .height(26)
+          .type(ButtonType.Circle)
+          .backgroundColor($r('app.color.toggle_bg_inactive'))
+          .padding({
+            left: $r('app.float.space_xs'),
+            right: $r('app.float.space_xs'),
+            top: $r('app.float.space_xs'),
+            bottom: $r('app.float.space_xs'),
+          })
+          .margin({ right: $r('app.float.space_xs') })
+          .onClick(() => {
+            // 取消编辑：先收起输入法键盘，再上报退出编辑态（VM 清空 prefillText → @Monitor 联动清空输入框）
+            inputMethod.getController().stopInput();
+            this.onCancelEdit();
+          })
+        }
+      }
+      .width("100%")
+      .margin({
+        bottom: $r('app.float.space_xs'),
+      })
 
       // 2. 输入框
       TextArea({
         text: this.inputText,
         placeholder: "输入消息...",
       })
+        .id('chat_input') // 供自动弹出输入法时请求焦点
         .fontSize($r('app.float.font_input'))
         .fontColor($r('app.color.text_primary'))
         .width("100%")
