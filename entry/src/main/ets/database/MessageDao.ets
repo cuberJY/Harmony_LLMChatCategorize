@@ -36,6 +36,7 @@ export class MessageDao {
         role: msg.role,
         content: msg.content,
         reasoning: msg.reasoning,
+        generation_status: msg.generationStatus,
         created_at: msg.createdAt,
         parent_id: msg.parentId,
         branch_group_id: msg.branchGroupId,
@@ -50,7 +51,7 @@ export class MessageDao {
     }
   }
 
-  // 更新一条消息（流式回复结束后，内容可能与流式过程不同），按 id 更新 content / reasoning
+  // 更新一条消息（流式回复结束后，内容可能与流式过程不同），按 id 更新 content / reasoning / generation_status
   async update(msg: Message): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -58,6 +59,7 @@ export class MessageDao {
       const values: relationalStore.ValuesBucket = {
         content: msg.content,
         reasoning: msg.reasoning,
+        generation_status: msg.generationStatus,
       };
       const predicates = new relationalStore.RdbPredicates("message");
       predicates.equalTo("id", msg.id);
@@ -172,6 +174,12 @@ export class MessageDao {
       msg.role = rs.getString(rs.getColumnIndex("role")) as "user" | "assistant" | "system";
       msg.content = rs.getString(rs.getColumnIndex("content"));
       msg.reasoning = rs.getString(rs.getColumnIndex("reasoning"));
+      // 生成状态（旧库迁移前可能缺失，读取失败则保持默认 complete）
+      try {
+        msg.generationStatus = rs.getString(rs.getColumnIndex("generation_status")) === "partial" ? "partial" : "complete";
+      } catch (e) {
+        // 旧库无该列：保持默认 complete
+      }
       msg.createdAt = rs.getLong(rs.getColumnIndex("created_at"));
       // 分支字段（旧库迁移前可能缺失，读取失败则保持默认值）
       try {

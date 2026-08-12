@@ -137,6 +137,8 @@ export class ChatViewModel {
   // 进行中的流式任务表：key = 对话 id，一个对话最多一个进行中的流
   // 支持多对话并行流式：切走后原对话的流仍在后台推进，切回时由 loadConversation 重新挂载
   private streamTasks: Map<string, StreamTask> = new Map();
+  // 各对话"流式增量持久化"的最后写库时间戳（节流：避免每个 chunk 都写库）
+  private streamPersistTime: Map<string, number> = new Map();
 
   // 生命周期（由页面生命周期回调转发）
 
@@ -238,6 +240,11 @@ export class ChatViewModel {
     if (task !== undefined && (task.isStreaming || task.isPaused)) {
       // 流任务消息已激活 → 替换链中同名占位，保证流式填充实时刷新
       chain = chain.map((m: Message) => (m.id === task.aiMsg.id ? task.aiMsg : m));
+    }
+    // 恢复"进程被终止中断"的未完成消息（仅当无内存流任务时判定）：
+    // 链尾是 partial 且有内容的 AI 消息 → 标记暂停态，气泡显示「继续生成」
+    if (task === undefined) {
+      this.restoreInterruptedMessage(chain);
     }
     this.messageDataSource.replaceAll(chain);
 
@@ -363,6 +370,8 @@ export class ChatViewModel {
     const task = new StreamTask(sendConvId, aiMsg, targetConv);
     task.webSearchEnabled = webSearch; // 记录本次是否请求联网搜索（onComplete 据此判断搜索是否发生过）
     task.deepThinkingEnabled = deepThinking; // 记录本次深度思考开关（「继续生成」时复用）
+    // 流式进行中 → 生成状态标记为未完成（进程终止时重启可识别并恢复「继续生成」）
+    aiMsg.generationStatus = "partial";
     this.streamTasks.set(sendConvId, task);
     // 同步进行中任务数到保活服务（退后台时据此决定是否申请长时任务）
     this.syncBackgroundGuardCount();
@@ -434,6 +443,7 @@ export class ChatViewModel {
         aiMsg.isStreaming = false; // 流式结束
         aiMsg.isThinking = false;
         aiMsg.isPaused = false; // 生成完成，不再显示「继续生成」
+        aiMsg.generationStatus = "complete"; // 完整生成（重启后不再显示「继续生成」）
         // baseContent（暂停前已生成）+ 本次请求的全文（新增增量）
         aiMsg.content = baseContent + fullText;
         // 请求了联网搜索但整个流中未出现任何搜索事件 → 标记搜索失败（提示已降级）
@@ -441,6 +451,7 @@ export class ChatViewModel {
           aiMsg.searchFailed = true;
         }
         task.abortHandler = null; // 请求已结束，句柄失效
+        this.streamPersistTime.delete(task.conversationId); // 清理节流写库状态
         this.streamTasks.delete(task.conversationId); // 任务结束，从表中移除
         this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
         this.refreshStreamState(); // 任务已移除 → 当前对话（若为该对话）恢复 idle
@@ -466,7 +477,9 @@ export class ChatViewModel {
         aiMsg.isThinking = false;
         aiMsg.isSearching = false;
         aiMsg.isPaused = false; // 错误收尾，不再显示「继续生成」
+        aiMsg.generationStatus = "partial"; // 未完整生成（重启后仍可「继续生成」）
         task.abortHandler = null;
+        this.streamPersistTime.delete(task.conversationId); // 清理节流写库状态
         this.streamTasks.delete(task.conversationId);
         this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
         this.refreshStreamState();
@@ -490,6 +503,7 @@ export class ChatViewModel {
         aiMsg.isStreaming = false;
         aiMsg.isSearching = false;
         aiMsg.isPaused = true; // 暂停态 → 气泡操作栏右上角显示「继续生成」
+        aiMsg.generationStatus = "partial"; // 未完整生成（进程终止重启后也能识别并恢复）
         if (aiMsg.isThinking) {
           aiMsg.isThinking = false;
           aiMsg.thinkingDuration = Math.round((Date.now() - aiMsg.thinkingStartTime) / 100) / 10;
@@ -534,6 +548,7 @@ export class ChatViewModel {
     task.aiMsg.isStreaming = false;
     task.aiMsg.isSearching = false;
     task.aiMsg.isPaused = true; // 暂停态 → 气泡操作栏右上角显示「继续生成」
+    task.aiMsg.generationStatus = "partial"; // 未完整生成（进程终止重启后也能识别并恢复）
     if (task.aiMsg.isThinking) {
       task.aiMsg.isThinking = false;
       task.aiMsg.thinkingDuration = Math.round((Date.now() - task.aiMsg.thinkingStartTime) / 100) / 10;
@@ -548,32 +563,56 @@ export class ChatViewModel {
   /**
    * 继续生成（点击「继续生成」按钮触发）：
    * 以「历史上下文 + 已生成的部分 AI 消息」重新发起流式请求，模型从未完成处续写。
-   * 复用原 StreamTask（同一 aiMsg / 同一归属对话），思考与搜索开关沿用暂停前设置。
+   * 两种场景：
+   *   1. 本会话内暂停（任务仍在 streamTasks 表）→ 复用原 StreamTask（同一 aiMsg / 开关沿用暂停前）
+   *   2. 进程被终止后恢复（任务表已清空）→ 链尾是 partial 的 AI 消息 → 重建任务，从未完成处续写
    */
   async resumeStreaming(): Promise<void> {
     await this.dbInitPromise;
     if (this.isDestroyed) return;
     const convId = this.currentConversationId;
-    const task = this.streamTasks.get(convId);
-    if (task === undefined || !task.isPaused) return;
+    let task = this.streamTasks.get(convId);
+    let aiMsg: Message;
+    let deepThinking: boolean;
+    let webSearch: boolean;
+    let baseContent: string;
+    if (task !== undefined && task.isPaused) {
+      // 场景 1：内存暂停任务（同一会话内），复用原开关设置
+      aiMsg = task.aiMsg;
+      deepThinking = task.deepThinkingEnabled;
+      webSearch = task.webSearchEnabled;
+      baseContent = task.aiMsg.content;
+    } else {
+      // 场景 2：进程终止后恢复 —— 链尾存在未完成的 AI 消息则重建任务续写
+      const restored = this.findLastPartialMessage();
+      if (restored === undefined) return;
+      aiMsg = restored;
+      deepThinking = this.deepThinking;
+      webSearch = this.webSearch;
+      baseContent = aiMsg.content;
+      task = new StreamTask(convId, aiMsg, this.currentConversation);
+      task.deepThinkingEnabled = deepThinking;
+      task.webSearchEnabled = webSearch;
+      this.streamTasks.set(convId, task);
+    }
     // 1. 重置为流式态
     task.isPaused = false;
     task.isStreaming = true;
     task.searchEventSeen = false; // 新一轮请求，重新判断搜索是否发生
-    task.aiMsg.isStreaming = true;
-    task.aiMsg.isSearching = false;
-    task.aiMsg.searchFailed = false;
-    task.aiMsg.isPaused = false; // 恢复生成，隐藏气泡上的「继续生成」
-    task.aiMsg.isThinking = true;
-    task.aiMsg.thinkingStartTime = Date.now();
+    aiMsg.isStreaming = true;
+    aiMsg.isSearching = false;
+    aiMsg.searchFailed = false;
+    aiMsg.isPaused = false; // 恢复生成，隐藏气泡上的「继续生成」
+    aiMsg.generationStatus = "partial"; // 续写期间保持未完成标记（防再次中断时丢状态）
+    aiMsg.isThinking = true;
+    aiMsg.thinkingStartTime = Date.now();
     this.streamState = "streaming";
     this.syncBackgroundGuardCount();
     // 2. 构造上下文：aiMsg 之前的全部消息 + aiMsg 自身（含已生成的部分内容，模型从此续写）
-    const context = this.buildContextBefore(task.aiMsg.id);
-    context.push(task.aiMsg);
+    const context = this.buildContextBefore(aiMsg.id);
+    context.push(aiMsg);
     // 3. 重新发起请求：baseContent = 暂停前已生成的内容（onComplete 写回时叠加本次增量）
-    this.startProviderStream(task, context, task.deepThinkingEnabled, task.webSearchEnabled,
-      task.aiMsg.content);
+    this.startProviderStream(task, context, deepThinking, webSearch, baseContent);
   }
 
   /** 依据当前对话的流式任务状态刷新 UI 状态（任务结束 / 对话切换等场景） */
@@ -586,6 +625,32 @@ export class ChatViewModel {
     } else {
       this.streamState = "streaming";
     }
+  }
+
+  /**
+   * 恢复"进程被终止/中断"的未完成 AI 消息（加载对话时调用）：
+   * 激活链尾是未完成(partial)且有内容的 AI 消息 → 置 isPaused=true，气泡显示「继续生成」
+   */
+  private restoreInterruptedMessage(chain: Message[]): void {
+    if (chain.length === 0) return;
+    const tail = chain[chain.length - 1];
+    if (!tail.isUser() && tail.generationStatus === "partial" && tail.content.length > 0) {
+      tail.isPaused = true;
+    }
+  }
+
+  /**
+   * 查找当前对话链尾"未完成生成"的 AI 消息（进程终止后恢复续写用）
+   * 仅当链尾是 partial 且有内容时返回，否则 undefined
+   */
+  private findLastPartialMessage(): Message | undefined {
+    const list = this.messageDataSource.getAll();
+    if (list.length === 0) return undefined;
+    const tail = list[list.length - 1];
+    if (tail.isUser() || tail.generationStatus !== "partial" || tail.content.length === 0) {
+      return undefined;
+    }
+    return tail;
   }
 
   /**
@@ -789,6 +854,7 @@ export class ChatViewModel {
       msg.isPaused = false;
       task.abortHandler?.abort(); // 中止底层 HTTP 请求（若仍在生成中）
       task.abortHandler = null;
+      this.streamPersistTime.delete(convId); // 清理节流写库状态
       this.streamTasks.delete(convId);
       this.syncBackgroundGuardCount();
       this.refreshStreamState();
@@ -1059,6 +1125,15 @@ export class ChatViewModel {
     task.flushTimerId = setTimeout(() => {
       // 合并缓冲区内容，一次性写入（触发 @Trace → MessageBubble 重绘）
       task.flush();
+      // 节流持久化：每 2.5s 把已生成内容落库一次（generation_status=partial）。
+      // 进程被终止时，DB 已保存最近 2.5s 内的全部内容，重启后可恢复「继续生成」；
+      // 异步 fire-and-forget，不阻塞 UI 线程
+      const now = Date.now();
+      const last = this.streamPersistTime.get(task.conversationId);
+      if (last === undefined || now - last >= 2500) {
+        this.streamPersistTime.set(task.conversationId, now);
+        ConversationRepository.getInstance().updateMessage(task.aiMsg);
+      }
       // 仅当前对话正在展示该任务时才滚动，避免 A 对话的流把 B 对话列表拖到底部
       if (this.currentConversationId === task.conversationId) {
         this.scrollToBottomSmooth(); // 平滑跟随（200ms 动画），消除流式瞬移感

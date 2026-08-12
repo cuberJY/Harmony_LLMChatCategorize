@@ -19,6 +19,8 @@ export class Message {
   @Trace role: MessageRole = "user"; // 消息角色：用户 or AI
   @Trace content: string = ""; // 消息正文（AI 消息可能包含 Markdown）
   @Trace reasoning: string = ""; // AI 思考内容（仅 assistant 有值）
+  @Trace generationStatus: "complete" | "partial" = "complete"; // 生成状态（持久化）：complete 完整 / partial 未完成
+  //（进程终止/网络中断/暂停/生成中均为 partial；重启加载对话时据此恢复「继续生成」按钮）
   @Trace isThinking: boolean = false; // 是否正在思考中（用于 UI 状态）
   @Trace isSearching: boolean = false; // 是否正在联网搜索（用于 UI 状态）
   @Trace searchFailed: boolean = false; // 联网搜索是否失败（已降级普通模式）
