@@ -158,13 +158,15 @@ export struct ChatPage {
                   // 分支变体信息：驱动 "< 当前 / 总数 >"（切换分支后列表重建，@Param 自动更新）
                   variantCurrent: this.vm.getVariantInfo(msg).current,
                   variantTotal: this.vm.getVariantInfo(msg).total,
+                  // 是否激活链最后一条：仅最后一条显示「换个回答」（防止在历史消息上重新生成导致上下文混乱）
+                  isLastMessage: index === this.vm.messageDataSource.totalCount() - 1,
                   // 正在编辑的用户消息 id：编辑中的消息禁止删除（点击直接 toast）
                   editingMessageId: this.vm.editingMessageId,
-                  // 重新生成：覆盖当前 AI 回复
+                  // 换个回答：覆盖当前 AI 回复
                   onRegenerate: (m: Message) => {
                     this.vm.regenerateMessage(m);
                   },
-                  // 新建分支：保留旧回复生成新变体
+                  // 生成新回复：保留旧回复生成新变体
                   onCreateBranch: (m: Message) => {
                     this.vm.createBranch(m);
                   },

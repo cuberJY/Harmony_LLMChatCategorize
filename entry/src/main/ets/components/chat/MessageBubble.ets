@@ -58,9 +58,14 @@ export struct MessageBubble {
    */
   @Param variantCurrent: number = 0; // 当前变体序号（1 起，驱动 "< 4 / 5 >" 中的 4）
   @Param variantTotal: number = 0; // 分支组变体总数（驱动 "5"）
+  /**
+   * 是否为激活链最后一条消息：仅最后一条显示「换个回答」，
+   * 避免在历史消息上重新生成导致上下文混乱（由 ChatPage 按 LazyForEach index 传入）
+   */
+  @Param isLastMessage: boolean = false;
   @Param editingMessageId: string = ""; // 正在编辑的用户消息 id（编辑中的消息禁止删除）
-  @Event onRegenerate: (msg: Message) => void = () => {}; // 「重新生成」：覆盖当前回复
-  @Event onCreateBranch: (msg: Message) => void = () => {}; // 「新建分支」：保留旧回复生成新变体
+  @Event onRegenerate: (msg: Message) => void = () => {}; // 「换个回答」：覆盖当前回复
+  @Event onCreateBranch: (msg: Message) => void = () => {}; // 「生成新回复」：保留旧回复生成新变体
   @Event onEdit: (msg: Message) => void = () => {}; // 「编辑」：回填输入框创建新分支
   @Event onSwitchBranch: (msg: Message, delta: number) => void = () => {}; // 「< >」切换变体
   @Event onDelete: (msg: Message) => void = () => {}; // 「删除」：删除单条消息（含后续分支）
@@ -224,7 +229,7 @@ export struct MessageBubble {
         if (!this.message.isUser() && this.message.error !== undefined) {
           this.errorCard();
         }
-        // 底部操作栏（复制/编辑/重新生成/新建分支/切换分支）
+        // 底部操作栏（复制/编辑/换个回答/生成新回复/切换分支）
         // 流式生成中不显示操作栏（isStreaming 为 @Trace，流式结束自动恢复显示）
         if (!this.message.isStreaming) {
           this.actionBar();
@@ -763,7 +768,7 @@ export struct MessageBubble {
    *  - 用户消息：右下角 [复制] [编辑] [切换分支]（从左到右）
    *  - AI 消息：
    *     第一行（仅暂停态显示）右上角 [继续生成]
-   *     第二行 左下角 [切换分支] [复制]；右下角 [新建分支] [重新生成]
+   *     第二行 左下角 [切换分支] [复制]；右下角 [生成新回复] [换个回答]
    */
   @Builder
   actionBar() {
@@ -809,13 +814,12 @@ export struct MessageBubble {
           .margin({ right: $r('app.float.space_xs') })
           .justifyContent(FlexAlign.End)
         } else {
-          // AI 消息：左组（切换分支 + 复制）与右组（新建分支 + 重新生成）
+          // AI 消息：
           Row() {
             // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
             if (this.variantTotal > 1) {
               this.variantSwitcher();
             }
-            this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
             // 「更多」按钮（dot_grid_2x2，位于复制键右侧）：点击弹出菜单
             this.moreButton();
           }
@@ -823,14 +827,18 @@ export struct MessageBubble {
           .justifyContent(FlexAlign.Start)
 
           Row() {
+            // 「换个回答」：仅激活链最后一条显示，避免在历史消息上重新生成导致上下文混乱
+            if (this.isLastMessage) {
+              this.iconButton($r("sys.symbol.arrow_clockwise"),
+                () => {
+                  this.isReasoningExpanded = true; // 重新生成时自动展开思考过程
+                  this.onRegenerate(this.message);
+                });
+            }
             this.iconButton($r("sys.symbol.trash"), () => this.confirmDelete());
+            this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
             this.iconButton($r("sys.symbol.circle_and_plus"),
               () => this.onCreateBranch(this.message));
-            this.iconButton($r("sys.symbol.arrow_clockwise"),
-              () => {
-                this.isReasoningExpanded = true; // 重新生成时自动展开思考过程
-                this.onRegenerate(this.message);
-              });
           }
           .margin({ right: $r('app.float.space_xs') })
           .justifyContent(FlexAlign.End)
@@ -863,11 +871,11 @@ export struct MessageBubble {
       bottom: $r('app.float.space_xs')
     })
     .backgroundColor($r('app.color.bubble_bg_ai'))
-    // 点击展开菜单：复制 / 选择文本 / 新建分支 / 重新生成 / 删除（默认出现在按钮下方，空间不足自动调整）
+    // 点击展开菜单：复制 / 选择文本 / 生成新回复 / 换个回答 / 删除（默认出现在按钮下方，空间不足自动调整）
     .bindMenu(this.moreMenu())
   }
 
-  // 「更多」菜单：从上到下 = 复制、选择文本、新建分支、重新生成、删除
+  // 「更多」菜单：从上到下 = 复制、选择文本、生成新回复、换个回答、删除
   @Builder
   moreMenu() {
     Menu() {
@@ -903,17 +911,20 @@ export struct MessageBubble {
         .onChange(() => {
           this.onCreateBranch(this.message);
         })
-      MenuItem({
-        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.arrow_clockwise'))
-          .fontSize($r('app.float.font_icon_lg'))
-          .fontWeight(500)
-          .fontColor([$r('app.color.operation_icon')]),
-        content: $r('app.string.regenerate'),
-      })
-        .onChange(() => {
-          this.isReasoningExpanded = true; // 重新生成时自动展开思考过程
-          this.onRegenerate(this.message);
+      // 「换个回答」：仅激活链最后一条显示，避免在历史消息上重新生成导致上下文混乱
+      if (this.isLastMessage) {
+        MenuItem({
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.arrow_clockwise'))
+            .fontSize($r('app.float.font_icon_lg'))
+            .fontWeight(500)
+            .fontColor([$r('app.color.operation_icon')]),
+          content: $r('app.string.regenerate'),
         })
+          .onChange(() => {
+            this.isReasoningExpanded = true; // 重新生成时自动展开思考过程
+            this.onRegenerate(this.message);
+          })
+      }
       // 删除：置于菜单最下面，图标与文字变红（危险操作醒目提示）
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.trash'))
@@ -1140,7 +1151,7 @@ export struct MessageBubble {
       SymbolGlyph($r("sys.symbol.chevron_left"))
         .fontSize($r('app.float.font_icon_lg'))
         .fontWeight(700)
-        .fontColor([$r('app.color.text_secondary')])
+        .fontColor([$r('app.color.operation_icon')])
         .padding({
           left: $r('app.float.space_sm'),
           right: $r('app.float.space_sm')
@@ -1159,7 +1170,7 @@ export struct MessageBubble {
       SymbolGlyph($r("sys.symbol.chevron_right"))
         .fontSize($r('app.float.font_icon_lg'))
         .fontWeight(700)
-        .fontColor([$r('app.color.text_secondary')])
+        .fontColor([$r('app.color.operation_icon')])
         .padding({
           left: $r('app.float.space_sm'),
           right: $r('app.float.space_sm')

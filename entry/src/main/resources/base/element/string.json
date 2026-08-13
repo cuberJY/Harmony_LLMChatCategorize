@@ -174,11 +174,11 @@
     },
     {
       "name": "create_branch",
-      "value": "新建分支"
+      "value": "生成新回复"
     },
     {
       "name": "regenerate",
-      "value": "重新生成"
+      "value": "换个回答"
     },
     {
       "name": "delete",

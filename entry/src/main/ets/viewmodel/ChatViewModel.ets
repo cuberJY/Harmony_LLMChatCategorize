@@ -804,13 +804,32 @@ export class ChatViewModel {
   }
 
   /**
-   * 获取当前激活链尾消息对应的流任务（生成中/暂停的消息必然位于链尾）
-   * 用于 pause / resume / streamState 判定，保证操作只作用于当前分支
+   * 获取当前对话对应的流任务（pause / resume / streamState 判定统一入口）
+   * 1. 优先取激活链尾消息的任务（正常生成/暂停场景，流式消息位于链尾）
+   * 2. 兜底：链尾无任务时（切换分支后流式/暂停任务挂在非激活变体上，
+   *    已脱离激活链尾），取当前对话中仍在生成（isStreaming）的任务；
+   *    无进行中任务则取暂停态任务。保证切换分支后暂停/继续生成仍可作用
+   *    于正在运行的生成，而不是静默失效。
    */
   private tailTask(): StreamTask | undefined {
     const list = this.messageDataSource.getAll();
-    if (list.length === 0) return undefined;
-    return this.streamTasks.get(list[list.length - 1].id);
+    if (list.length > 0) {
+      const tail = this.streamTasks.get(list[list.length - 1].id);
+      if (tail !== undefined) return tail;
+    }
+    // 兜底：遍历当前对话的任务表，优先流式中任务，其次暂停态任务
+    let pausedTask: StreamTask | undefined = undefined;
+    this.streamTasks.forEach((task: StreamTask) => {
+      if (task.conversationId !== this.currentConversationId) return;
+      if (task.isStreaming) {
+        pausedTask = task; // 流式任务优先
+        return;
+      }
+      if (task.isPaused && pausedTask === undefined) {
+        pausedTask = task;
+      }
+    });
+    return pausedTask;
   }
 
   /**
@@ -900,7 +919,7 @@ export class ChatViewModel {
 
   // ===== 重新生成 / 新建分支 / 编辑 / 切换分支（对话分支核心） =====
 
-  /** AI 消息「重新生成」：直接覆盖当前回复内容重新生成（不产生新变体） */
+  /** AI 消息「换个回答」：直接覆盖当前回复内容重新生成（不产生新变体） */
   async regenerateMessage(aiMsg: Message): Promise<void> {
     await this.dbInitPromise;
     if (this.isDestroyed) return;
@@ -910,7 +929,7 @@ export class ChatViewModel {
       return;
     }
     if (aiMsg.isUser()) return; // 仅 AI 消息支持重新生成
-    // 编辑态下点击「重新生成」→ 自动取消编辑状态（清空 editingMessageId/prefill，输入框联动恢复）
+    // 编辑态下点击「换个回答」→ 自动取消编辑状态（清空 editingMessageId/prefill，输入框联动恢复）
     this.exitEditMode();
     // 覆盖前清空旧内容，进入流式态
     aiMsg.content = "";
@@ -930,7 +949,7 @@ export class ChatViewModel {
       this.webSearch, this.deepThinking, prompt);
   }
 
-  /** AI 消息「新建分支」：保留旧回复，创建新变体并重新生成（旧分支整条熄灭，可切回） */
+  /** AI 消息「生成新回复」：保留旧回复，创建新变体并重新生成（旧分支整条熄灭，可切回） */
   async createBranch(aiMsg: Message): Promise<void> {
     await this.dbInitPromise;
     if (this.isDestroyed) return;
@@ -940,7 +959,7 @@ export class ChatViewModel {
       return;
     }
     if (aiMsg.isUser()) return; // 仅 AI 消息支持新建分支
-    // 编辑态下点击「新建分支」→ 同样自动取消编辑状态（与重新生成语义一致）
+    // 编辑态下点击「生成新回复」→ 同样自动取消编辑状态（与重新生成语义一致）
     this.exitEditMode();
     // 1. 创建新变体（与旧回复同父、同分支组、序号 +1），先进入流式态
     const newVariant = this.createAndPersist("assistant", "", aiMsg.parentId);
@@ -1098,7 +1117,8 @@ export class ChatViewModel {
       // 删除的是当前激活的变体且有剩余兄弟 → 激活"紧邻前一个变体"（6/8 删除后跳到 5/7，而非回到第一个）
       const prevSibling = this.findPrevSiblingForDeleted(msg);
       if (prevSibling !== undefined) {
-        await this.rebuildActiveChain(prevSibling.id);
+        // 复用切换分支的锚点路径（scrollToTargetId + fromId）：删除后的回退与切换分支效果一致，
+        await this.rebuildActiveChain(prevSibling.id, prevSibling.id, msg.id, true);
       } else {
         this.reloadActiveList();
       }
