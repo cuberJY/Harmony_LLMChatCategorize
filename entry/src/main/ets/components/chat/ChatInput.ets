@@ -223,6 +223,7 @@ export struct ChatInput {
             this.onPause();
           } else if (this.inputText.trim().length > 0 && this.onChange) {
             // 普通态：发送（开关状态由父级 VM 读取（唯一真源），这里仅上报文本）
+            inputMethod.getController().stopInput(); // 发送后自动收起输入法键盘
             this.onChange(this.inputText.trim());
             this.inputText = ""; // 发送后清空输入框
           }

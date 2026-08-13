@@ -206,14 +206,11 @@ export struct ChatPage {
         }
       })
       .onTouch((event: TouchEvent) => {
-        // 手指按下列表 = 用户正在操作
+        // 手指按下列表 = 用户正在操作（滚动/长按/选择文本等）
         if (event.type === TouchType.Down) {
-          this.vm.setUserScrolling(true);
+          // 生成期间用户触摸屏幕操作内容 → 标记"操作中"，完成生成时不自动滚到底
+          this.vm.markUserOperating(true);
         }
-      })
-      .onScrollStop(() => {
-        // 滚动完全停止（含手指松开后的惯性滑完）→ 用户操作结束
-        this.vm.setUserScrolling(false);
       })
       // 用户手指拖动或惯性滑动 → 取消自动跟随）
       .onWillScroll(
@@ -224,9 +221,10 @@ export struct ChatPage {
           }
         },
       )
-      // 真正滚到列表底部边缘 → 恢复自动跟随
+      // 真正滚到列表底部边缘 → 恢复自动跟随（同时清除"操作中"标记与滚动操作状态）
       .onReachEnd(() => {
         this.vm.setAtBottom(true);
+        this.vm.resetScrollFollow();
       })
       .width("100%")
       .backgroundColor($r('app.color.page_bg'))

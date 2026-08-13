@@ -78,6 +78,25 @@ export class MessageDataSource implements IDataSource {
     this.listeners.forEach((l: DataChangeListener) => l.onDataReloaded());
   }
 
+  // 增量替换 [start, start+deleteCount) 区间为新 items（切换分支等局部更新用）：
+  // 用 onDataDelete/onDataAdd 精准通知，避免 onDataReloaded 全量重建导致前缀消息 Markdown 重渲染
+  replaceRange(start: number, deleteCount: number, insertItems: Message[]): void {
+    // 1. 删除旧区间（数组从后往前，保持前面 item 的 index 不变）
+    for (let i = deleteCount - 1; i >= 0; i--) {
+      this.messages.splice(start + i, 1);
+    }
+    for (let i = deleteCount - 1; i >= 0; i--) {
+      this.listeners.forEach((l: DataChangeListener) => l.onDataDelete(start + i));
+    }
+    // 2. 插入新 items（数组从前往后）
+    for (let i = 0; i < insertItems.length; i++) {
+      this.messages.splice(start + i, 0, insertItems[i]);
+    }
+    for (let i = 0; i < insertItems.length; i++) {
+      this.listeners.forEach((l: DataChangeListener) => l.onDataAdd(start + i));
+    }
+  }
+
   // 获取内部数组引用（用于构造上下文等只读场景）
   getAll(): Message[] {
     return this.messages;
@@ -131,9 +150,10 @@ export class ChatViewModel {
   private currentConversation: Conversation = new Conversation(); // 当前对话对象
   private currentConversationId: string = ""; // 当前对话id
   private isFirstUserMsg: boolean = true; // 标记是否第一条用户消息（决定是否生成标题）
-  private isUserScrolling: boolean = false; // 是否正在手动滚动
+  private isUserOperating: boolean = false; // 用户是否正在操作屏幕（滚动/长按/选择文本；操作中停止自动滚底）
   private isListLayoutReady: boolean = false; // List 是否已完成首帧布局（onAreaChange 首次回调置位）
   private pendingPinToBottom: boolean = false; // 布局就绪前挂起的钉底请求
+  private isRestoringAnchor: boolean = false; // 切换分支锚点恢复期间置位：抑制 onListItemHeightChanged 的自动钉底干扰
   private followAnimationTimerId: number = -1; // 流式正文跟随动画的防抖定时器（-1 表示无挂起）
   private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isDestroyed: boolean = false; // 页面销毁标记（销毁后流回调跳过 UI 更新）
@@ -205,6 +225,7 @@ export class ChatViewModel {
     this.editingMessageId = "";
     this.editingPrefill = "";
     this.title = "新对话";
+    this.resetScrollFollow(); // 新对话 → 恢复自动跟随
     this.streamState = "idle"; // 新对话无进行中任务，恢复发送键
   }
 
@@ -258,7 +279,7 @@ export class ChatViewModel {
 
     // 4. 渲染完成后滚动到底部
     this.isAtBottom = true;
-    this.isUserScrolling = false;
+    this.resetScrollFollow(); // 切换对话 → 恢复自动跟随
     this.pinToBottomAfterLoad();
     // 5. 依据该对话的进行中任务刷新 UI 状态（有流任务→暂停键；暂停任务→继续生成按钮）
     this.refreshStreamState();
@@ -366,6 +387,8 @@ export class ChatViewModel {
     deepThinking: boolean,
     searchQuery: string,
   ): Promise<void> {
+    // 用户主动发起生成（发送/重新生成/新建分支/编辑/继续生成）→ 恢复自动跟随
+    this.resetScrollFollow();
     // 0. 若 aiMsg 本身已登记"暂停"任务（重新生成/编辑复用同一条消息）→ 新请求接管。
     //    仅清理同一条消息的任务，不误删其他分支的暂停任务（多分支互不干扰）
     const existing = this.streamTasks.get(aiMsg.id);
@@ -634,6 +657,25 @@ export class ChatViewModel {
     task.timestampUpdated = true;
     task.targetConv.updatedAt = Date.now(); // 输出时刻（思考/正文首次到达时）
     ConversationRepository.getInstance().updateTimestampOnly(task.targetConv.id, task.targetConv.updatedAt);
+    // 历史落点：仅在"当前对话"首次输出内容时持久化激活链（切换变体不写库，落点 = 最后 AI 输出内容的分支）。
+    // 后台对话（用户已切走）的流不更新落点：其 DB 落点保持切走前最后输出的分支，避免互相污染
+    if (task.conversationId === this.currentConversationId) {
+      this.persistActiveChain();
+    }
+  }
+
+  /**
+   * 持久化当前激活链的 is_active 状态（AI 首次输出内容时调用）：
+   * 链上消息置 1、链外消息置 0，使 DB 与内存一致，作为打开历史对话时的分支落点
+   */
+  private persistActiveChain(): void {
+    const chainIds = new Set<string>();
+    this.messageDataSource.getAll().forEach((m: Message) => {
+      chainIds.add(m.id);
+    });
+    this.allMessages.forEach((m: Message) => {
+      ConversationRepository.getInstance().updateMessageActive(m.id, chainIds.has(m.id));
+    });
   }
 
   /**
@@ -677,6 +719,8 @@ export class ChatViewModel {
   async resumeStreaming(): Promise<void> {
     await this.dbInitPromise;
     if (this.isDestroyed) return;
+    // 点击「继续生成」自动取消编辑状态
+    this.exitEditMode();
     const convId = this.currentConversationId;
     // 仅定位当前激活链尾的任务：多分支下各分支任务独立，互不干扰
     let task = this.tailTask();
@@ -724,6 +768,7 @@ export class ChatViewModel {
     const context = this.buildContextBefore(aiMsg.id);
     context.push(aiMsg);
     // 3. 重新发起请求：baseContent = 暂停前已生成的内容（onComplete 写回时叠加本次增量）
+    this.jumpToBottom();
     this.startProviderStream(task, context, deepThinking, webSearch, baseContent);
   }
 
@@ -860,6 +905,8 @@ export class ChatViewModel {
       return;
     }
     if (aiMsg.isUser()) return; // 仅 AI 消息支持重新生成
+    // 编辑态下点击「重新生成」→ 自动取消编辑状态（清空 editingMessageId/prefill，输入框联动恢复）
+    this.exitEditMode();
     // 覆盖前清空旧内容，进入流式态
     aiMsg.content = "";
     aiMsg.reasoning = "";
@@ -888,6 +935,8 @@ export class ChatViewModel {
       return;
     }
     if (aiMsg.isUser()) return; // 仅 AI 消息支持新建分支
+    // 编辑态下点击「新建分支」→ 同样自动取消编辑状态（与重新生成语义一致）
+    this.exitEditMode();
     // 1. 创建新变体（与旧回复同父、同分支组、序号 +1），先进入流式态
     const newVariant = this.createAndPersist("assistant", "", aiMsg.parentId);
     newVariant.isThinking = true;
@@ -944,6 +993,7 @@ export class ChatViewModel {
   /** 用户消息「编辑」：进入编辑态（内容回填输入框），发送时创建新分支 */
   startEdit(msg: Message): void {
     if (msg.isStreaming) return; // 流式中不可编辑
+    this.resetScrollFollow(); // 进入编辑态 → 恢复自动跟随（用户即将输入/阅读输入区）
     this.editingMessageId = msg.id;
     this.editingPrefill = msg.content;
   }
@@ -966,7 +1016,8 @@ export class ChatViewModel {
     const target = group[(((curPos + delta) % total) + total) % total];
     // 传入 scrollToTargetId（目标变体）与 fromId（切换前的当前消息）：
     // 两者是"同位置兄弟"，替换数据前先滚到旧消息位置锁定区域，避免替换后闪烁
-    this.rebuildActiveChain(target.id, target.id, msg.id);
+    // persist=false：切换变体只是浏览/激活内存链，不改变 DB 中"最后 AI 输出分支"的历史落点
+    this.rebuildActiveChain(target.id, target.id, msg.id, false);
   }
 
   /**
@@ -1044,14 +1095,18 @@ export class ChatViewModel {
    * @param targetId 点亮的目标变体 id
    * @param scrollToTargetId 可选：重载后滚动到该消息，使其操作栏与列表底部对齐（切换分支用）
    * @param fromId 可选：切换前的当前消息 id（与目标变体同位置兄弟，用于替换数据前锁定滚动区域）
+   * @param persist 是否持久化激活链（切换变体 = 纯浏览置 false，不改变历史落点；新建分支/编辑 = 产生新内容置 true）
    */
-  private async rebuildActiveChain(targetId: string, scrollToTargetId?: string, fromId?: string): Promise<void> {
+  private async rebuildActiveChain(targetId: string, scrollToTargetId?: string, fromId?: string,
+    persist: boolean = true): Promise<void> {
     const convId = this.currentConversationId;
-    // 1. 全部熄灭（内存 + DB 批量）
+    // 1. 全部熄灭（内存；切换变体时不清 DB，保持"最后 AI 输出分支"的历史落点）
     this.allMessages.forEach((m: Message) => {
       m.isActive = false;
     });
-    ConversationRepository.getInstance().setAllMessagesInactive(convId);
+    if (persist) {
+      ConversationRepository.getInstance().setAllMessagesInactive(convId);
+    }
 
     // 2. 祖先路径：目标变体 → parent → … → 根
     // 注意：ArkTS 不支持 while 条件对循环体内被重新赋值的变量做类型收窄，
@@ -1083,29 +1138,68 @@ export class ChatViewModel {
       curId = next.id;
     }
 
-    // 4. 持久化激活状态（逐个 UPDATE，激活链消息量有限，性能可接受）
-    activeIds.forEach(id => {
-      ConversationRepository.getInstance().updateMessageActive(id, true);
-    });
+    // 4. 持久化激活状态（逐个 UPDATE，激活链消息量有限，性能可接受；切换变体跳过）
+    if (persist) {
+      activeIds.forEach(id => {
+        ConversationRepository.getInstance().updateMessageActive(id, true);
+      });
+    }
 
     // 5. 重载激活链列表
     const chain = this.buildActiveChain(this.allMessages);
 
     if (scrollToTargetId !== undefined && scrollToTargetId.length > 0) {
-      // 5.1 切换分支（预滚动）：替换数据前，基于旧列表先滚动到"切换前的当前消息"位置。
-      // 旧列表 item 已渲染，此滚动必然生效；目标变体与它是同 index 的兄弟（同位置），
-      // 替换后目标消息就地显示 → 滚动区域被锁定，避免"替换后回弹到顶部再跳回"的闪烁
+      // 5.1 切换分支（记录锚点 → 增量替换 → 恢复偏移）：
+      //   目标变体与旧消息是同 index 兄弟（前缀相同、contentY 相同），
+      //   只需在切换前偏移上补偿两者高度差，即可让操作栏（消息底部）保持原位
       const oldList = this.messageDataSource.getAll();
       const oldIdx = oldList.findIndex(m => m.id === fromId);
+      let baseOffset = -1; // -1 = 未记录（旧消息未渲染/异常），回退贴底
+      let baseHeight = -1;
       if (oldIdx >= 0) {
-        this.listScroller.scrollToIndex(oldIdx, false, ScrollAlign.END);
+        try {
+          baseOffset = Number(this.listScroller.currentOffset().yOffset);
+          baseHeight = Number(this.listScroller.getItemRect(oldIdx).height);
+        } catch (e) {
+          baseOffset = -1;
+          baseHeight = -1;
+        }
       }
-      this.messageDataSource.replaceAll(chain);
 
-      // 5.2 对齐微调：变体内容高度可能不同，等 item 渲染完成后按新内容重新对齐底部
-      // （操作栏贴底）。因 5.1 已锁定在同一区域，此滚动幅度小，无视觉跳变
+      // 增量替换：只更新变化的后缀，前缀 ListItem 复用（避免 onDataReloaded 全量重建 + Markdown 重渲染）
+      let prefixLen = 0;
+      const minLen = Math.min(oldList.length, chain.length);
+      while (prefixLen < minLen && oldList[prefixLen].id === chain[prefixLen].id) {
+        prefixLen++;
+      }
+      // 兜底：旧链非空但完全无公共前缀（异常场景）→ 退回全量重载
+      if (oldList.length > 0 && prefixLen === 0) {
+        this.messageDataSource.replaceAll(chain);
+      } else {
+        this.messageDataSource.replaceRange(prefixLen, oldList.length - prefixLen, chain.slice(prefixLen));
+      }
+
+      // 锚点恢复期间抑制 onListItemHeightChanged 的自动钉底，
+      // 避免新变体渲染增高触发 scrollToBottom 打断锚点恢复
+      this.isRestoringAnchor = true;
+
+      // 立即恢复到切换前偏移，消除数据替换可能引起的回弹/闪跳（失败忽略，setTimeout 兜底）
+      if (baseOffset >= 0) {
+        try {
+          this.listScroller.scrollTo({ xOffset: 0, yOffset: baseOffset });
+        } catch (e) {
+          // 忽略，交给下面的 setTimeout 兜底
+        }
+      }
+
+      // 5.2 等新变体渲染出高度后，按高度差微调，让操作栏精确回到切换前位置
       setTimeout(() => {
-        this.scrollMessageToBottom(scrollToTargetId);
+        if (baseOffset >= 0 && baseHeight > 0) {
+          this.scrollMessageToAnchor(scrollToTargetId, baseOffset, baseHeight);
+        } else {
+          this.isRestoringAnchor = false;
+          this.scrollMessageToBottom(scrollToTargetId);
+        }
       }, 50);
     } else {
       // 非切换分支（新建分支/编辑等）：直接替换 + 滚到底部
@@ -1115,8 +1209,8 @@ export class ChatViewModel {
   }
 
   /**
-   * 滚动到指定消息：让该消息底部（操作栏所在位置）与列表可视区底部对齐
-   * 不受 isAtBottom / isUserScrolling 守卫限制（切换分支属用户主动操作，需强制滚动）
+   * 兜底：把指定消息底部（操作栏所在位置）贴齐列表可视区底部。
+   * 仅在切换分支的锚点记录/恢复失败时调用，属异常兜底路径（无 isAtBottom 守卫）。
    */
   private scrollMessageToBottom(messageId: string): void {
     const list = this.messageDataSource.getAll();
@@ -1124,6 +1218,55 @@ export class ChatViewModel {
     if (idx < 0) return; // 目标不在激活链上（异常兜底）
     // ScrollAlign.END：目标消息的底部贴齐可视区底部，操作栏即落在输入区上方
     this.listScroller.scrollToIndex(idx, false, ScrollAlign.END);
+  }
+
+  /**
+   * 切换分支后按"高度差"恢复操作栏位置（不依赖 getItemRect 的 y 坐标语义）：
+   * 目标变体与旧消息是同 index 兄弟（前缀相同、contentY 相同），
+   * 只需在切换前的内容偏移 baseOffset 上补偿两者高度差，即可让操作栏（消息底部）保持原位
+   * @param messageId 目标消息 id（切换后的新变体）
+   * @param baseOffset 切换前的内容滚动偏移（currentOffset().yOffset）
+   * @param baseHeight 切换前旧消息的高度（getItemRect().height）
+   */
+  private scrollMessageToAnchor(messageId: string, baseOffset: number, baseHeight: number, retryCount: number = 0): void {
+    const list = this.messageDataSource.getAll();
+    const idx = list.findIndex(m => m.id === messageId);
+    if (idx < 0) {
+      // 目标不在激活链上（异常，理论上不会发生）：无法定位，直接放弃
+      this.isRestoringAnchor = false;
+      return;
+    }
+    try {
+      // 新变体高度（getItemRect 对部分可见的 item 也返回完整布局高度）
+      const newHeight = Number(this.listScroller.getItemRect(idx).height);
+      if (newHeight <= 0) {
+        // item 尚未完成布局（getItemRect 返回 0），延迟重试，避免过早回退贴底
+        if (retryCount < 5) {
+          setTimeout(() => {
+            this.scrollMessageToAnchor(messageId, baseOffset, baseHeight, retryCount + 1);
+          }, 50);
+        } else {
+          this.isRestoringAnchor = false;
+          this.scrollMessageToBottom(messageId);
+        }
+        return;
+      }
+      // 高度差补偿：让切换后消息底部（操作栏）回到切换前的屏幕位置
+      const newOffset = baseOffset + (newHeight - baseHeight);
+      // 绝对偏移滚动（xOffset 保持不变，本列表仅垂直滚动）
+      this.listScroller.scrollTo({ xOffset: 0, yOffset: newOffset });
+      this.isRestoringAnchor = false;
+    } catch (e) {
+      if (retryCount < 5) {
+        setTimeout(() => {
+          this.scrollMessageToAnchor(messageId, baseOffset, baseHeight, retryCount + 1);
+        }, 50);
+      } else {
+        // getItemRect 持续失败（item 始终未渲染等）：回退到贴底
+        this.isRestoringAnchor = false;
+        this.scrollMessageToBottom(messageId);
+      }
+    }
   }
 
   /** 将节点及其激活后续链全部置为非激活（创建新分支时熄灭旧分支），同步持久化 */
@@ -1312,9 +1455,15 @@ export class ChatViewModel {
 
   // 列表滚动控制（由页面 build 事件绑定）
 
-  // 用户开始/停止滚动（onTouch / onScrollStop）
-  setUserScrolling(scrolling: boolean): void {
-    this.isUserScrolling = scrolling;
+  // 用户操作屏幕标记（ChatPage 的 onTouch Down 置位）：
+  // 生成期间用户触摸列表操作内容时，停止所有自动滚动，避免消息完成生成时打断操作
+  markUserOperating(operating: boolean): void {
+    this.isUserOperating = operating;
+  }
+
+  // 用户主动操作（发送/编辑/新建/切换对话/回到底部）→ 重置滚动跟随状态，恢复自动钉底
+  resetScrollFollow(): void {
+    this.isUserOperating = false;
   }
 
   // 自动跟随开关（onWillScroll 取消 / onReachEnd 恢复）
@@ -1322,9 +1471,9 @@ export class ChatViewModel {
     this.isAtBottom = value;
   }
 
-  // 是否处于"自动跟随"状态（用户未手动滚动且停留在底部时才允许自动钉底）
+  // 是否处于"自动跟随"状态（用户未在操作屏幕、且停留在底部时才允许自动钉底）
   private shouldAutoScroll(): boolean {
-    return this.isAtBottom && !this.isUserScrolling;
+    return this.isAtBottom && !this.isUserOperating;
   }
 
   // 底层滚动：直达列表底部边缘，无任何守卫（scrollEdge 优先，个别版本回退 scrollToIndex）
@@ -1351,6 +1500,7 @@ export class ChatViewModel {
 
   // 悬浮按钮强制滚到底（用户主动点击，不依赖 isAtBottom 守卫；scrollToBottom 有守卫不适用）
   jumpToBottom(): void {
+    this.resetScrollFollow(); // 用户主动回到底部 → 恢复自动跟随
     this.setAtBottom(true); // 兜底：滚完直接隐藏按钮（个别版本 scrollEdge 可能不触发 onReachEnd）
     this.scrollToBottomEdge();
   }
@@ -1386,7 +1536,7 @@ export class ChatViewModel {
    * 解决"首次打开分支多、Markdown 渲染重的对话滚不到最后一条"的问题——
    * 懒加载 + Markdown 异步渲染导致 item 高度在渲染完成后才确定，单次 scrollToIndex
    * 只能滚到当前已知高度的底部；内容持续增高后相对位置不再在底。此处每间隔固定时长
-   * 重新钉底一次，直至内容高度稳定或用户开始操作（isAtBottom / isUserScrolling 守卫）。
+   * 重新钉底一次，直至内容高度稳定或用户开始操作（isAtBottom / isUserOperating 守卫）。
    *
    * 注意：从侧边栏返回时 List 可能尚未完成首帧布局（转场动画中），此刻 scrollToIndex
    * 不生效；若布局未就绪，请求先挂起，由 onListFirstLayout() 在布局完成时触发，
@@ -1435,28 +1585,33 @@ export class ChatViewModel {
    * Markdown 异步渲染完成后 item 增高 → 若当前处于钉底状态，立即重新滚动到底，
    * 比固定间隔重试响应更快且无空转。
    *
-   * 思考阶段（链尾正在思考）：即时钉底，跟随快；正文阶段（流式但非思考）：
-   * 交由 scheduleFlush 的 scrollToBottomSmooth 动画负责，这里跳过避免打断动画。
+   * 流式期间（思考/正文）统一跳过：跟随交给 scheduleFlush 的单一滚动路径（思考→即时、
+   * 正文→动画）。否则思考阶段 reasoning 快速增长会在 onAreaChange（布局回调）内高频
+   * 调用 scrollEdge，与布局/滚动互相触发，用户在思考阶段手动滑动时出现明显抖动。
    * @param delta 高度增量（vp），负值（折叠/移除）忽略
    */
   onListItemHeightChanged(delta: number): void {
     if (delta <= 0) {
       return;
     }
+    // 切换分支锚点恢复期间：新变体渲染增高不触发自动钉底，避免打断操作栏位置恢复
+    if (this.isRestoringAnchor) {
+      return;
+    }
     if (!this.shouldAutoScroll()) {
       return;
     }
-    // 正文生成阶段 → 交给平滑动画，避免即时 scrollEdge 打断动画造成跳动
-    if (this.isTailGeneratingContent()) {
+    // 流式期间的跟随统一由 scheduleFlush 驱动，这里跳过避免双路 scrollEdge 竞争
+    if (this.isTailStreaming()) {
       return;
     }
     this.scrollToBottom();
   }
 
-  // 当前激活链尾是否处于"正文生成中"（思考阶段返回 false，需即时跟随）
-  private isTailGeneratingContent(): boolean {
+  // 当前激活链尾是否正在流式回复中（流式期间 onListItemHeightChanged 跳过，交给 scheduleFlush）
+  private isTailStreaming(): boolean {
     const task = this.tailTask();
-    return task !== undefined && task.isStreaming && !task.aiMsg.isThinking;
+    return task !== undefined && task.isStreaming;
   }
 
   /**
