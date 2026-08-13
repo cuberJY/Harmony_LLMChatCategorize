@@ -302,9 +302,12 @@ export struct MessageBubble {
           if (line.trim().length > 0) {
             this.processLine(line);
           }
-          // key 必须含 index：思考行常出现长度相同且前 12 字符相同的重复行（如连续短句/重复活动行），
-          // 仅用「行长+前缀」会生成重复 key，触发 ForEach id 唯一性告警导致渲染错乱
-        }, (line: string, index: number) => `line_${this.message.id}_${index}_${line.length}_${line.substring(0, 12)}`)
+          /**
+           * key 只用 id + index：reasoning 是纯追加（append-only），index 对已有行恒定、新增行递增，
+           * 天然唯一且稳定。之前含 line.length/substring，流式思考时最后一行每次增长 key 都变，
+           * 导致该行被反复销毁重建（"再思考"阶段最明显，表现为页面抖动）
+           */
+        }, (line: string, index: number) => `line_${this.message.id}_${index}`)
       }
     }
     .width("100%")

@@ -134,7 +134,7 @@ export class ChatViewModel {
   private isUserScrolling: boolean = false; // 是否正在手动滚动
   private isListLayoutReady: boolean = false; // List 是否已完成首帧布局（onAreaChange 首次回调置位）
   private pendingPinToBottom: boolean = false; // 布局就绪前挂起的钉底请求
-  private followAnimationTimerId: number = -1; // 流式跟随动画的防抖定时器（-1 表示无挂起）
+  private followAnimationTimerId: number = -1; // 流式正文跟随动画的防抖定时器（-1 表示无挂起）
   private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isDestroyed: boolean = false; // 页面销毁标记（销毁后流回调跳过 UI 更新）
   // 当前对话的全部消息缓存（含非激活分支变体），分支切换/变体统计/激活链重建均基于它
@@ -1299,7 +1299,13 @@ export class ChatViewModel {
       }
       // 仅当前对话正在展示该任务时才滚动，避免 A 对话的流把 B 对话列表拖到底部
       if (this.currentConversationId === task.conversationId) {
-        this.scrollToBottomSmooth(); // 平滑跟随（200ms 动画），消除流式瞬移感
+        // 思考阶段（多阶段思考/搜索穿插）流式增量快，动画跟不上 → 即时钉底；
+        // 正文生成阶段相对慢 → 用防抖+动画保留顺滑观感
+        if (task.aiMsg.isThinking) {
+          this.scrollToBottom();
+        } else {
+          this.scrollToBottomSmooth();
+        }
       }
     }, 50); // 50ms ≈ 20fps，肉眼几乎无感知
   }
@@ -1349,7 +1355,7 @@ export class ChatViewModel {
     this.scrollToBottomEdge();
   }
 
-  // 流式跟随的平滑滚动：50ms 防抖 + 200ms EaseOut 动画（防抖保证同时间只有一组动画，避免动画堆积抖动）
+  // 正文生成阶段的平滑跟随：50ms 防抖 + 200ms EaseOut 动画（防抖保证同一时间只有一组动画，避免动画堆积）
   private scrollToBottomSmooth(): void {
     if (!this.shouldAutoScroll()) {
       return;
@@ -1363,7 +1369,6 @@ export class ChatViewModel {
         return;
       }
       if (this.scrollAnimator !== undefined) {
-        // 由页面注入的 animateTo 提供 200ms EaseOut 过渡，消除流式跟随的瞬移感
         this.scrollAnimator(() => this.scrollToBottom());
       } else {
         this.scrollToBottom();
@@ -1428,8 +1433,10 @@ export class ChatViewModel {
   /**
    * 消息项高度变化回调（ChatPage 的 ListItem.onAreaChange）：
    * Markdown 异步渲染完成后 item 增高 → 若当前处于钉底状态，立即重新滚动到底，
-   * 比固定间隔重试响应更快且无空转。流式期间由 scrollToBottomSmooth 统一负责平滑跟随，
-   * 这里跳过以避免无动画滚动打断动画。
+   * 比固定间隔重试响应更快且无空转。
+   *
+   * 思考阶段（链尾正在思考）：即时钉底，跟随快；正文阶段（流式但非思考）：
+   * 交由 scheduleFlush 的 scrollToBottomSmooth 动画负责，这里跳过避免打断动画。
    * @param delta 高度增量（vp），负值（折叠/移除）忽略
    */
   onListItemHeightChanged(delta: number): void {
@@ -1439,16 +1446,17 @@ export class ChatViewModel {
     if (!this.shouldAutoScroll()) {
       return;
     }
-    if (this.isCurrentStreaming()) {
-      return; // 流式跟随交给 scrollToBottomSmooth（带动画）
+    // 正文生成阶段 → 交给平滑动画，避免即时 scrollEdge 打断动画造成跳动
+    if (this.isTailGeneratingContent()) {
+      return;
     }
     this.scrollToBottom();
   }
 
-  // 当前激活链尾是否正在流式回复中（onListItemHeightChanged 据此跳过，避免与动画跟随竞争）
-  private isCurrentStreaming(): boolean {
+  // 当前激活链尾是否处于"正文生成中"（思考阶段返回 false，需即时跟随）
+  private isTailGeneratingContent(): boolean {
     const task = this.tailTask();
-    return task !== undefined && task.isStreaming;
+    return task !== undefined && task.isStreaming && !task.aiMsg.isThinking;
   }
 
   /**

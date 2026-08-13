@@ -30,7 +30,7 @@ export struct ChatPage {
     // 初始化数据库（页面级 UIAbilityContext）
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.vm.aboutToAppear(context);
-    // 注入流式跟随滚动动画：V2 组件内通过 getUIContext().animateTo 提供 200ms EaseOut 过渡
+    // 注入正文生成阶段的平滑跟随动画：思考阶段即时钉底，正文阶段用 200ms EaseOut 过渡保留顺滑
     this.vm.setScrollAnimator((action: () => void): void => {
       // animateTo 的 curve 支持字符串（'easeOut'），避免依赖 Curve 枚举导出
       this.getUIContext().animateTo({ duration: 200, curve: 'easeOut' }, action);
