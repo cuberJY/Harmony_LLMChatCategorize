@@ -258,13 +258,14 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 
 - **LazyForEach**：自定义 `IDataSource` 懒加载，只渲染可视区域消息
 - **流式节流**：增量文本攒入缓冲区，每 50ms 合并刷新一次
-- **智能滚动（平滑跟随）**：流式跟随改为 50ms 防抖 + 200ms EaseOut 平滑动画（`scrollToBottomSmooth`，动画由页面注入 `getUIContext().animateTo` 执行），消除流式逐字刷新时的瞬移感；同时间只有一组动画，避免动画堆积抖动
+- **智能滚动（分阶段跟随）**：流式跟随按阶段区分策略——思考阶段（多阶段思考 / 搜索穿插，增量快、动画跟不上）即时钉底（`scrollToBottom`）；正文生成阶段（相对慢）用 50ms 防抖 + 200ms EaseOut 平滑动画（`scrollToBottomSmooth`，动画由页面注入 `getUIContext().animateTo` 执行）保留顺滑观感；同时间只有一组动画，避免动画堆积抖动
 - **滚动定位优先 scrollEdge**：`scrollToBottom()` 优先 `scrollEdge(Edge.Bottom)` 直达底部边缘（不依赖末尾 item 是否已懒加载渲染，更可靠），个别平台不支持时回退 `scrollToIndex(末尾, END)`
 - **加载后多次钉底重试**：`pinToBottomAfterLoad()` 以 120ms 间隔重试最多 6 次，解决"分支多、Markdown 渲染重的对话打开时滚不到最后一条"（懒加载 + Markdown 异步渲染导致 item 高度后知后觉）
 - **首帧布局挂起**：List 首次 `onAreaChange` 触发 `onListFirstLayout()`；布局未就绪前的钉底请求先挂起（`pendingPinToBottom`），避免从侧边栏返回的转场期间"打开瞬间停留在列表顶部"
-- **消息项高度变化即时钉底**：ListItem `onAreaChange` 上报高度增量（`onListItemHeightChanged`），Markdown 异步渲染增高时立即重新钉底，比固定间隔重试响应更快且无空转；流式期间跳过，交由动画跟随统一处理
+- **消息项高度变化即时钉底**：ListItem `onAreaChange` 上报高度增量（`onListItemHeightChanged`），Markdown 异步渲染增高时立即重新钉底，比固定间隔重试响应更快且无空转；正文生成阶段交由平滑动画统一处理（跳过以打断动画），思考阶段（`isTailGeneratingContent()` 返回 false）即时钉底保证快增量跟得上
 - **变体切换滚动对齐（防闪跳）**：切换分支时目标变体与当前消息是"同位兄弟"——先基于旧列表 `scrollToIndex(fromId, END)` 滚动到同位位置锁定可视区域（旧 item 已渲染，必生效），`replaceAll` 重载后延时 `scrollMessageToBottom(targetId)`（`ScrollAlign.END`，不受自动跟随守卫限制）将目标消息底部（操作栏）与可视区底部对齐，避免"替换后回弹顶部再跳回"的闪跳
 - **滚动守卫重构**：`shouldAutoScroll()`（= `isAtBottom && !isUserScrolling`）统一判定自动跟随；底层 `scrollToBottomEdge()`（无守卫，`scrollEdge` 优先、个别版本回退 `scrollToIndex`）供 `scrollToBottom` / `jumpToBottom` 复用
+- **思考行 key 稳定性**：思考过程逐行渲染的 ForEach key 仅用「消息 id + 行号 index」（reasoning 为 append-only，index 对已有行恒定、新增行递增，天然唯一稳定）；此前 key 含 `line.length` / `substring`，流式思考时最后一行每次增量增长 key 都变、导致该行反复销毁重建，表现为页面抖动
 - **Markdown 库预热**：ChatPage 内置一个 `Visibility.Hidden` + 零尺寸的 `Markdown` 组件，提前触发 lv-markdown-in 的 worker 初始化（进程内单例），消除历史对话首次打开时"正文卡顿"
 - **页面过渡动画**：ChatPage 与 SideBarPage 左右平移推入
 - **返回键拦截**：ChatPage 是栈底主页面（isEntry 入栈），系统返回键 = 退出应用；`onBackPressed` 拦截后 `terminateSelf()` 直接退出，避免 NavDestination 被弹出回到空白的 Navigation 首页
