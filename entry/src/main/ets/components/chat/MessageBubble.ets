@@ -70,6 +70,11 @@ export struct MessageBubble {
   private foldTimerId: number = -1; // 停止输出后自动折叠思考的定时器 ID（组件销毁时取消）
 
   aboutToAppear(): void {
+    // 进入对话记录时默认折叠思考过程：非流式的历史消息（isStreaming=false）初始即为折叠态；
+    // 流式中的新消息（创建时已置 isStreaming=true）保持展开以实时展示思考内容
+    if (!this.message.isStreaming) {
+      this.isReasoningExpanded = false;
+    }
     // 依据当前系统颜色模式配置 Markdown 颜色与代码块/思维导图主题
     this.applyMarkdownTheme();
     this.mdController
@@ -271,7 +276,7 @@ export struct MessageBubble {
         )
           .fontSize($r('app.float.font_body'))
           .fontColor($r('app.color.text_secondary'))
-          .margin({ left: $r('app.float.space_xs') })
+          .margin({ left: $r('app.float.space_xxs') })
           .layoutWeight(1)
         // 折叠/展开箭头
         SymbolGlyph(
@@ -307,12 +312,12 @@ export struct MessageBubble {
     .padding({
       left: $r('app.float.bubble_padding_h'),
       right: $r('app.float.bubble_padding_h'),
-      top: $r('app.float.bubble_padding_v'),
+      top: $r('app.float.bubble_padding_v'), 
       bottom: $r('app.float.bubble_padding_v'),
     })
     .backgroundColor($r('app.color.bubble_bg_thinking'))
     .borderRadius($r('app.float.bubble_radius'))
-    .margin({ bottom: $r('app.float.space_xs') });
+    .margin({ bottom: $r('app.float.space_sm') });
   }
 
   /**
@@ -341,16 +346,19 @@ export struct MessageBubble {
           .fontSize($r('app.float.font_icon_sm'))
           .fontWeight(600)
           .fontColor([$r('app.color.search_icon')])
-          .margin({ right: $r('app.float.space_sm') })
+          .margin({
+            right: $r('app.float.space_sm'),
+            top: $r('app.float.space_xxs')
+          })
         Text(line.substring(4))
           .fontSize($r('app.float.font_thinking'))
           .fontColor($r('app.color.text_secondary'))
           .layoutWeight(1)
       }
-      .alignItems(VerticalAlign.Center)
+      .alignItems(VerticalAlign.Top)
       .margin({
-        left: $r('app.float.space_xxl'),
-        right: $r('app.float.space_xl'),
+        left: $r('app.float.space_xs'),
+        right: $r('app.float.space_md'),
         top: $r('app.float.space_sm')
       })
     } else if (line.startsWith("【浏览】")) {
@@ -359,27 +367,42 @@ export struct MessageBubble {
           .fontSize($r('app.float.font_icon_sm'))
           .fontWeight(600)
           .fontColor([$r('app.color.search_icon')])
-          .margin({ right: $r('app.float.space_sm') })
+          .margin({
+            right: $r('app.float.space_sm'),
+            top: $r('app.float.space_xxs')
+          })
         Text(line.substring(4))
           .fontSize($r('app.float.font_thinking'))
           .fontColor($r('app.color.text_secondary'))
           .layoutWeight(1)
       }
-      .alignItems(VerticalAlign.Center)
+      .alignItems(VerticalAlign.Top)
       .margin({
-        left: $r('app.float.space_xxl'),
-        right: $r('app.float.space_xl'),
+        left: $r('app.float.space_xs'),
+        right: $r('app.float.space_md'),
         top: $r('app.float.space_sm')
       })
     } else {
-      Text(line)
-        .fontSize($r('app.float.font_thinking'))
-        .fontColor($r('app.color.text_secondary'))
+      Row() {
+        SymbolGlyph($r("sys.symbol.lightbulb_1"))
+          .fontSize($r('app.float.font_icon_sm'))
+          .fontWeight(600)
+          .fontColor([$r('app.color.text_secondary')])
+          .margin({
+            right: $r('app.float.space_sm'),
+            top: $r('app.float.space_xxs')
+          })
+        Text(line)
+          .fontSize($r('app.float.font_thinking'))
+          .fontColor($r('app.color.text_secondary'))
+          .layoutWeight(1)
+        }
+        .alignItems(VerticalAlign.Top)
         .margin({
-          left: $r('app.float.space_xl'),
+          left: $r('app.float.space_xs'),
           right: $r('app.float.space_xs'),
           top: $r('app.float.space_sm')
-        })
+      })
     }
   }
 

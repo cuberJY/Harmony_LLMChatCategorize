@@ -54,8 +54,8 @@ export struct ConversationItem {
           if (this.isSelected) {
             SymbolGlyph($r("sys.symbol.checkmark")) // 对勾
             .fontSize($r('app.float.font_icon_lg'))
+            .fontWeight(600)
             .fontColor([Color.White])
-            .margin({ left: $r('app.float.space_sm') })
           }
         }
         .width(24)
