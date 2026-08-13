@@ -143,7 +143,7 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
 
 - Regenerate overwrites the current reply; new branch keeps the old reply and creates a new variant
 - Switching branches is pure browsing without DB writes (`persist=false`), preserving the historical landing point
-- Editing creates a new branch in place; deletion cascades the subtree and its stream tasks
+- Editing creates a new branch in place (the message being edited cannot be deleted); deletion cascades the subtree and auto-activates the nearest previous variant
 - `allMessages` caches all messages (including inactive variants) as the single source of truth
 
 ### 8. Rendering & Scroll Optimizations
