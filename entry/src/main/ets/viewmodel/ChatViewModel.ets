@@ -27,6 +27,10 @@ import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService"
 // 连续重试达到上限仍无正文才落回"暂停态"提示用户
 const MAX_AUTO_RETRY: number = 2;
 
+// 切换分支后的"锚点静默期"（ms）：从切换开始到补偿完成后的一段时间内抑制自动钉底，
+// 覆盖新变体 Markdown 异步渲染增高窗口，避免补偿滚动触发 onReachEnd 后又被渲染增高钉到底部
+const ANCHOR_SUPPRESS_MS: number = 1000;
+
 /**
  * 分支组变体信息（用于气泡左下角渲染 "< 当前 / 总数 >"）
  * @param current 当前变体序号（1 起）
@@ -154,6 +158,7 @@ export class ChatViewModel {
   private isListLayoutReady: boolean = false; // List 是否已完成首帧布局（onAreaChange 首次回调置位）
   private pendingPinToBottom: boolean = false; // 布局就绪前挂起的钉底请求
   private isRestoringAnchor: boolean = false; // 切换分支锚点恢复期间置位：抑制 onListItemHeightChanged 的自动钉底干扰
+  private anchorSuppressUntil: number = 0; // 切换分支后抑制自动钉底的截止时间戳（ms）：覆盖 Markdown 异步渲染增高窗口
   private followAnimationTimerId: number = -1; // 流式正文跟随动画的防抖定时器（-1 表示无挂起）
   private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isDestroyed: boolean = false; // 页面销毁标记（销毁后流回调跳过 UI 更新）
@@ -1033,6 +1038,12 @@ export class ChatViewModel {
     const convId = this.currentConversationId;
     if (convId.length === 0) return; // 空白新对话尚未入库，无可删除
 
+    // 编辑中的用户消息不可删除：其内容正回填在输入框中，删除会破坏"编辑 → 新建分支"的锚点
+    if (msg.id === this.editingMessageId) {
+      showToast($r('app.string.edit_delete_forbidden'));
+      return;
+    }
+
     // 2. 收集子树 id 集合：该消息 + 所有后代（含各变体分支），沿 parentId 广度遍历
     const deleteIds: string[] = [];
     const stack: string[] = [msg.id];
@@ -1084,7 +1095,13 @@ export class ChatViewModel {
     if (this.allMessages.length === 0) {
       this.newConversation(); // 删空 → 回到新对话状态
     } else {
-      this.reloadActiveList();
+      // 删除的是当前激活的变体且有剩余兄弟 → 激活"紧邻前一个变体"（6/8 删除后跳到 5/7，而非回到第一个）
+      const prevSibling = this.findPrevSiblingForDeleted(msg);
+      if (prevSibling !== undefined) {
+        await this.rebuildActiveChain(prevSibling.id);
+      } else {
+        this.reloadActiveList();
+      }
     }
   }
 
@@ -1182,6 +1199,10 @@ export class ChatViewModel {
       // 锚点恢复期间抑制 onListItemHeightChanged 的自动钉底，
       // 避免新变体渲染增高触发 scrollToBottom 打断锚点恢复
       this.isRestoringAnchor = true;
+      // 锚点静默期：从切换开始到补偿完成后的一段时间内，抑制所有自动钉底。
+      // 补偿滚动可能触发 onReachEnd（会清除 isUserOperating），而新变体 Markdown 异步渲染
+      // 增高又会走 onListItemHeightChanged → scrollToBottom，导致"切换后跳到底部"
+      this.anchorSuppressUntil = Date.now() + ANCHOR_SUPPRESS_MS;
 
       // 立即恢复到切换前偏移，消除数据替换可能引起的回弹/闪跳（失败忽略，setTimeout 兜底）
       if (baseOffset >= 0) {
@@ -1197,8 +1218,8 @@ export class ChatViewModel {
         if (baseOffset >= 0 && baseHeight > 0) {
           this.scrollMessageToAnchor(scrollToTargetId, baseOffset, baseHeight);
         } else {
+          // 锚点未记录（异常）：保持当前偏移不滚动，避免回退贴底造成页面混乱
           this.isRestoringAnchor = false;
-          this.scrollMessageToBottom(scrollToTargetId);
         }
       }, 50);
     } else {
@@ -1209,18 +1230,6 @@ export class ChatViewModel {
   }
 
   /**
-   * 兜底：把指定消息底部（操作栏所在位置）贴齐列表可视区底部。
-   * 仅在切换分支的锚点记录/恢复失败时调用，属异常兜底路径（无 isAtBottom 守卫）。
-   */
-  private scrollMessageToBottom(messageId: string): void {
-    const list = this.messageDataSource.getAll();
-    const idx = list.findIndex(m => m.id === messageId);
-    if (idx < 0) return; // 目标不在激活链上（异常兜底）
-    // ScrollAlign.END：目标消息的底部贴齐可视区底部，操作栏即落在输入区上方
-    this.listScroller.scrollToIndex(idx, false, ScrollAlign.END);
-  }
-
-  /**
    * 切换分支后按"高度差"恢复操作栏位置（不依赖 getItemRect 的 y 坐标语义）：
    * 目标变体与旧消息是同 index 兄弟（前缀相同、contentY 相同），
    * 只需在切换前的内容偏移 baseOffset 上补偿两者高度差，即可让操作栏（消息底部）保持原位
@@ -1228,11 +1237,12 @@ export class ChatViewModel {
    * @param baseOffset 切换前的内容滚动偏移（currentOffset().yOffset）
    * @param baseHeight 切换前旧消息的高度（getItemRect().height）
    */
-  private scrollMessageToAnchor(messageId: string, baseOffset: number, baseHeight: number, retryCount: number = 0): void {
+  private scrollMessageToAnchor(messageId: string, baseOffset: number, baseHeight: number, retryCount: number = 0,
+    lastHeight: number = -1, stableCount: number = 0): void {
     const list = this.messageDataSource.getAll();
     const idx = list.findIndex(m => m.id === messageId);
     if (idx < 0) {
-      // 目标不在激活链上（异常，理论上不会发生）：无法定位，直接放弃
+      // 目标不在激活链上（异常，理论上不会发生）：无法定位，保持当前位置
       this.isRestoringAnchor = false;
       return;
     }
@@ -1240,33 +1250,59 @@ export class ChatViewModel {
       // 新变体高度（getItemRect 对部分可见的 item 也返回完整布局高度）
       const newHeight = Number(this.listScroller.getItemRect(idx).height);
       if (newHeight <= 0) {
-        // item 尚未完成布局（getItemRect 返回 0），延迟重试，避免过早回退贴底
-        if (retryCount < 5) {
+        // item 尚未完成布局（getItemRect 返回 0）：延迟重试，等待布局完成后再检测。
+        // 上限放宽到约 10s（200 次 × 50ms），超时放弃补偿（保持原位）
+        if (retryCount < 200) {
           setTimeout(() => {
             this.scrollMessageToAnchor(messageId, baseOffset, baseHeight, retryCount + 1);
           }, 50);
         } else {
           this.isRestoringAnchor = false;
-          this.scrollMessageToBottom(messageId);
         }
         return;
       }
-      // 高度差补偿：让切换后消息底部（操作栏）回到切换前的屏幕位置
-      const newOffset = baseOffset + (newHeight - baseHeight);
-      // 绝对偏移滚动（xOffset 保持不变，本列表仅垂直滚动）
-      this.listScroller.scrollTo({ xOffset: 0, yOffset: newOffset });
-      this.isRestoringAnchor = false;
+      // 高度稳定检测：Markdown 异步渲染分多次增高（图片/代码块/表格），初始布局高度（如 181）
+      // 远小于最终高度（如 4750）。必须等连续多次测量值一致才补偿，否则 newOffset 基于错误高度计算
+      const isStable = lastHeight >= 0 && Math.abs(newHeight - lastHeight) < 0.5;
+      const newStable = isStable ? stableCount + 1 : 0;
+      if (newStable < 2) {
+        if (retryCount < 200) {
+          // 高度仍在变化：继续轮询（记录本次高度与稳定计数）
+          setTimeout(() => {
+            this.scrollMessageToAnchor(messageId, baseOffset, baseHeight, retryCount + 1, newHeight, newStable);
+          }, 50);
+        } else {
+          // 持续变化超过 10s：按当前高度补偿，避免永久等待
+          this.compensateAnchor(messageId, baseOffset, baseHeight, newHeight);
+        }
+        return;
+      }
+      // 高度稳定：执行高度差补偿，让切换后消息底部（操作栏）回到切换前的屏幕位置
+      this.compensateAnchor(messageId, baseOffset, baseHeight, newHeight);
     } catch (e) {
-      if (retryCount < 5) {
+      if (retryCount < 200) {
         setTimeout(() => {
-          this.scrollMessageToAnchor(messageId, baseOffset, baseHeight, retryCount + 1);
+          this.scrollMessageToAnchor(messageId, baseOffset, baseHeight, retryCount + 1, lastHeight, stableCount);
         }, 50);
       } else {
-        // getItemRect 持续失败（item 始终未渲染等）：回退到贴底
+        // getItemRect 持续失败（item 始终未渲染等）：保持当前位置，不回退贴底
         this.isRestoringAnchor = false;
-        this.scrollMessageToBottom(messageId);
       }
     }
+  }
+
+  /** 执行高度差补偿滚动（操作栏回到切换前屏幕位置），并续期锚点静默期 */
+  private compensateAnchor(messageId: string, baseOffset: number, baseHeight: number, newHeight: number): void {
+    const newOffset = baseOffset + (newHeight - baseHeight);
+    try {
+      // 绝对偏移滚动（xOffset 保持不变，本列表仅垂直滚动）
+      this.listScroller.scrollTo({ xOffset: 0, yOffset: newOffset });
+    } catch (e) {
+      // 忽略，保持当前位置
+    }
+    this.isRestoringAnchor = false;
+    // 补偿完成后续期静默期：本次补偿滚动可能触发 onReachEnd，且新变体 Markdown 仍在异步渲染
+    this.anchorSuppressUntil = Date.now() + ANCHOR_SUPPRESS_MS;
   }
 
   /** 将节点及其激活后续链全部置为非激活（创建新分支时熄灭旧分支），同步持久化 */
@@ -1363,6 +1399,29 @@ export class ChatViewModel {
     if (portIdx >= 0) u = u.substring(0, portIdx);
     if (u.startsWith('www.')) u = u.substring(4);
     return u.length > 0 ? u : url;
+  }
+
+  /**
+   * 删除消息后寻找"紧邻前一个变体"作为新激活目标：
+   * 仅当被删除消息原本处于激活态、且其分支组内仍有剩余变体时，返回前一个变体
+   * （如 6/8 被删除 → 激活 5/7）；被删除的是第一个变体时回退到剩余第一个（原 2 号 → 现 1 号）。
+   * 其余情况返回 undefined，走原有 buildActiveChain 兜底（保持当前激活链不动）。
+   */
+  private findPrevSiblingForDeleted(deleted: Message): Message | undefined {
+    if (!deleted.isActive) return undefined; // 删除非激活变体不影响激活链
+    if (deleted.parentId.length === 0) return undefined; // 根消息无兄弟变体概念
+    const group = this.allMessages.filter(m => m.branchGroupId === deleted.branchGroupId && m.id !== deleted.id);
+    if (group.length === 0) return undefined; // 无剩余兄弟（唯一变体被删）
+    const sorted = group.slice().sort((a, b) => a.variantIndex - b.variantIndex);
+    let prev: Message | undefined = undefined;
+    for (const m of sorted) {
+      if (m.variantIndex < deleted.variantIndex) {
+        prev = m; // 持续记录"紧邻小于被删变体"的最后一个（即上一个变体）
+      } else {
+        break;
+      }
+    }
+    return prev ?? sorted[0]; // 无更小变体（删的是第一个）→ 回退到剩余第一个
   }
 
   /** 依据 allMessages 的 isActive 状态重建列表（激活链）并钉到底部 */
@@ -1466,6 +1525,19 @@ export class ChatViewModel {
     this.isUserOperating = false;
   }
 
+  /**
+   * 滚动到达列表底部边缘（ChatPage onReachEnd 回调）：
+   * 切换分支锚点静默期内忽略——补偿滚动（代码滚动）到达底部不代表用户行为，
+   * 若此时清除"操作中"标记并恢复跟随，后续 Markdown 异步渲染增高会触发自动钉底跳变
+   */
+  handleReachEnd(): void {
+    if (Date.now() < this.anchorSuppressUntil) {
+      return;
+    }
+    this.setAtBottom(true);
+    this.resetScrollFollow();
+  }
+
   // 自动跟随开关（onWillScroll 取消 / onReachEnd 恢复）
   setAtBottom(value: boolean): void {
     this.isAtBottom = value;
@@ -1473,6 +1545,10 @@ export class ChatViewModel {
 
   // 是否处于"自动跟随"状态（用户未在操作屏幕、且停留在底部时才允许自动钉底）
   private shouldAutoScroll(): boolean {
+    // 切换分支锚点静默期内不自动钉底，避免异步渲染增高/补偿滚动触发 onReachEnd 后跳到底
+    if (Date.now() < this.anchorSuppressUntil) {
+      return false;
+    }
     return this.isAtBottom && !this.isUserOperating;
   }
 
@@ -1594,8 +1670,8 @@ export class ChatViewModel {
     if (delta <= 0) {
       return;
     }
-    // 切换分支锚点恢复期间：新变体渲染增高不触发自动钉底，避免打断操作栏位置恢复
-    if (this.isRestoringAnchor) {
+    // 切换分支锚点恢复/静默期内：新变体渲染增高不触发自动钉底，避免打断操作栏位置恢复
+    if (this.isRestoringAnchor || Date.now() < this.anchorSuppressUntil) {
       return;
     }
     if (!this.shouldAutoScroll()) {

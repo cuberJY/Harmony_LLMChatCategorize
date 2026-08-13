@@ -1,5 +1,5 @@
 /**
- * 统一日志封装（阶段0）
+ * 统一日志封装
  * 基于 @kit.PerformanceAnalysisKit 的 hilog
  * 全局统一 domain 与 tag，替换散落的 console.error，便于按模块过滤与定位
  */

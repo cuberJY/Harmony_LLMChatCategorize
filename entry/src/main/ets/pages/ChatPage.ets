@@ -158,6 +158,8 @@ export struct ChatPage {
                   // 分支变体信息：驱动 "< 当前 / 总数 >"（切换分支后列表重建，@Param 自动更新）
                   variantCurrent: this.vm.getVariantInfo(msg).current,
                   variantTotal: this.vm.getVariantInfo(msg).total,
+                  // 正在编辑的用户消息 id：编辑中的消息禁止删除（点击直接 toast）
+                  editingMessageId: this.vm.editingMessageId,
                   // 重新生成：覆盖当前 AI 回复
                   onRegenerate: (m: Message) => {
                     this.vm.regenerateMessage(m);
@@ -212,19 +214,21 @@ export struct ChatPage {
           this.vm.markUserOperating(true);
         }
       })
-      // 用户手指拖动或惯性滑动 → 取消自动跟随）
+      // 用户主动滚动 → 取消自动跟随（手指拖动/惯性滑动/滚动条拖动/其他用户输入）；
+      // 排除代码滚动（SCROLLER/SCROLLER_ANIM）与边缘回弹（EDGE_EFFECT），避免打断自动钉底
       .onWillScroll(
         (scrollOffset: number, scrollState: ScrollState, scrollSource: ScrollSource) => {
-          // 只有用户手指拖动/惯性滑动才取消自动跟随
-          if (scrollSource === ScrollSource.DRAG || scrollSource === ScrollSource.FLING) {
+          if (scrollSource === ScrollSource.DRAG || scrollSource === ScrollSource.FLING
+            || scrollSource === ScrollSource.OTHER_USER_INPUT
+            || scrollSource === ScrollSource.SCROLL_BAR
+            || scrollSource === ScrollSource.SCROLL_BAR_FLING) {
             this.vm.setAtBottom(false);
           }
         },
       )
       // 真正滚到列表底部边缘 → 恢复自动跟随（同时清除"操作中"标记与滚动操作状态）
       .onReachEnd(() => {
-        this.vm.setAtBottom(true);
-        this.vm.resetScrollFollow();
+        this.vm.handleReachEnd();
       })
       .width("100%")
       .backgroundColor($r('app.color.page_bg'))

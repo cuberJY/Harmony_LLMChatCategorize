@@ -193,6 +193,10 @@
       "value": "确定删除该消息吗？删除后将同时删除该消息后续的所有分支"
     },
     {
+      "name": "edit_delete_forbidden",
+      "value": "正在编辑中，暂不能删除"
+    },
+    {
       "name": "cancel",
       "value": "取消"
     }

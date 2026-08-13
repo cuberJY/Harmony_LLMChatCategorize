@@ -10,6 +10,7 @@ import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.Ability
 import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction, SymbolGlyphModifier, window } from '@kit.ArkUI';
 import { ErrorCategory, errorMessageResource, errorTitleResource } from "../../service/LLMError";
+import { showToast } from "../../common/Utils";
 @ComponentV2
 export struct MessageBubble {
   /**
@@ -57,6 +58,7 @@ export struct MessageBubble {
    */
   @Param variantCurrent: number = 0; // 当前变体序号（1 起，驱动 "< 4 / 5 >" 中的 4）
   @Param variantTotal: number = 0; // 分支组变体总数（驱动 "5"）
+  @Param editingMessageId: string = ""; // 正在编辑的用户消息 id（编辑中的消息禁止删除）
   @Event onRegenerate: (msg: Message) => void = () => {}; // 「重新生成」：覆盖当前回复
   @Event onCreateBranch: (msg: Message) => void = () => {}; // 「新建分支」：保留旧回复生成新变体
   @Event onEdit: (msg: Message) => void = () => {}; // 「编辑」：回填输入框创建新分支
@@ -804,6 +806,7 @@ export struct MessageBubble {
             }
           }
           .layoutWeight(1)
+          .margin({ right: $r('app.float.space_xs') })
           .justifyContent(FlexAlign.End)
         } else {
           // AI 消息：左组（切换分支 + 复制）与右组（新建分支 + 重新生成）
@@ -1135,7 +1138,7 @@ export struct MessageBubble {
   variantSwitcher() {
     Row() {
       SymbolGlyph($r("sys.symbol.chevron_left"))
-        .fontSize($r('app.float.font_icon_md'))
+        .fontSize($r('app.float.font_icon_lg'))
         .fontWeight(700)
         .fontColor([$r('app.color.text_secondary')])
         .padding({
@@ -1154,7 +1157,7 @@ export struct MessageBubble {
           right: $r('app.float.space_xs')
         })
       SymbolGlyph($r("sys.symbol.chevron_right"))
-        .fontSize($r('app.float.font_icon_md'))
+        .fontSize($r('app.float.font_icon_lg'))
         .fontWeight(700)
         .fontColor([$r('app.color.text_secondary')])
         .padding({
@@ -1166,6 +1169,7 @@ export struct MessageBubble {
         })
     }
     .padding({
+      right: $r('app.float.space_xs'),
       top: $r('app.float.space_xs'),
       bottom: $r('app.float.space_xs')
     })
@@ -1187,8 +1191,13 @@ export struct MessageBubble {
   /**
    * 「删除」确认弹窗：系统对话框二次确认，避免误删
    * 用户点「删除」按钮（index=1）才真正回调 onDelete；取消/点遮罩关闭不删除
+   * 编辑中的消息直接 toast 提示，不进入确认弹窗（其内容正回填在输入框中）
    */
   private confirmDelete(): void {
+    if (this.editingMessageId === this.message.id) {
+      showToast($r('app.string.edit_delete_forbidden'));
+      return;
+    }
     this.getUIContext().getPromptAction().showDialog({
       title: $r('app.string.delete_message_title'),
       message: $r('app.string.delete_message_confirm'),
