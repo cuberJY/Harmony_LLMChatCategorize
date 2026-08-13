@@ -25,7 +25,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Web search** — server-side `web_search` tool; search terms and browsed pages visualized in real time, with an "x pages" list
 - **Pause / resume** — abort mid-generation while keeping content; auto-pause on network errors; resume unfinished generation after restart
 - **Structured errors** — error card shows category + copy + expandable detail, keeping the body clean
-- **Conversation branches** — regenerate / new branch / switch branch; old branches kept in the DB
+- **Conversation branches** — change answer / generate new reply / switch branch; old branches kept in the DB
 - **Edit / delete messages** — editing creates a new branch in place; deletion cascades
 - **Folder categorization** — unlimited depth; create / rename / move / delete; archive conversations
 - **History** — auto-persisted, time-grouped sidebar, search / multi-select / batch delete
@@ -141,9 +141,9 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
    │           └ A1' (variant 1)                  ← sibling variant (dimmed, switchable)
 ```
 
-- Regenerate overwrites the current reply; new branch keeps the old reply and creates a new variant
+- Change answer overwrites the current reply; generate new reply keeps the old reply and creates a new variant
 - Switching branches is pure browsing without DB writes (`persist=false`), preserving the historical landing point
-- Editing creates a new branch in place (the message being edited cannot be deleted); deletion cascades the subtree and auto-activates the nearest previous variant
+- Editing creates a new branch in place; deletion cascades the subtree and its stream tasks
 - `allMessages` caches all messages (including inactive variants) as the single source of truth
 
 ### 8. Rendering & Scroll Optimizations
