@@ -1,4 +1,3 @@
-import abilityTest from './Ability.test';
 import { describe, expect, it } from '@ohos/hypium';
 import { getGroupName, formatSmartTime } from '../../../main/ets/common/TimeUtil';
 import { generateId } from '../../../main/ets/common/Utils';

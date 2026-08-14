@@ -217,7 +217,7 @@ export struct ChatPage {
           this.vm.markUserOperating(true);
         } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
           // 手指抬起 → 拖动结束，恢复流式 UI 写入
-          this.vm.setUserDragging(false);
+          this.vm.setUserScrolling(false);
         }
       })
       // 用户主动滚动 → 取消自动跟随（手指拖动/惯性滑动/滚动条拖动/其他用户输入）；
@@ -231,8 +231,8 @@ export struct ChatPage {
             || scrollSource === ScrollSource.SCROLL_BAR_FLING;
           // 记录来源，供 onReachEnd 区分"用户滚回底部"与"代码滚动到底"
           this.vm.setLastScrollSource(isUserGesture);
-          // 仅 DRAG（手指按住拖动）暂停流式 UI 写入；FLING 惯性滚动手指已离开，不产生抖动，无需暂停
-          this.vm.setUserDragging(scrollSource === ScrollSource.DRAG);
+          // 用户滚动手势（DRAG/FLING/滚动条等）期间暂停流式 UI 写入，避免底部高度变化与滚动竞争抖动
+          this.vm.setUserScrolling(isUserGesture);
           // 用户主动滚动 → 取消自动跟随（代码滚动 SCROLLER/SCROLLER_ANIM 不取消）
           if (isUserGesture) {
             this.vm.setAtBottom(false);
@@ -243,10 +243,10 @@ export struct ChatPage {
       .onReachEnd(() => {
         this.vm.handleReachEnd();
       })
-      // 滚动完全停止（含惯性滑完）→ 拖动一定结束，恢复流式 UI 写入
-      // 兜底：onTouch Up 可能被 Markdown 文本选择等手势拦截而未触发，此处确保 isUserDragging 归位
+      // 滚动完全停止（含惯性滑完）→ 用户滚动一定结束，恢复流式 UI 写入
+      // 兜底：onTouch Up 可能被 Markdown 文本选择等手势拦截而未触发，此处确保 isUserScrolling 归位
       .onScrollStop(() => {
-        this.vm.setUserDragging(false);
+        this.vm.setUserScrolling(false);
       })
       .width("100%")
       .backgroundColor($r('app.color.page_bg'))

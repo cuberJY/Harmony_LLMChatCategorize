@@ -156,7 +156,7 @@ export class ChatViewModel {
   private isFirstUserMsg: boolean = true; // 标记是否第一条用户消息（决定是否生成标题）
   private isUserOperating: boolean = false; // 用户是否正在操作屏幕（滚动/长按/选择文本；操作中停止自动滚底）
   private lastScrollIsUserGesture: boolean = false; // 最近一次滚动是否来自用户手势（onWillScroll 更新，供 onReachEnd 区分用户滚回 vs 代码滚动）
-  private isUserDragging: boolean = false; // 用户是否正在手指按住拖动（DRAG）滚动中；期间暂停流式 UI 写入，避免底部高度变化与拖动竞争抖动
+  private isUserScrolling: boolean = false; // 用户是否正在滚动手势中（DRAG/FLING/滚动条等）；期间暂停流式 UI 写入，避免底部高度变化与滚动竞争抖动
   private followAnimationTimerId: number = -1; // 流式正文跟随动画的防抖定时器（-1 表示无挂起）
   private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isListLayoutReady: boolean = false; // List 是否已完成首帧布局（onAreaChange 首次回调置位）
@@ -1535,10 +1535,10 @@ export class ChatViewModel {
       return;
     }
     task.flushTimerId = setTimeout(() => {
-      // 用户手指按住拖动（DRAG）期间暂停 UI 写入：底部 item 高度不再变化，
-      // 避免与 List 实时拖动布局竞争抖动；buffer 继续累积，拖动结束后的
+      // 用户滚动手势（DRAG/FLING/滚动条等）期间暂停 UI 写入：底部 item 高度不再变化，
+      // 避免与 List 滚动布局竞争抖动；buffer 继续累积，滚动结束后的
       // 下一次调度 / onComplete / 暂停 会统一 flush，内容不丢
-      if (this.isUserDragging) {
+      if (this.isUserScrolling) {
         task.flushTimerId = -1;
         return;
       }
@@ -1608,10 +1608,10 @@ export class ChatViewModel {
     this.lastScrollIsUserGesture = isUserGesture;
   }
 
-  // 用户是否正在手指按住拖动（DRAG）滚动中（ChatPage onWillScroll/onTouch 调用）：
-  // 拖动期间暂停流式 UI 写入，避免底部 item 高度变化与拖动竞争抖动
-  setUserDragging(dragging: boolean): void {
-    this.isUserDragging = dragging;
+  // 用户是否正在滚动手势中（DRAG/FLING/滚动条等，ChatPage onWillScroll/onTouch/onScrollStop 调用）：
+  // 滚动期间暂停流式 UI 写入，避免底部 item 高度变化与滚动竞争抖动
+  setUserScrolling(scrolling: boolean): void {
+    this.isUserScrolling = scrolling;
   }
 
   // 是否处于"自动跟随"状态（用户未在操作屏幕、且停留在底部时才允许自动钉底）
@@ -1649,7 +1649,7 @@ export class ChatViewModel {
   jumpToBottom(): void {
     this.resetScrollFollow(); // 用户主动回到底部 → 恢复自动跟随
     this.setAtBottom(true); // 兜底：滚完直接隐藏按钮（个别版本 scrollEdge 可能不触发 onReachEnd）
-    this.setUserDragging(false); // 主动回到底部 → 结束拖动状态，恢复流式 UI 写入
+    this.setUserScrolling(false); // 主动回到底部 → 结束滚动状态，恢复流式 UI 写入
     this.scrollToBottomEdge();
   }
 
