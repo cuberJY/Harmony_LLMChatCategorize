@@ -33,6 +33,10 @@ const MAX_AUTO_RETRY: number = 2;
 // 覆盖新变体 Markdown 异步渲染增高窗口，避免补偿滚动触发 onReachEnd 后又被渲染增高钉到底部
 const ANCHOR_SUPPRESS_MS: number = 1000;
 
+// 流式 UI 刷新间隔（ms）：chunk 先攒进缓冲区，按此间隔合并写入 content/reasoning 触发重绘，
+// 将高频增量降为较低频率的 UI 更新，减少渲染与滚动竞争
+const STREAM_FLUSH_INTERVAL_MS: number = 30;
+
 @ObservedV2
 export class ChatViewModel {
   // UI 可观察状态（@Trace：页面 build 中读取，变化时自动刷新）
@@ -1309,8 +1313,7 @@ export class ChatViewModel {
 
   /**
    * 节流刷新：将任务缓冲区的增量文本合并后一次性写入 Message 属性
-   * 每 50ms 最多刷新一次，将 ~100 次/秒的 UI 更新降到 ~20 次/秒
-   * 每个 StreamTask 独立调度，多个对话并发流互不影响
+   * 刷新间隔见 STREAM_FLUSH_INTERVAL_MS 常量；每个 StreamTask 独立调度，多对话并发流互不影响
    * @param task 当前正在流式填充的流式任务
    */
   private scheduleFlush(task: StreamTask): void {
@@ -1328,9 +1331,11 @@ export class ChatViewModel {
       }
       // 合并缓冲区内容，一次性写入（触发 @Trace → MessageBubble 重绘）
       task.flush();
-      // 节流持久化：每 2.5s 把已生成内容落库一次（generation_status=partial）。
-      // 进程被终止时，DB 已保存最近 2.5s 内的全部内容，重启后可恢复「继续生成」；
-      // 异步 fire-and-forget，不阻塞 UI 线程（按消息粒度节流，多分支互不干扰）
+      /**
+       * 节流持久化：每 2.5s 把已生成内容落库一次（generation_status=partial）。
+       * 进程被终止时，DB 已保存最近 2.5s 内的全部内容，重启后可恢复「继续生成」；
+       * 异步 fire-and-forget，不阻塞 UI 线程（按消息粒度节流，多分支互不干扰）
+       */
       const now = Date.now();
       const last = this.streamPersistTime.get(task.aiMsg.id);
       if (last === undefined || now - last >= 2500) {
@@ -1347,7 +1352,7 @@ export class ChatViewModel {
           this.scrollToBottomSmooth();
         }
       }
-    }, 50); // 50ms ≈ 20fps，肉眼几乎无感知
+    }, STREAM_FLUSH_INTERVAL_MS); // 流式 UI 合并刷新间隔
   }
 
   // 列表滚动控制（由页面 build 事件绑定）
@@ -1493,7 +1498,7 @@ export class ChatViewModel {
     this.scrollToBottom();
     setTimeout(() => {
       this.pinToBottomAfterLoad(remain - 1);
-    }, 120);
+    }, 120); // 120ms 重试间隔
   }
 
   /**
