@@ -111,7 +111,7 @@ Based on `relationalStore`, three tables:
 | Table            | Description                              |
 | ---------------- | ---------------------------------------- |
 | `conversation`   | Conversation table                       |
-| `message`        | Message table (thinking / search records / generation status / error / branch fields) |
+| `message`        | Message table (thinking / search records / thinking duration / generation status / error / branch fields) |
 | `category`       | Folder/category table (multi-level nesting) |
 
 - `*Dao` for flat single-table CRUD, `*Repository` for cross-table aggregation and transactions
@@ -151,6 +151,7 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
 - **LazyForEach** lazy loading + 50ms streaming throttle
 - **Smart scroll**: instant pin while thinking, 50ms debounce + 200ms animation for main text; `scrollEdge`-first positioning; repeated pin-after-load retries; variant switching uses "anchor record + incremental replace + height compensation" to avoid flicker
 - **Markdown performance**: off-screen lazy rendering + threaded rendering + code-block collapse, with library preheating to remove first-open jank
+- **Reasoning block rendering** — thinking paragraphs aggregated into blocks, search/browse activities as separate blocks; streaming increments reuse block instances (@Trace in-place refresh), avoiding per-line rebuild jitter
 - Instant re-pin on item height change (skipped while streaming and during anchor restoration)
 
 ### 9. Background Keep-alive
