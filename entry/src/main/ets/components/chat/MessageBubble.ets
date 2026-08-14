@@ -11,6 +11,27 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction, SymbolGlyphModifier, window } from '@kit.ArkUI';
 import { ErrorCategory, errorMessageResource, errorTitleResource } from "../../service/LLMError";
 import { showToast } from "../../common/Utils";
+
+/**
+ * 思考过程块（渲染用）：
+ *  - paragraph：连续思考段落（内部保留换行，仅段落首行显示深度思考图标）
+ *  - search / browse：搜索/浏览活动行（各自带独立图标，天然分隔思考段落）
+ *
+ * @ObservedV2/@Trace：块实例在流式过程中被原地复用更新（见 rebuildReasoningBlocks），
+ * text 变化时 Text(block.text) 走属性级响应实时刷新——组件无需重建，
+ * 规避 ForEach "key 不变 → 内容停留创建时快照" 导致的流式更新失效
+ */
+@ObservedV2
+class ReasoningBlock {
+  @Trace kind: "paragraph" | "search" | "browse" = "paragraph";
+  @Trace text: string = ""; // paragraph = 整段思考文本；search/browse = 去掉前缀后的文案
+
+  constructor(kind: "paragraph" | "search" | "browse", text: string) {
+    this.kind = kind;
+    this.text = text;
+  }
+}
+
 @ComponentV2
 export struct MessageBubble {
   /**
@@ -34,6 +55,7 @@ export struct MessageBubble {
    */
   @Local isSheetShow: boolean = false; // 面板显示状态（$$ 双向绑定，拖拽/点遮罩关闭时自动置回 false）
   @Local sheetKind: "none" | "text" | "web" = "none"; // 当前面板类型：「选择文本」/「xx个网页」
+  @Local reasoningBlocks: ReasoningBlock[] = []; // 思考过程块列表（流式增量原地复用更新，见 rebuildReasoningBlocks）
 
   // 监听流式状态：每次停止输出（正常完成 / 暂停 / 异常中断）时自动折叠思考过程。
   // 延迟 500ms 折叠，让用户能短暂瞥见停止瞬间的最后内容；组件销毁时需取消定时器。
@@ -49,6 +71,14 @@ export struct MessageBubble {
       this.isReasoningExpanded = false;
       this.foldTimerId = -1;
     }, 500);
+  }
+
+  // 监听思考内容变化：增量重解析并原地复用更新块列表。
+  // ForEach 的 key 固定为 index（append-only 下稳定），块文本经 @Trace 属性级刷新，
+  // 避免 "key 不变 → 组件不重建 → 流式内容停留旧快照"（表现为思考逐行渲染、切页重建才恢复块渲染）
+  @Monitor('message.reasoning')
+  onReasoningChanged(): void {
+    this.rebuildReasoningBlocks();
   }
 
   // 对话分支：变体信息与操作回调（父组件注入）
@@ -77,6 +107,9 @@ export struct MessageBubble {
   private foldTimerId: number = -1; // 停止输出后自动折叠思考的定时器 ID（组件销毁时取消）
 
   aboutToAppear(): void {
+    // 初始化过程块：当前消息的 reasoning（历史完整或流式已有）先解析为块列表；
+    // 后续流式增量由 @Monitor('message.reasoning') 驱动原地更新
+    this.rebuildReasoningBlocks();
     // 进入对话记录时默认折叠思考过程：非流式的历史消息（isStreaming=false）初始即为折叠态；
     // 流式中的新消息（创建时已置 isStreaming=true）保持展开以实时展示思考内容
     if (!this.message.isStreaming) {
@@ -302,19 +335,19 @@ export struct MessageBubble {
 
       /**
        * 过程内容正文（展开时显示）：思考文本与搜索/浏览活动按真实到达顺序穿插在同一序列（reasoning）里，
-       * 逐行识别前缀渲染：思考行纯文本，【搜索】行带放大镜图标，【浏览】行带链接图标
+       * 按块渲染（rebuildReasoningBlocks 维护块列表）：思考段落整段展示（仅首行带深度思考图标），
+       * 【搜索】行带放大镜图标，【浏览】行带链接图标
        */
       if (this.isReasoningExpanded) {
-        ForEach(this.message.reasoning.split('\n'), (line: string) => {
-          if (line.trim().length > 0) {
-            this.processLine(line);
-          }
+        ForEach(this.reasoningBlocks, (block: ReasoningBlock, index: number) => {
+          this.processBlock(block);
           /**
-           * key 只用 id + index：reasoning 是纯追加（append-only），index 对已有行恒定、新增行递增，
-           * 天然唯一且稳定。之前含 line.length/substring，流式思考时最后一行每次增长 key 都变，
-           * 导致该行被反复销毁重建（"再思考"阶段最明显，表现为页面抖动）
+           * key 只用 id + index：reasoning 是纯追加（append-only），块序列只增不减，
+           * index 对已有块恒定、新增块递增，天然唯一且稳定。
+           * 块文本变化走 ReasoningBlock 的 @Trace 属性刷新（rebuildReasoningBlocks 原地复用），
+           * 因此 key 无需包含内容，也不会出现"流式内容停留旧快照"或逐 chunk 重建的抖动
            */
-        }, (line: string, index: number) => `line_${this.message.id}_${index}`)
+        }, (block: ReasoningBlock, index: number) => `block_${this.message.id}_${index}`)
       }
     }
     .width("100%")
@@ -331,26 +364,77 @@ export struct MessageBubble {
   }
 
   /**
-   * 过程块单行渲染
-   *
-   * 用文本前缀标记：
-   *   思考内容是连续流式文本，搜索/浏览是离散动作事件，两者要按真实时间顺序穿插在同一个气泡内展示。
-   *   实现上让 ChatViewModel 在收到搜索/浏览事件时，把活动行以「前缀 + 文案」的形式直接追加到
-   *   reasoning 字符串末尾——追加顺序即真实时间顺序，无需额外字段即可精确穿插；
-   *   且 reasoning 已有数据库列，穿插结果随消息一起持久化，重启后仍完整还原。
+   * 解析思考过程为"块"序列（纯函数，不修改状态，仅返回当前快照）：
+   *  - 连续非空思考行聚合成一个段落块（空行 / 搜索 / 浏览活动行作为段落分隔）
+   *  - 末尾未闭合的思考段落也作为最后一个块输出，流式中正在增长的文本可实时展示
+   */
+  private parseReasoningBlocks(): ReasoningBlock[] {
+    const lines = this.message.reasoning.split('\n');
+    const blocks: ReasoningBlock[] = [];
+    let paragraph: string[] = []; // 当前思考段落的行缓存
+    const flushParagraph = (): void => {
+      if (paragraph.length > 0) {
+        blocks.push(new ReasoningBlock("paragraph", paragraph.join('\n')));
+        paragraph = [];
+      }
+    };
+    for (const line of lines) {
+      if (line.startsWith("【搜索】") || line.startsWith("【浏览】")) {
+        flushParagraph(); // 活动行先收尾当前段落，形成"思考一段 → 搜索 → 再思考一段"的自然分段
+        blocks.push(new ReasoningBlock(
+          line.startsWith("【搜索】") ? "search" : "browse",
+          line.substring(4),
+        ));
+      } else if (line.trim().length === 0) {
+        flushParagraph(); // 空行 = 段落分隔符
+      } else {
+        paragraph.push(line); // 普通思考行归入当前段落
+      }
+    }
+    flushParagraph(); // 收尾：末尾未闭合段落也输出（流式中随增量持续增长）
+    return blocks;
+  }
+
+  /**
+   * 重建块列表（复用策略）：
+   *  - reasoning 是纯追加（append-only），块序列只增不减，index 恒定
+   *  - 按 index 原地复用旧块对象、更新其 @Trace 字段 → Text 属性级刷新，组件不重建（无抖动）
+   *  - 块数量增长时 push 追加（触发 ForEach 新增），收缩时 pop 移除（正常追加场景不会发生，防御处理）
+   */
+  private rebuildReasoningBlocks(): void {
+    const parsed = this.parseReasoningBlocks();
+    let i = 0;
+    for (; i < parsed.length; i++) {
+      if (i < this.reasoningBlocks.length) {
+        // 复用旧块实例：更新 @Trace 字段，驱动已渲染组件实时刷新
+        const blk = this.reasoningBlocks[i];
+        blk.kind = parsed[i].kind;
+        blk.text = parsed[i].text;
+      } else {
+        this.reasoningBlocks.push(parsed[i]);
+      }
+    }
+    while (this.reasoningBlocks.length > i) {
+      this.reasoningBlocks.pop();
+    }
+  }
+
+  /**
+   * 过程块渲染（块结构说明见 ReasoningBlock 接口注释）
    *
    * 前缀约定（行首 4 字符，ChatViewModel 写入）：
    *   【搜索】→ 搜索活动行，如"【搜索】正在搜索：北京 今天 天气"
    *   【浏览】→ 浏览活动行，如"【浏览】正在浏览 weather.com"
    *   其余行 → 思考文本（模型输出的原始思维链）
    *
-   * 解析规则：startsWith 匹配前缀分流渲染，substring(4) 去掉前缀后展示文案，
+   * 解析规则：前缀由 parseReasoningBlocks 识别为块类型，文案统一 substring(4) 去掉前缀，
    * 因此界面不显示方括号本身，只显示"图标 + 文案"。两个前缀均为 4 字符（中文括号 2 + 汉字 2），
    * 统一 substring(4) 有效；模型思维链内容几乎不可能以【搜索】/【浏览】起行，标记冲突风险可忽略。
    */
   @Builder
-  processLine(line: string) {
-    if (line.startsWith("【搜索】")) {
+  processBlock(block: ReasoningBlock) {
+    if (block.kind === "search") {
+      // 搜索活动行：图标 + 文案
       Row() {
         SymbolGlyph($r("sys.symbol.AI_search"))
           .fontSize($r('app.float.font_icon_sm'))
@@ -360,7 +444,7 @@ export struct MessageBubble {
             right: $r('app.float.space_sm'),
             top: $r('app.float.space_xxs')
           })
-        Text(line.substring(4))
+        Text(block.text)
           .fontSize($r('app.float.font_thinking'))
           .fontColor($r('app.color.text_secondary'))
           .layoutWeight(1)
@@ -371,7 +455,8 @@ export struct MessageBubble {
         right: $r('app.float.space_md'),
         top: $r('app.float.space_sm')
       })
-    } else if (line.startsWith("【浏览】")) {
+    } else if (block.kind === "browse") {
+      // 浏览活动行：链接图标 + 文案
       Row() {
         SymbolGlyph($r("sys.symbol.link"))
           .fontSize($r('app.float.font_icon_sm'))
@@ -381,7 +466,7 @@ export struct MessageBubble {
             right: $r('app.float.space_sm'),
             top: $r('app.float.space_xxs')
           })
-        Text(line.substring(4))
+        Text(block.text)
           .fontSize($r('app.float.font_thinking'))
           .fontColor($r('app.color.text_secondary'))
           .layoutWeight(1)
@@ -393,25 +478,27 @@ export struct MessageBubble {
         top: $r('app.float.space_sm')
       })
     } else {
+      // 连续思考段落：整段一个图标 + 多行 Text，段内行距收紧，观感更接近"一整段连续思考"
       Row() {
-        SymbolGlyph($r("sys.symbol.lightbulb_1"))
+        SymbolGlyph($r("sys.symbol.AI_deep_thinking"))
           .fontSize($r('app.float.font_icon_sm'))
           .fontWeight(600)
           .fontColor([$r('app.color.text_secondary')])
           .margin({
             right: $r('app.float.space_sm'),
-            top: $r('app.float.space_xxs')
+            top: $r('app.float.space_xs')
           })
-        Text(line)
+        Text(block.text)
           .fontSize($r('app.float.font_thinking'))
           .fontColor($r('app.color.text_secondary'))
+          .lineHeight(20)
           .layoutWeight(1)
-        }
-        .alignItems(VerticalAlign.Top)
-        .margin({
-          left: $r('app.float.space_xs'),
-          right: $r('app.float.space_xs'),
-          top: $r('app.float.space_sm')
+      }
+      .alignItems(VerticalAlign.Top)
+      .margin({
+        left: $r('app.float.space_xs'),
+        right: $r('app.float.space_xs'),
+        top: $r('app.float.space_sm')
       })
     }
   }

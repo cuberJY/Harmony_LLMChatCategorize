@@ -40,6 +40,7 @@ export class MessageDao {
         searched_webs: JSON.stringify(msg.searchedWebs),
         generation_status: msg.generationStatus,
         error_text: errorToJson(msg.error),
+        thinking_duration: msg.thinkingDuration,
         created_at: msg.createdAt,
         parent_id: msg.parentId,
         branch_group_id: msg.branchGroupId,
@@ -65,6 +66,7 @@ export class MessageDao {
         searched_webs: JSON.stringify(msg.searchedWebs),
         generation_status: msg.generationStatus,
         error_text: errorToJson(msg.error),
+        thinking_duration: msg.thinkingDuration,
       };
       const predicates = new relationalStore.RdbPredicates("message");
       predicates.equalTo("id", msg.id);
@@ -199,6 +201,12 @@ export class MessageDao {
         msg.error = jsonToError(rs.getString(rs.getColumnIndex("error_text")));
       } catch (e) {
         // 旧库无该列：保持无错误
+      }
+      // 思考耗时（旧库迁移前可能缺失，读取失败则保持 0）
+      try {
+        msg.thinkingDuration = rs.getDouble(rs.getColumnIndex("thinking_duration"));
+      } catch (e) {
+        // 旧库无该列：保持默认 0
       }
       msg.createdAt = rs.getLong(rs.getColumnIndex("created_at"));
       // 分支字段（旧库迁移前可能缺失，读取失败则保持默认值）
