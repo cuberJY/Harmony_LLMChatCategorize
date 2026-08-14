@@ -156,6 +156,7 @@ export struct ChatPage {
                 MessageBubble({
                   message: msg,
                   // 分支变体信息：驱动 "< 当前 / 总数 >"（切换分支后列表重建，@Param 自动更新）
+                  // VM 内部已缓存 getVariantInfo：第二次调用命中缓存（O(1)），无需在此手动合并
                   variantCurrent: this.vm.getVariantInfo(msg).current,
                   variantTotal: this.vm.getVariantInfo(msg).total,
                   // 是否激活链最后一条：仅最后一条显示「换个回答」（防止在历史消息上重新生成导致上下文混乱）
@@ -214,16 +215,26 @@ export struct ChatPage {
         if (event.type === TouchType.Down) {
           // 生成期间用户触摸屏幕操作内容 → 标记"操作中"，完成生成时不自动滚到底
           this.vm.markUserOperating(true);
+        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+          // 手指抬起 → 拖动结束，恢复流式 UI 写入
+          this.vm.setUserDragging(false);
         }
       })
       // 用户主动滚动 → 取消自动跟随（手指拖动/惯性滑动/滚动条拖动/其他用户输入）；
       // 排除代码滚动（SCROLLER/SCROLLER_ANIM）与边缘回弹（EDGE_EFFECT），避免打断自动钉底
       .onWillScroll(
         (scrollOffset: number, scrollState: ScrollState, scrollSource: ScrollSource) => {
-          if (scrollSource === ScrollSource.DRAG || scrollSource === ScrollSource.FLING
+          // 判定本次滚动是否来自用户手势（拖动/惯性/滚动条/其他输入）
+          const isUserGesture = scrollSource === ScrollSource.DRAG || scrollSource === ScrollSource.FLING
             || scrollSource === ScrollSource.OTHER_USER_INPUT
             || scrollSource === ScrollSource.SCROLL_BAR
-            || scrollSource === ScrollSource.SCROLL_BAR_FLING) {
+            || scrollSource === ScrollSource.SCROLL_BAR_FLING;
+          // 记录来源，供 onReachEnd 区分"用户滚回底部"与"代码滚动到底"
+          this.vm.setLastScrollSource(isUserGesture);
+          // 仅 DRAG（手指按住拖动）暂停流式 UI 写入；FLING 惯性滚动手指已离开，不产生抖动，无需暂停
+          this.vm.setUserDragging(scrollSource === ScrollSource.DRAG);
+          // 用户主动滚动 → 取消自动跟随（代码滚动 SCROLLER/SCROLLER_ANIM 不取消）
+          if (isUserGesture) {
             this.vm.setAtBottom(false);
           }
         },
@@ -232,10 +243,21 @@ export struct ChatPage {
       .onReachEnd(() => {
         this.vm.handleReachEnd();
       })
+      // 滚动完全停止（含惯性滑完）→ 拖动一定结束，恢复流式 UI 写入
+      // 兜底：onTouch Up 可能被 Markdown 文本选择等手势拦截而未触发，此处确保 isUserDragging 归位
+      .onScrollStop(() => {
+        this.vm.setUserDragging(false);
+      })
       .width("100%")
       .backgroundColor($r('app.color.page_bg'))
       // 列表宽高反向排列（新消息在底部）→ 不需要，正常从上到下即可
       .edgeEffect(EdgeEffect.Spring) // 滑动到顶/底部有弹性效果
+      // 可视区外上下各预加载 5 条消息：减少 Markdown 异步渲染导致的 item 高度突变与白块，
+      // 缓解快速滑动/流式增高时的抖动（聊天气泡渲染较重，默认 1 不够）
+      .cachedCount(5)
+      // 数据/高度变化时保持可见内容位置不变（官方聊天列表专用）：
+      // 解决流式输出底部 item 持续长高、用户向上翻历史时视口被顶跳的抖动
+      .maintainVisibleContentPosition(true)
 
         // 右下角悬浮按钮：不在最底部时显示，点击强制滚到底（样式与输入区发送键一致）
         if (!this.vm.isAtBottom) {

@@ -155,12 +155,14 @@ export class ChatViewModel {
   private currentConversationId: string = ""; // 当前对话id
   private isFirstUserMsg: boolean = true; // 标记是否第一条用户消息（决定是否生成标题）
   private isUserOperating: boolean = false; // 用户是否正在操作屏幕（滚动/长按/选择文本；操作中停止自动滚底）
+  private lastScrollIsUserGesture: boolean = false; // 最近一次滚动是否来自用户手势（onWillScroll 更新，供 onReachEnd 区分用户滚回 vs 代码滚动）
+  private isUserDragging: boolean = false; // 用户是否正在手指按住拖动（DRAG）滚动中；期间暂停流式 UI 写入，避免底部高度变化与拖动竞争抖动
+  private followAnimationTimerId: number = -1; // 流式正文跟随动画的防抖定时器（-1 表示无挂起）
+  private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isListLayoutReady: boolean = false; // List 是否已完成首帧布局（onAreaChange 首次回调置位）
   private pendingPinToBottom: boolean = false; // 布局就绪前挂起的钉底请求
   private isRestoringAnchor: boolean = false; // 切换分支锚点恢复期间置位：抑制 onListItemHeightChanged 的自动钉底干扰
   private anchorSuppressUntil: number = 0; // 切换分支后抑制自动钉底的截止时间戳（ms）：覆盖 Markdown 异步渲染增高窗口
-  private followAnimationTimerId: number = -1; // 流式正文跟随动画的防抖定时器（-1 表示无挂起）
-  private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isDestroyed: boolean = false; // 页面销毁标记（销毁后流回调跳过 UI 更新）
   // 当前对话的全部消息缓存（含非激活分支变体），分支切换/变体统计/激活链重建均基于它
   private allMessages: Message[] = [];
@@ -169,6 +171,8 @@ export class ChatViewModel {
   private streamTasks: Map<string, StreamTask> = new Map();
   // 各对话"流式增量持久化"的最后写库时间戳（节流：避免每个 chunk 都写库）
   private streamPersistTime: Map<string, number> = new Map();
+  // 分支组信息缓存（key = 消息 id）：避免 LazyForEach 重建时对每条消息重复 O(n) 过滤+排序
+  private variantInfoCache: Map<string, VariantInfo> = new Map();
 
   // 生命周期（由页面生命周期回调转发）
 
@@ -224,6 +228,7 @@ export class ChatViewModel {
   newConversation(): void {
     this.messageDataSource.clear();
     this.allMessages = [];
+    this.invalidateVariantCache();
     this.currentConversation = new Conversation();
     this.currentConversationId = this.currentConversation.id;
     this.isFirstUserMsg = true;
@@ -258,6 +263,7 @@ export class ChatViewModel {
     }
     // 保存全量缓存（分支切换/变体统计/激活链重建的唯真源）
     this.allMessages = msgs;
+    this.invalidateVariantCache();
 
     // 3. 构建激活链替换列表；若有进行中的流任务，用实时 aiMsg 替换 DB 占位（避免重复）
     // 暂停任务同样处理：暂停时已把部分内容持久化，DB 会返回新实例，
@@ -270,6 +276,7 @@ export class ChatViewModel {
         this.allMessages.push(t.aiMsg);
       }
     });
+    this.invalidateVariantCache();
     let chain = this.buildActiveChain(this.allMessages);
     // 按消息 id 逐条替换（多分支各自替换自己的任务占位，互不干扰）
     chain = chain.map((m: Message) => {
@@ -872,6 +879,7 @@ export class ChatViewModel {
     msg.variantIndex = this.nextVariantIndex(parentId); // 组内变体序号递增
     msg.isActive = true;
     this.allMessages.push(msg);
+    this.invalidateVariantCache();
     this.messageDataSource.push(msg);
     // 持久化消息
     if (this.currentConversationId) {
@@ -900,6 +908,7 @@ export class ChatViewModel {
     msg.variantIndex = this.nextVariantIndex(parentId);
     msg.isActive = true;
     this.allMessages.push(msg);
+    this.invalidateVariantCache();
     if (this.currentConversationId) {
       ConversationRepository.getInstance().insertMessage(msg);
     }
@@ -1111,6 +1120,7 @@ export class ChatViewModel {
 
     // 4. 更新内存缓存并重建列表
     this.allMessages = this.allMessages.filter((m: Message) => deleteIds.indexOf(m.id) < 0);
+    this.invalidateVariantCache();
     if (this.allMessages.length === 0) {
       this.newConversation(); // 删空 → 回到新对话状态
     } else {
@@ -1457,6 +1467,18 @@ export class ChatViewModel {
    * @returns current = 当前变体序号（1 起）；total = 分支组内变体总数
    */
   getVariantInfo(msg: Message): VariantInfo {
+    // 命中缓存直接返回：同一消息在 LazyForEach 重建时无需重复 O(n) 过滤+排序
+    const cached = this.variantInfoCache.get(msg.id);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const info = this.computeVariantInfo(msg);
+    this.variantInfoCache.set(msg.id, info);
+    return info;
+  }
+
+  /** 计算分支组信息（无缓存，仅在缓存未命中时调用） */
+  private computeVariantInfo(msg: Message): VariantInfo {
     const group = this.allMessages.filter(m => m.branchGroupId === msg.branchGroupId);
     if (group.length === 0) {
       return { current: msg.variantIndex + 1, total: msg.variantIndex + 1 };
@@ -1470,6 +1492,11 @@ export class ChatViewModel {
     const indexes = new Set<number>();
     group.forEach(m => indexes.add(m.variantIndex));
     return { current: Math.max(1, pos + 1), total: Math.max(1, indexes.size) };
+  }
+
+  /** 失效分支组信息缓存：allMessages 增删消息（新建变体/删除/加载）后调用 */
+  private invalidateVariantCache(): void {
+    this.variantInfoCache.clear();
   }
 
   /**
@@ -1508,6 +1535,13 @@ export class ChatViewModel {
       return;
     }
     task.flushTimerId = setTimeout(() => {
+      // 用户手指按住拖动（DRAG）期间暂停 UI 写入：底部 item 高度不再变化，
+      // 避免与 List 实时拖动布局竞争抖动；buffer 继续累积，拖动结束后的
+      // 下一次调度 / onComplete / 暂停 会统一 flush，内容不丢
+      if (this.isUserDragging) {
+        task.flushTimerId = -1;
+        return;
+      }
       // 合并缓冲区内容，一次性写入（触发 @Trace → MessageBubble 重绘）
       task.flush();
       // 节流持久化：每 2.5s 把已生成内容落库一次（generation_status=partial）。
@@ -1555,12 +1589,29 @@ export class ChatViewModel {
       return;
     }
     this.setAtBottom(true);
-    this.resetScrollFollow();
+    // 仅当"到达底部"由用户手势滚动（DRAG/FLING 等）导致时才清除"操作中"标记恢复跟随。
+    // 代码滚动（自动跟随 scrollEdge）到达底部会异步触发 onReachEnd，若在此无条件 resetScrollFollow，
+    // 会误清"生成中用户触摸阅读"设置的 isUserOperating，导致完成生成时重新钉底
+    if (this.lastScrollIsUserGesture) {
+      this.resetScrollFollow();
+    }
   }
 
   // 自动跟随开关（onWillScroll 取消 / onReachEnd 恢复）
   setAtBottom(value: boolean): void {
     this.isAtBottom = value;
+  }
+
+  // 记录最近一次滚动来源（ChatPage onWillScroll 调用）：
+  // 供 onReachEnd 区分"用户滚回底部"与"代码滚动到底"，避免误清操作中标记
+  setLastScrollSource(isUserGesture: boolean): void {
+    this.lastScrollIsUserGesture = isUserGesture;
+  }
+
+  // 用户是否正在手指按住拖动（DRAG）滚动中（ChatPage onWillScroll/onTouch 调用）：
+  // 拖动期间暂停流式 UI 写入，避免底部 item 高度变化与拖动竞争抖动
+  setUserDragging(dragging: boolean): void {
+    this.isUserDragging = dragging;
   }
 
   // 是否处于"自动跟随"状态（用户未在操作屏幕、且停留在底部时才允许自动钉底）
@@ -1598,6 +1649,7 @@ export class ChatViewModel {
   jumpToBottom(): void {
     this.resetScrollFollow(); // 用户主动回到底部 → 恢复自动跟随
     this.setAtBottom(true); // 兜底：滚完直接隐藏按钮（个别版本 scrollEdge 可能不触发 onReachEnd）
+    this.setUserDragging(false); // 主动回到底部 → 结束拖动状态，恢复流式 UI 写入
     this.scrollToBottomEdge();
   }
 
