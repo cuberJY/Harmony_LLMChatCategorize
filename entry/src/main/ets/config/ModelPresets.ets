@@ -39,7 +39,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
     id: "deepseek",
     providerName: "DeepSeek",
     defaultModel: "deepseek-v4-flash",
-    models: ["deepseek-v4-flash"],
+    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
     endpoint: "https://api.deepseek.com/responses",
     apiStyle: "responses",
     supportsWebSearch: true,

@@ -34,7 +34,18 @@ interface ApiMessage {
 
 // 工具（服务端 web_search）
 interface ResponsesTool {
-  type: string; // "web_search"
+  type: string; // "web_search" | "web_search_2025_08_26"（两者等效，服务端执行）
+}
+
+/**
+ * tool_choice 配置（预留，暂不启用）
+ * DeepSeek 支持四种形态：
+ *   - "none"（禁用工具）/ "auto"（模型自决，当前默认行为）/ "required"（必须用工具）
+ *   - {"type": "web_search"}（强制指定搜索工具）
+ * 本接口对应对象形态；字符串形态（none/auto/required）启用时按需扩展为 string | ToolChoiceConfig
+ */
+interface ToolChoiceConfig {
+  type: string; // "web_search" | "web_search_2025_08_26" | "function"
 }
 
 // 思考模式配置（Responses API 通过 reasoning.effort 控制强度）
@@ -49,6 +60,9 @@ interface ResponsesRequestBody {
   stream: boolean;
   reasoning?: ReasoningConfig;
   tools?: ResponsesTool[];
+  // —— 预留字段（当前不启用，见 buildRequestBody 注释）——
+  instructions?: string; // 作为第一条 system 消息注入（input 与 instructions 至少传一个）
+  tool_choice?: ToolChoiceConfig; // 显式指定工具选择策略（默认 auto，不传）
 }
 
 // SSE data 行 JSON（包含事件类型与增量字段）
@@ -358,6 +372,12 @@ export class DeepSeekProvider implements LLMProvider {
     if (webSearch && preset.supportsWebSearch) {
       requestBodyObj.tools = [{ type: "web_search" }];
     }
+
+    // —— 预留字段启用说明（当前刻意不传，保持 auto 默认行为）——
+    // 1. instructions：需要给所有对话注入统一系统指令时启用
+    //    requestBodyObj.instructions = "始终使用中文回答";
+    // 2. tool_choice：需要强制模型使用搜索工具时启用（会强制搜索，可能多耗延迟与 token）
+    //    requestBodyObj.tool_choice = { type: "web_search" };
 
     const requestBody = JSON.stringify(requestBodyObj);
 
