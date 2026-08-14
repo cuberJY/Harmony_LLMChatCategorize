@@ -3,14 +3,15 @@
  * - 用户消息：右对齐，浅蓝背景
  * - AI 消息：左对齐，白色背景
  */
-import { Message, WebPage } from "../../model/Message";
+import { Message } from "../../model/Message";
 import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../common/AppConstants";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction, SymbolGlyphModifier, window } from '@kit.ArkUI';
-import { ErrorCategory, errorMessageResource, errorTitleResource } from "../../service/LLMError";
 import { showToast } from "../../common/Utils";
+import { MessageErrorCard } from "./MessageErrorCard";
+import { WebSheetPanel } from "./WebSheetPanel";
 
 /**
  * 思考过程块（渲染用）：
@@ -43,11 +44,6 @@ export struct MessageBubble {
 
   // UI 本地状态（@Local，仅组件内部维护）
   @Local isReasoningExpanded: boolean = true; // 是否展开思考/搜索过程块
-  /**
-   * 错误详情展开状态：按"错误身份签名"（code|httpStatus|rawMessage）记录而非 boolean——
-   * 组件实例可能被列表复用、同一气泡先后出现多个不同错误，用签名可保证每次新错误默认收起，仅同一错误保持展开
-   */
-  @Local expandedErrorSignature: string = "";
   @Local isDarkMode: boolean = false; // 跟随系统深浅色（驱动代码块/思维导图主题切换）
   /**
    * 半模态面板：bindSheet 是普通属性，同一组件多次调用会互相覆盖，只能绑定一个布尔变量 isSheetShow，
@@ -260,7 +256,7 @@ export struct MessageBubble {
         }
         // 生成终止错误卡片（AI 消息且有结构化错误时显示；正文保持纯净，错误信息独立呈现）
         if (!this.message.isUser() && this.message.error !== undefined) {
-          this.errorCard();
+          MessageErrorCard({ error: this.message.error });
         }
         // 底部操作栏（复制/编辑/换个回答/生成新回复/切换分支）
         // 流式生成中不显示操作栏（isStreaming 为 @Trace，流式结束自动恢复显示）
@@ -298,7 +294,10 @@ export struct MessageBubble {
     if (this.sheetKind === "text") {
       this.textSheet();
     } else if (this.sheetKind === "web") {
-      this.webSheet();
+      WebSheetPanel({
+        webs: this.message.searchedWebs,
+        onClose: () => { this.isSheetShow = false; },
+      });
     }
   }
 
@@ -562,179 +561,6 @@ export struct MessageBubble {
         this.statusHint("思考中…");
       }
       // 若 reasoning 非空（有推理内容），推理块标题本身会显示"思考中…"，这里留空避免重复
-    }
-  }
-
-  /**
-   * 生成终止错误卡片（默认收起详情）
-   * - 标题行：⚠ + 分类词（生成中断/生成失败/生成异常）+ 右对齐错误码（排查报错用）
-   * - 说明行：统一文案（error_* 资源，与 Toast 同源）
-   * - 详情区（默认收起）：供应商原始错误信息 + HTTP 状态码
-   * 「继续生成」按钮由 actionBar 按 message.isPaused 统一控制（output/network 分类才可续写）
-   */
-  @Builder
-  errorCard() {
-    Column() {
-      // 标题行
-      Row() {
-        // 警告图标（错误三角标）
-        SymbolGlyph($r('sys.symbol.exclamationmark_triangle'))
-          .fontSize($r('app.float.font_icon_xl'))
-          .fontWeight(600)
-          .fontColor([this.errorAccentColor()])
-          .margin({ right: $r('app.float.space_xs') })
-        Text(errorTitleResource(this.errCategory()))
-          .fontSize($r('app.float.font_body'))
-          .fontWeight(600)
-          .fontColor($r('app.color.text_primary'))
-          .layoutWeight(1)
-        Text(this.errCode())
-          .fontSize($r('app.float.font_thinking'))
-          .fontColor($r('app.color.text_secondary'))
-      }
-      .width("100%")
-      .margin({
-        top: $r('app.float.space_xs'),
-        bottom: $r('app.float.space_xs'),
-      })
-
-      // 说明行：与 Toast 相同的简短文案
-      Text(errorMessageResource(this.errCode()))
-        .fontSize($r('app.float.font_body'))
-        .fontColor($r('app.color.text_primary'))
-        .width("100%")
-        .margin({
-          top: $r('app.float.space_sm'),
-          bottom: $r('app.float.space_sm'),
-        })
-
-      // 详情折叠开关（默认收起）：chevron 图标 + 文案（与思考内容折叠风格一致）
-      Row() {
-        SymbolGlyph(
-          this.isErrorExpanded() ? $r("sys.symbol.chevron_down") : $r("sys.symbol.chevron_right"),
-        )
-          .fontSize($r('app.float.font_icon_md'))
-          .fontWeight(600)
-          .fontColor([$r('app.color.text_secondary')])
-          .margin({
-            left: this.isErrorExpanded() ? 1 : $r('app.float.space_xs'),
-            right: this.isErrorExpanded() ? $r('app.float.space_xs') : $r('app.float.space_sm'),
-          })
-        Text(this.isErrorExpanded() ? "收起详情" : "查看详情")
-          .fontSize($r('app.float.font_thinking'))
-          .fontColor($r('app.color.text_secondary'))
-      }
-      .width("100%")
-      .margin({ left: $r('app.float.space_xxs'), })
-      .onClick(() => {
-        this.expandedErrorSignature = this.isErrorExpanded() ? "" : this.errorSignature();
-      })
-
-      // 展开后的详情区：供应商原始错误信息 + HTTP 状态码
-      if (this.isErrorExpanded()) {
-        Column() {
-          Row() {
-            Text("原始信息：")
-              .fontSize($r('app.float.font_thinking'))
-              .fontColor($r('app.color.text_secondary'))
-            Text(this.errRawMessage())
-              .fontSize($r('app.float.font_thinking'))
-              .fontColor($r('app.color.text_secondary'))
-              .layoutWeight(1)
-          }
-          .width("100%")
-          .alignItems(VerticalAlign.Top)
-          .margin({
-            left: $r('app.float.space_lg'),
-            right: $r('app.float.space_sm'),
-            top: $r('app.float.space_xs'),
-            bottom: $r('app.float.space_xs'),
-          })
-          if (this.errHttpStatus() !== undefined) {
-            Row() {
-              Text("HTTP 状态码：")
-                .fontSize($r('app.float.font_thinking'))
-                .fontColor($r('app.color.text_secondary'))
-              Text(`${this.errHttpStatus()}`)
-                .fontSize($r('app.float.font_thinking'))
-                .fontColor($r('app.color.text_secondary'))
-            }
-            .width("100%")
-            .margin({
-              left: $r('app.float.space_lg'),
-              right: $r('app.float.space_sm'),
-              top: $r('app.float.space_xs'),
-              bottom: $r('app.float.space_xs'),
-            })
-          }
-        }
-      }
-    }
-    .width("100%")
-    .alignItems(HorizontalAlign.Start)
-    .padding({
-      left: $r('app.float.bubble_padding_h'),
-      right: $r('app.float.bubble_padding_h'),
-      top: $r('app.float.bubble_padding_v'),
-      bottom: $r('app.float.bubble_padding_v'),
-    })
-    .backgroundColor($r('app.color.bubble_bg_thinking'))
-    .borderRadius($r('app.float.bubble_radius'))
-    // 左侧强调色条：红色 = 需用户处理（失败）；橙色 = 可重试（异常）；黄色 = 可继续生成（中断）
-    .border({
-      width: { left: 6 },
-      color: { left: this.errorAccentColor() },
-    })
-    .margin({ bottom: $r('app.float.space_xs') });
-  }
-
-  // 错误卡片字段安全访问（错误卡片仅在 error 非空时渲染，此处兜底防编译期空检查）
-  private errCategory(): ErrorCategory {
-    return this.message.error !== undefined ? this.message.error.category : "unknown";
-  }
-
-  private errCode(): string {
-    return this.message.error !== undefined ? this.message.error.code : "";
-  }
-
-  private errRawMessage(): string {
-    return this.message.error !== undefined && this.message.error.rawMessage.length > 0
-      ? this.message.error.rawMessage
-      : "无";
-  }
-
-  private errHttpStatus(): number | undefined {
-    return this.message.error !== undefined ? this.message.error.httpStatus : undefined;
-  }
-
-  // 当前错误的身份签名（code|httpStatus|rawMessage）：用于判断详情是否展开。
-  // 新错误（签名变化）自动回到收起状态
-  private errorSignature(): string {
-    if (this.message.error === undefined) {
-      return "";
-    }
-    return `${this.message.error.code}|${this.message.error.httpStatus}|${this.message.error.rawMessage}`;
-  }
-
-  // 详情是否展开：仅当记录的签名与当前错误一致（同一错误保持展开，新错误默认收起）
-  private isErrorExpanded(): boolean {
-    const sig = this.errorSignature();
-    return sig.length > 0 && this.expandedErrorSignature === sig;
-  }
-
-  // 错误分类 → 强调色（红 = 需用户处理（失败）；橙 = 可重试（异常）；黄 = 可继续生成（中断））
-  private errorAccentColor(): ResourceColor {
-    switch (this.errCategory()) {
-      case "auth":
-      case "rate_limit":
-      case "context":
-      case "config":
-        return $r('app.color.text_danger');
-      case "server":
-      case "unknown":
-        return $r('app.color.text_error_2');
-      default:
-        return $r('app.color.text_error_1');
     }
   }
 
@@ -1109,126 +935,6 @@ export struct MessageBubble {
       this.sheetKind = "web";
       this.isSheetShow = true;
     })
-  }
-
-  /**
-   * 「xx个网页」半模态面板：展示该消息思考过程中浏览过的网页列表
-   *  - 结构与「选择文本」面板一致：上方居中标题 + 右上角叉号，顶部与页面标题栏下缘对齐
-   *  - 列表每项：域名 + 完整 URL，点击调用系统浏览器打开
-   */
-  @Builder
-  webSheet() {
-    Column() {
-      // 标题行：左右等宽占位保证标题居中
-      Row() {
-        Row().width($r('app.float.space_xxl')) // 左侧占位（与右侧关闭按钮等宽，保证标题视觉居中）
-        Text(`${this.message.searchedWebs.length}个网页`)
-          .fontSize($r('app.float.font_title'))
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('app.color.text_primary'))
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-        // 右上角关闭按钮（叉）
-        Row() {
-          SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize($r('app.float.font_icon_lg'))
-            .fontWeight(700)
-            .fontColor([$r('app.color.text_primary')])
-        }
-        .width($r('app.float.space_xxl'))
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          this.isSheetShow = false;
-        })
-      }
-      .width("100%")
-      .height($r('app.float.title_bar_height'))
-      .padding({
-        left: $r('app.float.space_xl'),
-        right: $r('app.float.space_xl'),
-      })
-      // 标题行底部分割线
-      .border({
-        width: { bottom: 1 },
-        color: { bottom: $r('app.color.divider') },
-      })
-
-      // 网页列表：每项 = 图标 + 域名 + 完整 URL，点击打开
-      List() {
-        ForEach(this.message.searchedWebs, (web: WebPage) => {
-          ListItem() {
-            this.webRow(web);
-          }
-        }, (web: WebPage) => web.url)
-      }
-      .width("100%")
-      .layoutWeight(1)
-      .scrollBar(BarState.Auto)
-      .divider({
-        strokeWidth: 1,
-        color: $r('app.color.divider'),
-        startMargin: $r('app.float.space_xl'),
-        endMargin: $r('app.float.space_xl'),
-      })
-    }
-    .width("100%")
-    .height("100%")
-    .backgroundColor($r('app.color.dialog_bg'))
-  }
-
-  // 网页列表单行：图标 + 域名（主行）+ 完整 URL（次行），点击打开
-  @Builder
-  webRow(web: WebPage) {
-    Row() {
-      SymbolGlyph($r("sys.symbol.link"))
-        .fontSize($r('app.float.font_icon_lg'))
-        .fontWeight(600)
-        .fontColor([$r('app.color.search_icon')])
-        .margin({ right: $r('app.float.space_md') })
-      Column() {
-        Text(web.domain)
-          .fontSize($r('app.float.font_body'))
-          .fontWeight(400)
-          .fontColor($r('app.color.text_primary'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(web.url)
-          .fontSize($r('app.float.font_thinking'))
-          .fontColor($r('app.color.text_secondary'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .margin({ top: $r('app.float.space_xxs') })
-      }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
-      // 打开指示箭头
-      SymbolGlyph($r("sys.symbol.arrow_up_right"))
-        .fontSize($r('app.float.font_icon_md'))
-        .fontWeight(600)
-        .fontColor([$r('app.color.operation_icon')])
-    }
-    .width("100%")
-    .padding({
-      left: $r('app.float.space_xl'),
-      right: $r('app.float.space_xl'),
-      top: $r('app.float.space_md'),
-      bottom: $r('app.float.space_md'),
-    })
-    .onClick(() => {
-      this.openWebUrl(web.url);
-    })
-  }
-
-  // 调用系统浏览器打开网页（openLink API 12+）
-  private openWebUrl(url: string): void {
-    try {
-      const host = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
-      if (host !== undefined) {
-        host.openLink(url);
-      }
-    } catch (e) {
-      this.getUIContext().getPromptAction().showToast({ message: "无法打开网页" });
-    }
   }
 
   // 分支切换控件：< 当前 / 总数 >（点击两侧箭头在变体间循环切换；操作栏仅在非流式时显示，恒可切换）

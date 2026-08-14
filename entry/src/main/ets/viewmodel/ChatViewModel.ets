@@ -22,6 +22,8 @@ import { AppConfig } from "../config/AppConfig";
 import { showToast } from "../common/Utils";
 import { LLMError, ErrorCode, errorMessageResource } from "../service/LLMError";
 import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
+import { MessageDataSource } from "./MessageDataSource";
+import { BranchChainManager, VariantInfo } from "./BranchChainManager";
 
 // 空回复自动续试次数上限：completed 但无正文（联网搜索后模型空回复）时自动重试，
 // 连续重试达到上限仍无正文才落回"暂停态"提示用户
@@ -30,88 +32,6 @@ const MAX_AUTO_RETRY: number = 2;
 // 切换分支后的"锚点静默期"（ms）：从切换开始到补偿完成后的一段时间内抑制自动钉底，
 // 覆盖新变体 Markdown 异步渲染增高窗口，避免补偿滚动触发 onReachEnd 后又被渲染增高钉到底部
 const ANCHOR_SUPPRESS_MS: number = 1000;
-
-/**
- * 分支组变体信息（用于气泡左下角渲染 "< 当前 / 总数 >"）
- * @param current 当前变体序号（1 起）
- * @param total 分支组内变体总数
- */
-export interface VariantInfo {
-  current: number;
-  total: number;
-}
-
-/**
- * 消息列表数据源（配合 LazyForEach 使用）
- * 实现 IDataSource 接口，只渲染可视区域内的消息，减少渲染开销
- */
-export class MessageDataSource implements IDataSource {
-  private messages: Message[] = [];
-  private listeners: DataChangeListener[] = [];
-
-  totalCount(): number {
-    return this.messages.length;
-  }
-
-  getData(index: number): Message {
-    return this.messages[index];
-  }
-
-  registerDataChangeListener(listener: DataChangeListener): void {
-    if (this.listeners.indexOf(listener) < 0) {
-      this.listeners.push(listener);
-    }
-  }
-
-  unregisterDataChangeListener(listener: DataChangeListener): void {
-    const pos = this.listeners.indexOf(listener);
-    if (pos >= 0) {
-      this.listeners.splice(pos, 1);
-    }
-  }
-
-  // 添加一条消息并通知 LazyForEach 创建对应 ListItem
-  push(msg: Message): void {
-    this.messages.push(msg);
-    this.listeners.forEach((l: DataChangeListener) => l.onDataAdd(this.messages.length - 1));
-  }
-
-  // 整体替换消息列表（分支切换/激活链重建后调用，触发 LazyForEach 全量重载）
-  replaceAll(list: Message[]): void {
-    this.messages = list;
-    this.listeners.forEach((l: DataChangeListener) => l.onDataReloaded());
-  }
-
-  // 增量替换 [start, start+deleteCount) 区间为新 items（切换分支等局部更新用）：
-  // 用 onDataDelete/onDataAdd 精准通知，避免 onDataReloaded 全量重建导致前缀消息 Markdown 重渲染
-  replaceRange(start: number, deleteCount: number, insertItems: Message[]): void {
-    // 1. 删除旧区间（数组从后往前，保持前面 item 的 index 不变）
-    for (let i = deleteCount - 1; i >= 0; i--) {
-      this.messages.splice(start + i, 1);
-    }
-    for (let i = deleteCount - 1; i >= 0; i--) {
-      this.listeners.forEach((l: DataChangeListener) => l.onDataDelete(start + i));
-    }
-    // 2. 插入新 items（数组从前往后）
-    for (let i = 0; i < insertItems.length; i++) {
-      this.messages.splice(start + i, 0, insertItems[i]);
-    }
-    for (let i = 0; i < insertItems.length; i++) {
-      this.listeners.forEach((l: DataChangeListener) => l.onDataAdd(start + i));
-    }
-  }
-
-  // 获取内部数组引用（用于构造上下文等只读场景）
-  getAll(): Message[] {
-    return this.messages;
-  }
-
-  // 清空所有消息
-  clear(): void {
-    this.messages = [];
-    this.listeners.forEach((l: DataChangeListener) => l.onDataReloaded());
-  }
-}
 
 @ObservedV2
 export class ChatViewModel {
@@ -148,6 +68,8 @@ export class ChatViewModel {
   listScroller: Scroller = new Scroller();
   // LazyForEach 消息数据源
   messageDataSource: MessageDataSource = new MessageDataSource();
+  // 分支链管理器（持有全量消息缓存与变体信息缓存，承接分支链构建/变体统计等数据逻辑）
+  private branchManager: BranchChainManager = new BranchChainManager();
 
   // 非状态成员（内部逻辑用）
   private dbInitPromise: Promise<void> = Promise.resolve(); // 数据库初始化完成信号
@@ -164,15 +86,11 @@ export class ChatViewModel {
   private isRestoringAnchor: boolean = false; // 切换分支锚点恢复期间置位：抑制 onListItemHeightChanged 的自动钉底干扰
   private anchorSuppressUntil: number = 0; // 切换分支后抑制自动钉底的截止时间戳（ms）：覆盖 Markdown 异步渲染增高窗口
   private isDestroyed: boolean = false; // 页面销毁标记（销毁后流回调跳过 UI 更新）
-  // 当前对话的全部消息缓存（含非激活分支变体），分支切换/变体统计/激活链重建均基于它
-  private allMessages: Message[] = [];
   // 进行中的流式任务表：key = 对话 id，一个对话最多一个进行中的流
   // 支持多对话并行流式：切走后原对话的流仍在后台推进，切回时由 loadConversation 重新挂载
   private streamTasks: Map<string, StreamTask> = new Map();
   // 各对话"流式增量持久化"的最后写库时间戳（节流：避免每个 chunk 都写库）
   private streamPersistTime: Map<string, number> = new Map();
-  // 分支组信息缓存（key = 消息 id）：避免 LazyForEach 重建时对每条消息重复 O(n) 过滤+排序
-  private variantInfoCache: Map<string, VariantInfo> = new Map();
 
   // 生命周期（由页面生命周期回调转发）
 
@@ -227,8 +145,7 @@ export class ChatViewModel {
   // 新建对话：创建新对话对象、清空消息列表（不立即入库，等待首条用户消息）
   newConversation(): void {
     this.messageDataSource.clear();
-    this.allMessages = [];
-    this.invalidateVariantCache();
+    this.branchManager.clearAll();
     this.currentConversation = new Conversation();
     this.currentConversationId = this.currentConversation.id;
     this.isFirstUserMsg = true;
@@ -262,8 +179,7 @@ export class ChatViewModel {
       return;
     }
     // 保存全量缓存（分支切换/变体统计/激活链重建的唯真源）
-    this.allMessages = msgs;
-    this.invalidateVariantCache();
+    this.branchManager.setAll(msgs);
 
     // 3. 构建激活链替换列表；若有进行中的流任务，用实时 aiMsg 替换 DB 占位（避免重复）
     // 暂停任务同样处理：暂停时已把部分内容持久化，DB 会返回新实例，
@@ -273,11 +189,10 @@ export class ChatViewModel {
     // 流任务消息不在 DB 中（重建期间）→ 追加到缓存，保证链上引用一致
     liveTasks.forEach((t: StreamTask) => {
       if (msgs.findIndex((m: Message) => m.id === t.aiMsg.id) < 0) {
-        this.allMessages.push(t.aiMsg);
+        this.branchManager.add(t.aiMsg);
       }
     });
-    this.invalidateVariantCache();
-    let chain = this.buildActiveChain(this.allMessages);
+    let chain = this.branchManager.buildActiveChain();
     // 按消息 id 逐条替换（多分支各自替换自己的任务占位，互不干扰）
     chain = chain.map((m: Message) => {
       const t = this.streamTasks.get(m.id);
@@ -566,27 +481,32 @@ export class ChatViewModel {
           showToast(errorMessageResource(error.code));
         }
       },
-      // 发生错误（鉴权失败/限流/上下文超限/服务端错误等，通常不可续写）：
-      // 内容保持纯净，错误信息以结构化 LLMError 记录并展示在气泡错误卡片
+      // 发生错误：不可续写（鉴权/限流/上下文超限等）直接收尾；可续写（网络超时/请求失败/服务端错误等）
+      // 按 error.retryable 进入暂停态，保留「继续生成」按钮供用户重试
       onError: (error: LLMError) => {
         task.clearTimer();
         task.endThinking(); // 结算当前思考阶段耗时（若有）
         task.isStreaming = false;
-        task.isPaused = false;
+        task.isPaused = error.retryable; // 可续写错误 → 任务保留供「继续生成」复用
         aiMsg.isStreaming = false; // 异常结束同样退出流式态
         aiMsg.isSearching = false;
-        aiMsg.isPaused = false; // 错误收尾，不再显示「继续生成」
+        aiMsg.isPaused = error.retryable; // 可续写错误 → 显示「继续生成」；不可续写 → 不显示
         aiMsg.generationStatus = "partial"; // 未完整生成（重启后仍可「继续生成」）
         aiMsg.error = error; // 结构化错误信息（错误卡片展示错误码/文案/详情）
         task.abortHandler = null;
         this.streamPersistTime.delete(task.aiMsg.id); // 清理节流写库状态
-        this.streamTasks.delete(task.aiMsg.id);
+        if (!error.retryable) {
+          this.streamTasks.delete(task.aiMsg.id); // 不可续写 → 移除任务
+        }
         this.syncBackgroundGuardCount(); // 任务数变化，同步保活服务
         this.refreshStreamState();
         // 错误消息也入库（含结构化错误信息），方便用户从历史中复盘
         ConversationRepository.getInstance().updateMessage(aiMsg);
         if (this.isDestroyed) return;
         if (this.currentConversationId === task.conversationId) {
+          if (error.retryable) {
+            this.streamState = "paused"; // 可续写错误 → 输入区显示「继续生成」
+          }
           this.scrollToBottom();
           showToast(errorMessageResource(error.code));
         }
@@ -685,7 +605,7 @@ export class ChatViewModel {
     this.messageDataSource.getAll().forEach((m: Message) => {
       chainIds.add(m.id);
     });
-    this.allMessages.forEach((m: Message) => {
+    this.branchManager.getAll().forEach((m: Message) => {
       ConversationRepository.getInstance().updateMessageActive(m.id, chainIds.has(m.id));
     });
   }
@@ -876,10 +796,9 @@ export class ChatViewModel {
     const msg = new Message(this.currentConversationId, role, content);
     msg.parentId = parentId;
     msg.branchGroupId = parentId; // 分支组锚点 = 父消息 id（同父消息互为变体）
-    msg.variantIndex = this.nextVariantIndex(parentId); // 组内变体序号递增
+    msg.variantIndex = this.branchManager.nextVariantIndex(parentId); // 组内变体序号递增
     msg.isActive = true;
-    this.allMessages.push(msg);
-    this.invalidateVariantCache();
+    this.branchManager.add(msg);
     this.messageDataSource.push(msg);
     // 持久化消息
     if (this.currentConversationId) {
@@ -905,25 +824,13 @@ export class ChatViewModel {
     const msg = new Message(this.currentConversationId, role, content);
     msg.parentId = parentId;
     msg.branchGroupId = parentId;
-    msg.variantIndex = this.nextVariantIndex(parentId);
+    msg.variantIndex = this.branchManager.nextVariantIndex(parentId);
     msg.isActive = true;
-    this.allMessages.push(msg);
-    this.invalidateVariantCache();
+    this.branchManager.add(msg);
     if (this.currentConversationId) {
       ConversationRepository.getInstance().insertMessage(msg);
     }
     return msg;
-  }
-
-  /** 计算指定分支组内的下一个变体序号（组内最大 index + 1） */
-  private nextVariantIndex(branchGroupId: string): number {
-    let max = -1;
-    this.allMessages.forEach((m: Message) => {
-      if (m.branchGroupId === branchGroupId && m.variantIndex > max) {
-        max = m.variantIndex;
-      }
-    });
-    return max + 1;
   }
 
   // ===== 重新生成 / 新建分支 / 编辑 / 切换分支（对话分支核心） =====
@@ -951,7 +858,7 @@ export class ChatViewModel {
     aiMsg.thinkingStartTime = Date.now();
     // 上下文 = 激活链中该消息之前的部分；搜索词 = 对应的用户提问
     const context = this.buildContextBefore(aiMsg.id);
-    const prompt = this.findPromptOf(aiMsg);
+    const prompt = this.branchManager.findPromptOf(aiMsg);
     const targetConv = this.currentConversation;
     // 使用当前输入区开关状态（而非上次发送时的值）
     await this.startStreamReply(sendConvId, targetConv, aiMsg, context,
@@ -976,12 +883,12 @@ export class ChatViewModel {
     newVariant.isStreaming = true;
     newVariant.thinkingStartTime = Date.now();
     // 2. 熄灭旧分支（旧回复及其后续链），保留在数据库中供切换查看
-    this.deactivateBranchFrom(aiMsg);
+    this.branchManager.deactivateBranchFrom(aiMsg);
     // 3. 重建激活链（新变体成为链尾）
     await this.rebuildActiveChain(newVariant.id);
     // 4. 构造上下文并发起流式回复
     const context = this.buildContextBefore(newVariant.id);
-    const prompt = this.findPromptOf(newVariant);
+    const prompt = this.branchManager.findPromptOf(newVariant);
     const targetConv = this.currentConversation;
     // 使用当前输入区开关状态（而非上次发送时的值）
     await this.startStreamReply(sendConvId, targetConv, newVariant, context,
@@ -999,7 +906,7 @@ export class ChatViewModel {
     deepThinking: boolean,
   ): Promise<void> {
     const sendConvId = this.currentConversationId;
-    const target = this.allMessages.find(m => m.id === editTargetId);
+    const target = this.branchManager.getById(editTargetId);
     if (target === undefined || !target.isUser()) return; // 目标必须是用户消息
     if (this.isStreamingFor(sendConvId)) {
       showToast($r("app.string.streaming_busy"));
@@ -1008,7 +915,7 @@ export class ChatViewModel {
     // 1. 创建新用户消息变体（同父、同分支组、序号 +1）
     const newUserMsg = this.createAndPersist("user", newText, target.parentId);
     // 2. 熄灭旧用户消息及其后续链
-    this.deactivateBranchFrom(target);
+    this.branchManager.deactivateBranchFrom(target);
     // 3. 重建激活链（新用户消息成为链尾）
     await this.rebuildActiveChain(newUserMsg.id);
     // 4. 创建 AI 占位（parent = 新用户消息）并入列
@@ -1040,7 +947,7 @@ export class ChatViewModel {
   /** 切换分支：在当前消息的分支组内按 delta(±1) 切换变体，并整条链重建 */
   switchBranch(msg: Message, delta: number): void {
     if (msg.isStreaming) return; // 流式中不可切换
-    const group = this.allMessages.filter(m => m.branchGroupId === msg.branchGroupId);
+    const group = this.branchManager.getAll().filter(m => m.branchGroupId === msg.branchGroupId);
     if (group.length <= 1) return; // 只有一个变体，无需切换
     group.sort((a, b) => a.variantIndex - b.variantIndex);
     const curPos = group.findIndex(m => m.id === msg.id);
@@ -1056,7 +963,7 @@ export class ChatViewModel {
   /**
    * 删除消息及其后续所有分支（子树整体删除）
    * - 从 DB 批量删除（消息 id 集合）
-   * - 从内存缓存 allMessages 移除
+   * - 从分支链管理器的消息缓存移除
    * - 若该消息正在流式输出，先中止对应流任务
    * - 列表重建；全部删空则重置为新对话（同步删除已无内容的对话记录）
    */
@@ -1080,7 +987,7 @@ export class ChatViewModel {
       if (curId === undefined) continue;
       if (deleteIds.indexOf(curId) >= 0) continue; // 防重复
       deleteIds.push(curId);
-      this.allMessages.forEach((m: Message) => {
+      this.branchManager.getAll().forEach((m: Message) => {
         if (m.parentId === curId) {
           stack.push(m.id);
         }
@@ -1114,18 +1021,17 @@ export class ChatViewModel {
 
     // 3. 持久化：删除消息（子树）；若全部删空，同时删除已无内容的对话记录
     ConversationRepository.getInstance().deleteMessages(deleteIds);
-    if (deleteIds.length === this.allMessages.length) {
+    if (deleteIds.length === this.branchManager.size()) {
       ConversationRepository.getInstance().deleteConversations([convId]);
     }
 
     // 4. 更新内存缓存并重建列表
-    this.allMessages = this.allMessages.filter((m: Message) => deleteIds.indexOf(m.id) < 0);
-    this.invalidateVariantCache();
-    if (this.allMessages.length === 0) {
+    this.branchManager.removeMany(deleteIds);
+    if (this.branchManager.size() === 0) {
       this.newConversation(); // 删空 → 回到新对话状态
     } else {
       // 删除的是当前激活的变体且有剩余兄弟 → 激活"紧邻前一个变体"（6/8 删除后跳到 5/7，而非回到第一个）
-      const prevSibling = this.findPrevSiblingForDeleted(msg);
+      const prevSibling = this.branchManager.findPrevSiblingForDeleted(msg);
       if (prevSibling !== undefined) {
         // 复用切换分支的锚点路径（scrollToTargetId + fromId）：删除后的回退与切换分支效果一致，
         await this.rebuildActiveChain(prevSibling.id, prevSibling.id, msg.id, true);
@@ -1148,7 +1054,7 @@ export class ChatViewModel {
     persist: boolean = true): Promise<void> {
     const convId = this.currentConversationId;
     // 1. 全部熄灭（内存；切换变体时不清 DB，保持"最后 AI 输出分支"的历史落点）
-    this.allMessages.forEach((m: Message) => {
+    this.branchManager.getAll().forEach((m: Message) => {
       m.isActive = false;
     });
     if (persist) {
@@ -1159,7 +1065,7 @@ export class ChatViewModel {
     // 注意：ArkTS 不支持 while 条件对循环体内被重新赋值的变量做类型收窄，
     // 故统一用 string 游标 + 循环内 const 捕获 + 显式判空，保证编译通过
     const byId = new Map<string, Message>();
-    this.allMessages.forEach(m => byId.set(m.id, m));
+    this.branchManager.getAll().forEach(m => byId.set(m.id, m));
     const activeIds: string[] = [];
     let curId: string = targetId;
     while (true) {
@@ -1176,9 +1082,9 @@ export class ChatViewModel {
     while (true) {
       const node = byId.get(curId);
       if (node === undefined) break;
-      const children = this.allMessages.filter(m => m.parentId === node.id);
+      const children = this.branchManager.getAll().filter(m => m.parentId === node.id);
       if (children.length === 0) break;
-      const next = this.selectNextChild(children);
+      const next = this.branchManager.selectNextChild(children);
       if (next === undefined) break;
       next.isActive = true;
       activeIds.push(next.id);
@@ -1193,7 +1099,7 @@ export class ChatViewModel {
     }
 
     // 5. 重载激活链列表
-    const chain = this.buildActiveChain(this.allMessages);
+    const chain = this.branchManager.buildActiveChain();
 
     if (scrollToTargetId !== undefined && scrollToTargetId.length > 0) {
       // 5.1 切换分支（记录锚点 → 增量替换 → 恢复偏移）：
@@ -1335,83 +1241,12 @@ export class ChatViewModel {
     this.anchorSuppressUntil = Date.now() + ANCHOR_SUPPRESS_MS;
   }
 
-  /** 将节点及其激活后续链全部置为非激活（创建新分支时熄灭旧分支），同步持久化 */
-  private deactivateBranchFrom(node: Message): void {
-    const stack: Message[] = [node];
-    while (stack.length > 0) {
-      const cur = stack.pop();
-      if (cur === undefined) continue; // 栈已空（防御）
-      if (!cur.isActive) continue; // 已被熄灭，跳过
-      cur.isActive = false;
-      ConversationRepository.getInstance().updateMessageActive(cur.id, false);
-      // 继续熄灭其激活子节点（分支链保证每个父节点至多一个激活子节点）
-      this.allMessages.forEach((m: Message) => {
-        if (m.parentId === cur.id && m.isActive) {
-          stack.push(m);
-        }
-      });
-    }
-  }
-
-  /**
-   * 构建激活链：从根消息（parentId=""）出发，沿激活子节点延伸
-   * 兼容旧数据（全部消息 parentId 为空）→ 按时间正序返回
-   */
-  private buildActiveChain(all: Message[]): Message[] {
-    if (all.length === 0) return [];
-    const hasParent = all.some(m => m.parentId.length > 0);
-    if (!hasParent) {
-      return all.slice().sort((a, b) => a.createdAt - b.createdAt);
-    }
-    // 根 = parentId 为空的消息（多个根取激活的，否则取最早的）
-    const roots = all.filter(m => m.parentId.length === 0)
-      .sort((a, b) => a.createdAt - b.createdAt);
-    if (roots.length === 0) {
-      return all.slice().sort((a, b) => a.createdAt - b.createdAt);
-    }
-    const root = roots.find(r => r.isActive) ?? roots[0];
-    const chain: Message[] = [];
-    const visited = new Set<string>();
-    // string 游标遍历（避免 while 条件对可选变量收窄失效的 ArkTS 编译限制）
-    let curId: string = root.id;
-    while (true) {
-      if (visited.has(curId)) break; // 防环兜底
-      const node = all.find(m => m.id === curId);
-      if (node === undefined) break;
-      visited.add(curId);
-      chain.push(node);
-      const children = all.filter(m => m.parentId === node.id);
-      if (children.length === 0) break;
-      const next = this.selectNextChild(children);
-      if (next === undefined) break;
-      curId = next.id;
-    }
-    return chain;
-  }
-
-  /**
-   * 从一组子节点（同父的变体兄弟）中选择激活链延续：
-   * 优先选 isActive 节点；全部非激活时取组内最早变体（variantIndex 最小 = 原始分支）
-   */
-  private selectNextChild(children: Message[]): Message | undefined {
-    const active = children.filter(c => c.isActive);
-    if (active.length > 0) return active[0];
-    const sorted = children.slice().sort((a, b) => a.variantIndex - b.variantIndex);
-    return sorted.length > 0 ? sorted[0] : undefined;
-  }
-
   /** 构造某消息之前的激活上下文（不含该消息本身），用于重新生成/新建分支 */
   private buildContextBefore(targetId: string): Message[] {
     const list = this.messageDataSource.getAll();
     const idx = list.findIndex(m => m.id === targetId);
     if (idx < 0) return list;
     return list.slice(0, idx);
-  }
-
-  /** 找到 AI 消息对应的用户提问（其父用户消息的内容），用作联网搜索关键词 */
-  private findPromptOf(aiMsg: Message): string {
-    const parent = this.allMessages.find(m => m.id === aiMsg.parentId);
-    return parent !== undefined ? parent.content : "";
   }
 
   /** 从被浏览页面的完整 URL 提取域名（去掉协议/路径/查询/锚点与追踪尾巴，用于"正在浏览 xxx 域名"展示） */
@@ -1431,72 +1266,21 @@ export class ChatViewModel {
     return u.length > 0 ? u : url;
   }
 
-  /**
-   * 删除消息后寻找"紧邻前一个变体"作为新激活目标：
-   * 仅当被删除消息原本处于激活态、且其分支组内仍有剩余变体时，返回前一个变体
-   * （如 6/8 被删除 → 激活 5/7）；被删除的是第一个变体时回退到剩余第一个（原 2 号 → 现 1 号）。
-   * 其余情况返回 undefined，走原有 buildActiveChain 兜底（保持当前激活链不动）。
-   */
-  private findPrevSiblingForDeleted(deleted: Message): Message | undefined {
-    if (!deleted.isActive) return undefined; // 删除非激活变体不影响激活链
-    if (deleted.parentId.length === 0) return undefined; // 根消息无兄弟变体概念
-    const group = this.allMessages.filter(m => m.branchGroupId === deleted.branchGroupId && m.id !== deleted.id);
-    if (group.length === 0) return undefined; // 无剩余兄弟（唯一变体被删）
-    const sorted = group.slice().sort((a, b) => a.variantIndex - b.variantIndex);
-    let prev: Message | undefined = undefined;
-    for (const m of sorted) {
-      if (m.variantIndex < deleted.variantIndex) {
-        prev = m; // 持续记录"紧邻小于被删变体"的最后一个（即上一个变体）
-      } else {
-        break;
-      }
-    }
-    return prev ?? sorted[0]; // 无更小变体（删的是第一个）→ 回退到剩余第一个
-  }
-
-  /** 依据 allMessages 的 isActive 状态重建列表（激活链）并钉到底部 */
+  /** 依据分支链管理器中消息的 isActive 状态重建列表（激活链）并钉到底部 */
   private reloadActiveList(): void {
-    const chain = this.buildActiveChain(this.allMessages);
+    const chain = this.branchManager.buildActiveChain();
     this.messageDataSource.replaceAll(chain);
     this.scrollToBottom();
   }
 
   /**
    * 分支组信息：返回 { current, total }，用于渲染 "< 当前 / 总数 >"
+   * 转发到 BranchChainManager（ChatPage 依赖此方法，保留转发避免页面感知内部结构）
    * @param msg 当前消息
    * @returns current = 当前变体序号（1 起）；total = 分支组内变体总数
    */
   getVariantInfo(msg: Message): VariantInfo {
-    // 命中缓存直接返回：同一消息在 LazyForEach 重建时无需重复 O(n) 过滤+排序
-    const cached = this.variantInfoCache.get(msg.id);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const info = this.computeVariantInfo(msg);
-    this.variantInfoCache.set(msg.id, info);
-    return info;
-  }
-
-  /** 计算分支组信息（无缓存，仅在缓存未命中时调用） */
-  private computeVariantInfo(msg: Message): VariantInfo {
-    const group = this.allMessages.filter(m => m.branchGroupId === msg.branchGroupId);
-    if (group.length === 0) {
-      return { current: msg.variantIndex + 1, total: msg.variantIndex + 1 };
-    }
-    // 按变体序号排序，用"组内位置"计算当前序号
-    // 原因：删除某条变体后 variantIndex 会留下空洞（如 0,1,2 删除 1 后剩 0,2），
-    // 若直接用 variantIndex+1 计算 current，会出现 current > total（如显示 3/2）
-    const sorted = group.slice().sort((a, b) => a.variantIndex - b.variantIndex);
-    const pos = sorted.findIndex(m => m.id === msg.id);
-    // 组内去重统计变体数（variantIndex 唯一）
-    const indexes = new Set<number>();
-    group.forEach(m => indexes.add(m.variantIndex));
-    return { current: Math.max(1, pos + 1), total: Math.max(1, indexes.size) };
-  }
-
-  /** 失效分支组信息缓存：allMessages 增删消息（新建变体/删除/加载）后调用 */
-  private invalidateVariantCache(): void {
-    this.variantInfoCache.clear();
+    return this.branchManager.getVariantInfo(msg);
   }
 
   /**
