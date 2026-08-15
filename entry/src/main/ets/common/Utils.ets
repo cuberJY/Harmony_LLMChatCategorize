@@ -54,7 +54,7 @@ export function showDeleteConfirm(
     },
     secondaryButton: {
       value: "删除",
-      fontColor: Color.Red,
+      fontColor: $r('app.color.text_danger'),
       action: () => {
         onConfirm();
       },

@@ -1,5 +1,6 @@
 // 主聊天页面x
 import { common } from "@kit.AbilityKit";
+import { window } from "@kit.ArkUI";
 import { Message } from "../model/Message";
 import { Conversation } from "../model/Conversation";
 import { SideBarParams } from "../model/SideBarParams";
@@ -25,6 +26,13 @@ export struct ChatPage {
   private vm: ChatViewModel = new ChatViewModel();
   // Markdown 库预热控制器（仅用于触发库初始化，不参与实际渲染）
   private mdPreloadController: MarkdownController = new MarkdownController();
+  // 键盘是否弹出（keyboardHeightChange 监听维护）：返回键拦截用——键盘弹出时返回键只收键盘
+  private isKeyboardShowing: boolean = false;
+  // 主窗口引用（注销键盘监听用）
+  private mainWindow?: window.Window;
+  // 编辑态键盘弹出后的重新对齐防抖定时器（-1 = 无挂起）：
+  // 等键盘动画停稳（RESIZE 压缩视口完成）再滚动，避免视口尺寸变化过程中多次跳动
+  private editAlignTimerId: number = -1;
 
   aboutToAppear(): void {
     // 初始化数据库（页面级 UIAbilityContext）
@@ -36,6 +44,25 @@ export struct ChatPage {
       this.getUIContext().animateTo({ duration: 200, curve: 'easeOut' }, action);
     });
     // 模型名/标题等显示期状态在 onShown 中刷新（首次与每次从其他页面返回都触发）
+    // 监听键盘高度变化：返回键拦截用（鸿蒙缺陷：键盘弹出时按返回键，系统收键盘的同时会
+    // 把返回键交给应用执行返回逻辑；若不区分"键盘弹出"，收键盘那一下就会误取消编辑/退出应用）
+    window.getLastWindow(context).then((win: window.Window) => {
+      this.mainWindow = win;
+      win.on('keyboardHeightChange', (height: number) => {
+        this.isKeyboardShowing = height > 0; // 键盘高度 > 0 = 弹出中
+        // 编辑态 + 键盘弹出：RESIZE 会把 List 视口压缩、ChatInput 顶起，
+        // startEdit 时（键盘未弹）的对齐基于旧视口尺寸，需等键盘动画停稳后重新对齐
+        if (height > 0 && this.vm.editingMessageId.length > 0) {
+          if (this.editAlignTimerId !== -1) {
+            clearTimeout(this.editAlignTimerId);
+          }
+          this.editAlignTimerId = setTimeout(() => {
+            this.editAlignTimerId = -1;
+            this.vm.scrollToEditTarget();
+          }, 100);
+        }
+      });
+    });
   }
 
   aboutToDisappear(): void {
@@ -43,6 +70,16 @@ export struct ChatPage {
     this.vm.aboutToDisappear();
     // 注销转场动画回调（本页是路由栈首页，索引恒为 0）
     NavTransitionManager.getInstance().unregister(0);
+    // 清理编辑态重新对齐的防抖定时器，防止回调泄漏
+    if (this.editAlignTimerId !== -1) {
+      clearTimeout(this.editAlignTimerId);
+      this.editAlignTimerId = -1;
+    }
+    // 注销键盘高度监听，防止回调泄漏
+    if (this.mainWindow !== undefined) {
+      this.mainWindow.off('keyboardHeightChange');
+      this.mainWindow = undefined;
+    }
   }
 
   // 右下角"回到底部"悬浮按钮
@@ -259,8 +296,10 @@ export struct ChatPage {
       // 解决流式输出底部 item 持续长高、用户向上翻历史时视口被顶跳的抖动
       .maintainVisibleContentPosition(true)
 
-        // 右下角悬浮按钮：不在最底部时显示，点击强制滚到底（样式与输入区发送键一致）
-        if (!this.vm.isAtBottom) {
+        // 右下角悬浮按钮：不在最底部且非编辑态时显示，点击强制滚到底（样式与输入区发送键一致）
+        // 编辑态下隐藏：编辑对齐会让消息停在视口中部/顶部，此时按钮出现会遮挡编辑中的消息，
+        // 且编辑态专注修改，无需"回到底部"快捷操作
+        if (!this.vm.isAtBottom && this.vm.editingMessageId.length === 0) {
           this.scrollToBottomFab();
         }
       }
@@ -340,7 +379,15 @@ export struct ChatPage {
       /** 
        * ChatPage 是栈底主页面（isEntry 入栈）：系统返回键 = 退出应用，
        * 拦截后不弹栈，避免 NavDestination 被弹出、回到空白的 Navigation 首页内容（NavBar）
+       * 返回键优先级：键盘弹出（只收键盘） > 编辑态（取消编辑） > 退出应用
        */
+      if (this.isKeyboardShowing) {
+        return true;
+      }
+      if (this.vm.editingMessageId.length > 0) {
+        this.vm.exitEditMode(); // 取消编辑：清空 editingMessageId/prefill，输入框联动恢复
+        return true; // 拦截本次返回，不退出应用
+      }
       const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
       context.terminateSelf();
       return true; // true = 本页自行处理返回键，框架不再执行默认弹栈

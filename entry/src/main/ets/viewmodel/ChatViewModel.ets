@@ -950,6 +950,33 @@ export class ChatViewModel {
     this.editingPrefill = msg.content;
   }
 
+  /**
+   * 编辑态对齐（仅由 ChatPage 键盘弹出防抖回调触发，见 ChatPage.keyboardHeightChange）：
+   * 键盘稳定后（RESIZE 压缩视口完成）平滑滚动，使被编辑消息的底部（ListItem 尾部）
+   * 与列表视口底部对齐。List 占据标题栏与 ChatInput 之间的全部剩余空间 → 视口底部
+   * 即输入区顶部，用户可边看原消息边在输入框修改。
+   * ScrollAlign.END = item 尾部与视口尾部对齐；smooth=true 平滑滚动。
+   * 对齐后不在底部 → setAtBottom(false) 取消自动跟随，避免后续钉底逻辑把视口拉回
+   */
+  scrollToEditTarget(): void {
+    const targetId = this.editingMessageId;
+    if (targetId.length === 0) {
+      return; // 非编辑态（或编辑已取消）：无对齐目标
+    }
+    const list = this.messageDataSource.getAll();
+    const idx = list.findIndex((m: Message) => m.id === targetId);
+    if (idx < 0) {
+      return; // 目标不在激活链上（异常场景）：无法对齐，保持当前位置
+    }
+    this.setAtBottom(false); // 编辑对齐后不再处于底部，取消自动跟随
+    try {
+      this.listScroller.scrollToIndex(idx, true, ScrollAlign.END);
+    } catch (e) {
+      // 个别版本平滑滚动异常：回退为无动画滚动到消息顶部，至少保证消息可见
+      this.listScroller.scrollToIndex(idx, false, ScrollAlign.START);
+    }
+  }
+
   /** 退出编辑态（编辑发送完成 / 切换对话时调用） */
   exitEditMode(): void {
     this.editingMessageId = "";
@@ -1456,6 +1483,10 @@ export class ChatViewModel {
   private shouldAutoScroll(): boolean {
     // 切换分支锚点静默期内不自动钉底，避免异步渲染增高/补偿滚动触发 onReachEnd 后跳到底
     if (Date.now() < this.anchorSuppressUntil) {
+      return false;
+    }
+    // 编辑态下不自动钉底：保持"气泡底部与输入区顶部对齐"的位置，不被流式输出/消息增高拉回
+    if (this.editingMessageId.length > 0) {
       return false;
     }
     return this.isAtBottom && !this.isUserOperating;

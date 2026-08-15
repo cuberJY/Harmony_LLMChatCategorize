@@ -545,6 +545,14 @@ export struct SideBarPage {
       this.vm.loadFavorites();
       this.vm.listVersion++;
     })
+    .onBackPressed(() => {
+      // 多选编辑模式：系统返回键优先退出编辑模式（拦截本次返回），再按一次才真正返回 ChatPage
+      if (this.vm.isEditMode) {
+        this.vm.exitEditMode();
+        return true; // true = 本页自行处理返回键，框架不再执行默认弹栈
+      }
+      return false; // 非编辑模式：交还默认弹栈逻辑返回 ChatPage
+    })
   }
 
   /**
