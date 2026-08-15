@@ -143,10 +143,10 @@ export struct MessageBubble {
         const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
         pasteboard.getSystemPasteboard().setData(data)
           .then(() => {
-            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copied') });
+            showToast($r('app.string.copied'));
           })
           .catch(() => {
-            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copy_failed') });
+            showToast($r('app.string.copy_failed'));
           });
       })
       /* 3. 可选：代码块右上角"复制"按钮 */
@@ -154,7 +154,7 @@ export struct MessageBubble {
         const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
         pasteboard.getSystemPasteboard().setData(data)
           .then(() => {
-            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.code_copied') });
+            showToast($r('app.string.code_copied'));
           });
       });
     this.registerEnvironmentListener();
@@ -929,10 +929,10 @@ export struct MessageBubble {
     const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
     pasteboard.getSystemPasteboard().setData(data)
       .then(() => {
-        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copied') });
+        showToast($r('app.string.copied'));
       })
       .catch(() => {
-        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copy_failed') });
+        showToast($r('app.string.copy_failed'));
       });
   }
 

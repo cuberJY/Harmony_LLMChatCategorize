@@ -1,5 +1,6 @@
 import { WebPage } from "../../model/Message";
 import { common } from '@kit.AbilityKit';
+import { showToast } from "../../common/Utils";
 
 /**
  * 「xx个网页」半模态面板：展示某条消息思考过程中浏览过的网页列表
@@ -124,7 +125,7 @@ export struct WebSheetPanel {
         host.openLink(url);
       }
     } catch (e) {
-      this.getUIContext().getPromptAction().showToast({ message: "无法打开网页" });
+      showToast("无法打开网页");
     }
   }
 }
