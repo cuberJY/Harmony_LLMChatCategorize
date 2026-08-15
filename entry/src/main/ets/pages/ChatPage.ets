@@ -5,6 +5,7 @@ import { Conversation } from "../model/Conversation";
 import { SideBarParams } from "../model/SideBarParams";
 import { MessageBubble } from "../components/chat/MessageBubble";
 import { ChatInput } from "../components/chat/ChatInput";
+import { WebSheetPanel } from "../components/chat/WebSheetPanel";
 import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { showToast } from "../common/Utils";
@@ -38,6 +39,13 @@ export struct ChatPage {
   private editAlignTimerId: number = -1;
   /* 侧边栏入栈中标记（防连点双开） */
   private isSideBarPushing: boolean = false;
+  /**
+   * 半模态面板状态（页面级统一管理）：弹层生命周期与页面绑定，
+   * 避免 item 级 bindSheet 在 LazyForEach 中残留遮罩（修复：弹出弹窗后页面触摸被吞）
+   */
+  @Local sheetShow: boolean = false; // 面板显示状态（$$ 双向绑定，拖拽/点遮罩关闭时自动置回 false）
+  @Local sheetKind: "none" | "text" | "web" = "none"; // 当前面板类型：「选择文本」/「xx个网页」
+  @Local sheetMsg: Message = new Message("", "user", ""); // 当前面板对应的消息（面板内容数据源）
 
   aboutToAppear(): void {
     /* 初始化数据库（页面级 UIAbilityContext） */
@@ -218,6 +226,12 @@ export struct ChatPage {
                   onResume: (m: Message) => {
                     this.vm.resumeStreaming(m);
                   },
+                  /* 打开半模态面板（页面级统一管理）：记录目标消息并弹出 */
+                  onOpenSheet: (m: Message, kind: "text" | "web") => {
+                    this.sheetMsg = m;
+                    this.sheetKind = kind;
+                    this.sheetShow = true;
+                  },
                 })
               }.width("100%")
               .onAreaChange((oldArea: Area, newArea: Area) => {
@@ -338,7 +352,22 @@ export struct ChatPage {
       }),
     )
     .width("100%")
-    .height("100%");
+    .height("100%")
+    /**
+     * 半模态面板（「选择文本」/「xx个网页」共用，页面级统一管理）：
+     * 从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏；弹层生命周期与页面绑定，
+     * onDisappear 兜底复位状态，杜绝 item 级 bindSheet 残留遮罩拦截触摸
+     */
+    .bindSheet($$this.sheetShow, this.pageSheetContent(), {
+      height: this.pageSheetHeight(),
+      dragBar: false,
+      showClose: false,
+      backgroundColor: $r('app.color.dialog_bg'),
+      onDisappear: () => {
+        this.sheetShow = false;
+        this.sheetKind = "none";
+      },
+    });
     }
     .hideTitleBar(true)
     .onReady((context: NavDestinationContext) => {
@@ -357,6 +386,10 @@ export struct ChatPage {
     .onShown(() => {
       /* 每次显示（含从侧边栏/文件夹返回）时刷新模型名与标题 */
       this.vm.onPageShow();
+      /* 返回时复位防重入标记：onPop 仅在 pop 传参时才触发（pop() 无参数不回调），
+         改用 onShown 保证任何返回方式（顶部返回键/系统返回键/选中对话）都能立即复位，
+         避免「返回后需等超时才能再次打开侧边栏」 */
+      this.isSideBarPushing = false;
     })
     .onBackPressed(() => {
       /** 
@@ -377,11 +410,116 @@ export struct ChatPage {
     })
   }
 
+  /* 半模态面板内容：按当前面板类型分支渲染（sheetKind 在打开前设置，页面级统一管理） */
+  @Builder
+  pageSheetContent() {
+    if (this.sheetKind === "text") {
+      this.pageTextSheet();
+    } else if (this.sheetKind === "web") {
+      WebSheetPanel({
+        webs: this.sheetMsg.searchedWebs,
+        onClose: () => { this.sheetShow = false; },
+      });
+    }
+  }
+
+  /* 「选择文本」面板：居中标题 + 右上角关闭，正文为 Markdown 源码可长按复制（与上提前 item 级面板完全一致） */
+  @Builder
+  pageTextSheet() {
+    Column() {
+      /* 标题行：左右等宽占位保证标题居中 */
+      Row() {
+        /* 左侧占位（与右侧关闭按钮等宽，保证标题视觉居中） */
+        Row().width($r('app.float.space_xxl'))
+        Text($r('app.string.select_text'))
+          .fontSize($r('app.float.font_title'))
+          .fontWeight(700)
+          .fontColor($r('app.color.text_primary'))
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+        /* 右上角关闭按钮（叉） */
+        Row() {
+          SymbolGlyph($r('sys.symbol.xmark'))
+            .fontSize($r('app.float.font_icon_lg'))
+            .fontWeight(700)
+            .fontColor([$r('app.color.text_primary')])
+        }
+        .width($r('app.float.space_xxl'))
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          this.sheetShow = false;
+        })
+      }
+      .width("100%")
+      .height($r('app.float.title_bar_height'))
+      .padding({
+        left: $r('app.float.space_xl'),
+        right: $r('app.float.space_xl'),
+      })
+      /* 标题行底部分割线 */
+      .border({
+        width: { bottom: 1 },
+        color: { bottom: $r('app.color.divider') },
+      })
+
+      /* 渲染前的原始文本（Markdown 源码），copyOption 支持长按选择与复制 */
+      Scroll() {
+        Text(this.sheetMsg.content)
+          .fontSize($r('app.float.font_body'))
+          .fontColor($r('app.color.text_ai'))
+          .copyOption(CopyOptions.LocalDevice)
+          .width("100%")
+          .padding({
+            left: $r('app.float.space_xl'),
+            right: $r('app.float.space_xl'),
+            top: $r('app.float.space_lg'),
+            bottom: $r('app.float.space_lg'),
+          })
+      }
+      .width("100%")
+      .layoutWeight(1)
+      .align(Alignment.TopStart)
+      .scrollBar(BarState.Auto)
+    }
+    .width("100%")
+    .height("100%")
+    .backgroundColor($r('app.color.dialog_bg'))
+  }
+
+  /**
+   * 计算半模态面板高度（vp）：
+   * 面板从底部弹出，要求其顶部与页面顶部标题栏下缘对齐，
+   * 故 高度 = 窗口高度 - 状态栏高度 - 标题栏高度（窗口/状态栏为 px，统一转 vp）。
+   */
+  private pageSheetHeight(): number {
+    try {
+      const host = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+      if (host === undefined || host.windowStage === undefined) {
+        return 500; // 兜底高度
+      }
+      /* 标题栏高度（float 资源带 'vp' 单位，getNumber 返回 px，需转回 vp） */
+      const titleBarHeightPx = host.resourceManager.getNumber($r('app.float.title_bar_height').id);
+      const titleBarHeight = this.getUIContext().px2vp(titleBarHeightPx);
+      const win = host.windowStage.getMainWindowSync();
+      /* 窗口总高度（px） */
+      const windowHeightPx = win.getWindowProperties().windowRect.height;
+      /* 状态栏（顶部安全区）高度（px），非沉浸式窗口时为 0 */
+      const safeTopPx = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect.height;
+      const windowHeight = this.getUIContext().px2vp(windowHeightPx);
+      const safeTop = this.getUIContext().px2vp(safeTopPx);
+      return Math.max(200, windowHeight - safeTop - titleBarHeight);
+    } catch (e) {
+      return 500; // 异常兜底，保证面板可显示
+    }
+  }
+
   /**
    * 跳转侧边栏（Navigation 方式）
-   * pushPathByName 的 onPop 回调在侧边栏/文件夹页面出栈返回时触发：
+   * pushDestinationByName 的 onPop 回调在侧边栏/文件夹页面出栈返回时触发：
    *   - 刷新模型名与标题（vm.onPageShow）
    *   - 若返回时携带选中的对话（pop(conv)），则加载该对话
+   * 采用异步版本：跳转被 Navigation 忽略（如弹窗/转场占用）时可通过 catch 感知，
+   * 及时复位防重入标记，避免 isSideBarPushing 永久卡死导致侧边栏再也打不开
    */
 
   private pushSideBar(): void {
@@ -390,17 +528,21 @@ export struct ChatPage {
       return;
     }
     this.isSideBarPushing = true;
-    this.pathStack.pushPathByName(
+    this.pathStack.pushDestinationByName(
       "SideBarPage",
       new SideBarParams(this.vm.getCurrentConversationId()),
       (popInfo: PopInfo) => {
-        this.isSideBarPushing = false;
-        this.vm.onPageShow();
+        /* 选中对话返回：pop(conv) 携带结果，加载该对话。
+           标题/模型名刷新与防重入复位由 NavDestination.onShown 统一负责 */
         const conv = popInfo.result as Conversation | undefined;
         if (conv && conv.id.length > 0) {
           this.vm.loadConversation(conv);
         }
       },
-    );
+    ).catch(() => {
+      /* 跳转失败（Navigation 状态异常/被占用）：复位防重入标记，允许用户再次尝试。
+         此路径 onShown 不会触发（ChatPage 未被覆盖），故必须在此复位 */
+      this.isSideBarPushing = false;
+    });
   }
 }

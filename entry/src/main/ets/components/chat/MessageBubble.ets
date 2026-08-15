@@ -8,10 +8,9 @@ import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../co
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { SymbolGlyphModifier, window } from '@kit.ArkUI';
+import { SymbolGlyphModifier } from '@kit.ArkUI';
 import { showDeleteConfirm, showToast, stripMarkdown } from "../../common/Utils";
 import { MessageErrorCard } from "./MessageErrorCard";
-import { WebSheetPanel } from "./WebSheetPanel";
 
 /**
  * 思考过程块（渲染用）：
@@ -46,11 +45,10 @@ export struct MessageBubble {
   @Local isReasoningExpanded: boolean = true; // 是否展开思考/搜索过程块
   @Local isDarkMode: boolean = false; // 跟随系统深浅色（驱动代码块/思维导图主题切换）
   /**
-   * 半模态面板：bindSheet 是普通属性，同一组件多次调用会互相覆盖，只能绑定一个布尔变量 isSheetShow，
-   * 面板内容（「选择文本」/「xx个网页」）由 sheetKind 在 sheetContent() 内分支渲染
+   * 半模态面板已提升至 ChatPage 页面级统一管理（本组件不再挂 bindSheet）：
+   * item 级 bindSheet 在 LazyForEach 中随消息回收/重建，弹层生命周期与 item 耦合易残留遮罩拦截触摸，
+   * 故改为通过 onOpenSheet 回调通知页面打开（弹层生命周期与页面绑定，关闭状态由页面统一复位）
    */
-  @Local isSheetShow: boolean = false; // 面板显示状态（$$ 双向绑定，拖拽/点遮罩关闭时自动置回 false）
-  @Local sheetKind: "none" | "text" | "web" = "none"; // 当前面板类型：「选择文本」/「xx个网页」
   @Local reasoningBlocks: ReasoningBlock[] = []; // 思考过程块列表（流式增量原地复用更新，见 rebuildReasoningBlocks）
 
   /**
@@ -111,6 +109,11 @@ export struct MessageBubble {
   @Event onSwitchBranch: (msg: Message, delta: number) => void = () => {}; // 「< >」切换变体
   @Event onDelete: (msg: Message) => void = () => {}; // 「删除」：删除单条消息（含后续分支）
   @Event onResume: (msg: Message) => void = () => {}; // 「继续生成」：暂停态下从未完成处续写
+  /**
+   * 打开半模态面板（页面级统一管理）：kind = "text"「选择文本」/ "web"「xx个网页」。
+   * ChatPage 收到后设置 sheet 状态并弹出（弹层生命周期与页面绑定，避免 item 级 bindSheet 残留）
+   */
+  @Event onOpenSheet: (msg: Message, kind: "text" | "web") => void = () => {};
 
   /* 非响应式成员（普通成员即可，无需观察） */
   private mdController: MarkdownController = new MarkdownController(); // lv-markdown-in 样式/拦截控制器
@@ -301,31 +304,10 @@ export struct MessageBubble {
       right: $r('app.float.space_md'),
       top: $r('app.float.space_sm'),
       bottom: $r('app.float.space_sm'),
-    })
-    /**
-     * 半模态面板（「选择文本」/「xx个网页」共用）：从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏（顶部与标题栏下缘对齐）。
-     * 双向绑定：拖拽/点遮罩关闭时框架自动把 isSheetShow 置回 false；内容由 sheetKind 分支（bindSheet 不可多次链式调用）
-     */
-    .bindSheet($$this.isSheetShow, this.sheetContent(), {
-      height: this.textSheetHeight(),
-      dragBar: false,
-      showClose: false,
-      backgroundColor: $r('app.color.dialog_bg'),
     });
   }
 
-  /* 半模态面板内容：按当前面板类型分支渲染（sheetKind 在打开前设置） */
-  @Builder
-  sheetContent() {
-    if (this.sheetKind === "text") {
-      this.textSheet();
-    } else if (this.sheetKind === "web") {
-      WebSheetPanel({
-        webs: this.message.searchedWebs,
-        onClose: () => { this.isSheetShow = false; },
-      });
-    }
-  }
+  /* 半模态面板内容（sheetContent/textSheet/textSheetHeight）已整体上提至 ChatPage 页面级管理 */
 
   @Builder
   reasoningBlock() {
@@ -646,95 +628,7 @@ export struct MessageBubble {
       .backgroundColor($r('app.color.bubble_bg_ai'));
   }
 
-  /* 「选择文本」面板：居中标题 + 右上角关闭，正文为 Markdown 源码可长按复制；高度由 textSheetHeight() 控制 */
-  @Builder
-  textSheet() {
-    Column() {
-      /* 标题行：左右等宽占位保证标题居中 */
-      Row() {
-        /* 左侧占位（与右侧关闭按钮等宽，保证标题视觉居中） */
-        Row().width($r('app.float.space_xxl'))
-        Text($r('app.string.select_text'))
-          .fontSize($r('app.float.font_title'))
-          .fontWeight(700)
-          .fontColor($r('app.color.text_primary'))
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-        /* 右上角关闭按钮（叉） */
-        Row() {
-          SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize($r('app.float.font_icon_lg'))
-            .fontWeight(700)
-            .fontColor([$r('app.color.text_primary')])
-        }
-        .width($r('app.float.space_xxl'))
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          this.isSheetShow = false;
-        })
-      }
-      .width("100%")
-      .height($r('app.float.title_bar_height'))
-      .padding({
-        left: $r('app.float.space_xl'),
-        right: $r('app.float.space_xl'),
-      })
-      /* 标题行底部分割线 */
-      .border({
-        width: { bottom: 1 },
-        color: { bottom: $r('app.color.divider') },
-      })
-
-      /* 渲染前的原始文本（Markdown 源码），copyOption 支持长按选择与复制 */
-      Scroll() {
-        Text(this.message.content)
-          .fontSize($r('app.float.font_body'))
-          .fontColor($r('app.color.text_ai'))
-          .copyOption(CopyOptions.LocalDevice)
-          .width("100%")
-          .padding({
-            left: $r('app.float.space_xl'),
-            right: $r('app.float.space_xl'),
-            top: $r('app.float.space_lg'),
-            bottom: $r('app.float.space_lg'),
-          })
-      }
-      .width("100%")
-      .layoutWeight(1)
-      .align(Alignment.TopStart)
-      .scrollBar(BarState.Auto)
-    }
-    .width("100%")
-    .height("100%")
-    .backgroundColor($r('app.color.dialog_bg'))
-  }
-
-  /**
-   * 计算「选择文本」面板高度（vp）：
-   * 面板从底部弹出，要求其顶部与页面顶部标题栏下缘对齐，
-   * 故 高度 = 窗口高度 - 状态栏高度 - 标题栏高度（窗口/状态栏为 px，统一转 vp）。
-   */
-  private textSheetHeight(): number {
-    try {
-      const host = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
-      if (host === undefined || host.windowStage === undefined) {
-        return 500; // 兜底高度
-      }
-      /* 标题栏高度（float 资源带 'vp' 单位，getNumber 返回 px，需转回 vp） */
-      const titleBarHeightPx = host.resourceManager.getNumber($r('app.float.title_bar_height').id);
-      const titleBarHeight = this.getUIContext().px2vp(titleBarHeightPx);
-      const win = host.windowStage.getMainWindowSync();
-      /* 窗口总高度（px） */
-      const windowHeightPx = win.getWindowProperties().windowRect.height;
-      /* 状态栏（顶部安全区）高度（px），非沉浸式窗口时为 0 */
-      const safeTopPx = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect.height;
-      const windowHeight = this.getUIContext().px2vp(windowHeightPx);
-      const safeTop = this.getUIContext().px2vp(safeTopPx);
-      return Math.max(200, windowHeight - safeTop - titleBarHeight);
-    } catch (e) {
-      return 500; // 异常兜底，保证面板可显示
-    }
-  }
+  /* 「选择文本」/「xx个网页」面板已上提至 ChatPage（本文件不再持有面板 Builder 与高度计算） */
 
   /* 底部操作栏（对话分支交互入口） */
 
@@ -866,9 +760,8 @@ export struct MessageBubble {
         content: $r('app.string.select_text'),
       })
         .onChange(() => {
-          /* 打开「选择文本」半模态面板（显示渲染前的原文） */
-          this.sheetKind = "text";
-          this.isSheetShow = true;
+          /* 打开「选择文本」半模态面板（页面级统一管理） */
+          this.onOpenSheet(this.message, "text");
         })
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.circle_and_plus'))
@@ -982,9 +875,8 @@ export struct MessageBubble {
     .backgroundColor($r('app.color.bubble_bg_ai'))
     .border({ width: 1, color: $r('app.color.operation_icon') })
     .onClick(() => {
-      /* 打开「xx个网页」半模态面板 */
-      this.sheetKind = "web";
-      this.isSheetShow = true;
+      /* 打开「xx个网页」半模态面板（页面级统一管理） */
+      this.onOpenSheet(this.message, "web");
     })
   }
 

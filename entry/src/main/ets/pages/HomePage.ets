@@ -105,6 +105,24 @@ struct HomePage {
             const isPush = operation === NavigationOperation.PUSH;
             /* 打开侧边栏（滑入覆盖）用较慢时长，让用户看清侧边栏内容；关闭（滑出）保持原速 */
             const transitionDuration = isPush ? 250 : 150;
+            /* 幂等收尾：确保 finishTransition 只被调用一次（onFinish 与兜底定时器可能同时触发） */
+            let finished = false;
+            const finish = (): void => {
+              if (finished) {
+                return;
+              }
+              finished = true;
+              /* 动画结束：重置状态 + 通知系统结束自定义转场 */
+              fromParam.onFinish();
+              toParam.onFinish();
+              transitionProxy.finishTransition();
+            };
+            /**
+             * 兜底：若 animateTo 被系统弹窗（bindSheet 等）动画打断导致 onFinish 不触发，
+             * 超时后强制收尾，避免 Navigation 卡在转场中、后续 push 失效。
+             * 正常转场在 transitionDuration 内完成（finished 已置 true），此兜底不会产生副作用。
+             */
+            setTimeout(finish, transitionDuration + 120);
             /* 1. 同步设置进出场页面的初始位置（无动画，本帧直接生效） */
             fromParam.start(isPush, true);
             toParam.start(isPush, false);
@@ -112,12 +130,7 @@ struct HomePage {
             this.getUIContext().animateTo({
               duration: transitionDuration,
               curve: Curve.EaseOut,
-              onFinish: () => {
-                /* 3. 动画结束：重置状态 + 通知系统结束自定义转场 */
-                fromParam.onFinish();
-                toParam.onFinish();
-                transitionProxy.finishTransition();
-              },
+              onFinish: finish,
             }, () => {
               fromParam.finish(isPush, true);
               toParam.finish(isPush, false);
