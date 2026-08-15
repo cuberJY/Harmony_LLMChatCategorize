@@ -28,7 +28,7 @@ import { Conversation } from "../model/Conversation";
 import { ConversationItem } from "../components/item/ConversationItem";
 import { RenameDialogParams, buildRenameDialog } from "../components/dialog/RenameInputDialog";
 import { showDeleteConfirm } from "../common/Utils";
-import { DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
+import { DIALOG_DELAY_AFTER_MENU, DIALOG_OFFSET_SLIGHT, DIALOG_OFFSET_TALL, DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { FolderParams } from "../model/FolderParams";
 import { SideBarViewModel, GroupItem } from "../viewmodel/SideBarViewModel";
@@ -586,13 +586,13 @@ export struct SideBarPage {
       this.getUIContext().getPromptAction().openCustomDialog(node, {
         autoCancel: true,
         alignment: DialogAlignment.Center,
-        offset: { dx: 0, dy: -60 }, // 居中并向下偏移，实现"页面居中偏下"
+        offset: DIALOG_OFFSET_SLIGHT,
       }).catch((err: BusinessError) => {
         // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
         console.error(`openCustomDialog(重命名) 失败 code=${err.code} msg=${err.message}`);
         this.renameDialogNode = null;
       });
-    }, 150);
+    }, DIALOG_DELAY_AFTER_MENU);
   }
 
   // 关闭一个 ComponentContent 弹窗节点并释放（关闭成功或已自动关闭都保证 dispose）
@@ -692,7 +692,7 @@ export struct SideBarPage {
         console.error(`openCustomDialog(收藏) 失败 code=${err.code} msg=${err.message}`);
         this.favoritePickerNode = null;
       });
-    }, 150);
+    }, DIALOG_DELAY_AFTER_MENU);
   }
 
   // 新建顶级文件夹对话框（ComponentContent 方式，复用 EditFolderDialog：名称 + 颜色）
@@ -720,7 +720,7 @@ export struct SideBarPage {
     this.getUIContext().getPromptAction().openCustomDialog(node, {
       autoCancel: true,
       alignment: DialogAlignment.Center,
-      offset: { dx: 0, dy: -60 }, // 居中并向下偏移，实现"页面居中偏下"
+      offset: DIALOG_OFFSET_TALL,
     }).catch((err: BusinessError) => {
       // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
       console.error(`openCustomDialog(新建文件夹) 失败 code=${err.code} msg=${err.message}`);
@@ -753,12 +753,12 @@ export struct SideBarPage {
       this.getUIContext().getPromptAction().openCustomDialog(node, {
         autoCancel: true,
         alignment: DialogAlignment.Center,
-        offset: { dx: 0, dy: -60 }, // 居中并向下偏移，实现"页面居中偏下"
+        offset: DIALOG_OFFSET_TALL,
       }).catch((err: BusinessError) => {
         console.error(`openCustomDialog(编辑文件夹) 失败 code=${err.code} msg=${err.message}`);
         this.editFolderNode = null;
       });
-    }, 150);
+    }, DIALOG_DELAY_AFTER_MENU);
   }
 
   // 移动文件夹：弹出目标选择器（ComponentContent 方式，排除自身及子孙，防止成环）
@@ -792,7 +792,7 @@ export struct SideBarPage {
         console.error(`openCustomDialog(移动文件夹) 失败 code=${err.code} msg=${err.message}`);
         this.moveFolderNode = null;
       });
-    }, 150);
+    }, DIALOG_DELAY_AFTER_MENU);
   }
 
   // 移动对话：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog）
@@ -825,7 +825,7 @@ export struct SideBarPage {
         console.error(`openCustomDialog(移动对话) 失败 code=${err.code} msg=${err.message}`);
         this.convPickerNode = null;
       });
-    }, 150);
+    }, DIALOG_DELAY_AFTER_MENU);
   }
 
   // 批量移动：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog，收藏 Tab 多选模式）

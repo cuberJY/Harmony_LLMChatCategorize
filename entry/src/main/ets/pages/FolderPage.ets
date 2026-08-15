@@ -27,7 +27,7 @@ import { EditFolderDialogParams, buildEditFolderContent } from "../components/di
 import { FolderPickerDialogParams, buildFolderPickerContent } from "../components/dialog/FolderPickerDialog";
 import { RenameDialogParams, buildRenameDialog } from "../components/dialog/RenameInputDialog";
 import { showDeleteConfirm } from "../common/Utils";
-import { DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
+import { DIALOG_DELAY_AFTER_MENU, DIALOG_OFFSET_SLIGHT, DIALOG_OFFSET_TALL, DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
 import { FolderParams } from "../model/FolderParams";
 import { FolderViewModel } from "../viewmodel/FolderViewModel";
 
@@ -208,6 +208,39 @@ export struct FolderPage {
     })
   }
 
+  // 重命名对话（ComponentContent 方式，复用 RenameInputDialog）
+  private openRenameConvDialog(conv: Conversation): void {
+    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
+    if (this.renameConvNode) {
+      this.renameConvNode.dispose();
+      this.renameConvNode = null;
+    }
+    const params = new RenameDialogParams();
+    params.title = "重命名对话";
+    params.oldValue = conv.title;
+    params.onConfirm = (name: string) => {
+      this.vm.renameConv(conv, name);
+    };
+    params.onRequestClose = () => {
+      this.closeDialog();
+    };
+    const node = new ComponentContent<RenameDialogParams>(this.getUIContext(),
+      wrapBuilder(buildRenameDialog), params);
+    this.renameConvNode = node;
+    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
+    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    setTimeout(() => {
+      this.getUIContext().getPromptAction().openCustomDialog(node, {
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+        offset: DIALOG_OFFSET_SLIGHT,
+      }).catch((err: BusinessError) => {
+        console.error(`openCustomDialog(重命名对话) 失败 code=${err.code} msg=${err.message}`);
+        this.renameConvNode = null;
+      });
+    }, DIALOG_DELAY_AFTER_MENU);
+  }
+
   /**
    * 悬浮新建子文件夹按钮（右下角）
    * 与收藏 Tab 的悬浮按钮方案统一：48×48 圆形 + 阴影
@@ -305,7 +338,7 @@ export struct FolderPage {
     this.getUIContext().getPromptAction().openCustomDialog(node, {
       autoCancel: true,
       alignment: DialogAlignment.Center,
-      offset: { dx: 0, dy: -60 }, // 居中并向下偏移，实现"页面居中偏下"
+      offset: DIALOG_OFFSET_TALL,
     }).catch((err: BusinessError) => {
       console.error(`openCustomDialog(新建子文件夹) 失败 code=${err.code} msg=${err.message}`);
       this.newFolderNode = null;
@@ -337,12 +370,12 @@ export struct FolderPage {
       this.getUIContext().getPromptAction().openCustomDialog(node, {
         autoCancel: true,
         alignment: DialogAlignment.Center,
-        offset: { dx: 0, dy: -60 }, // 居中并向下偏移，实现"页面居中偏下"
+        offset: DIALOG_OFFSET_TALL,
       }).catch((err: BusinessError) => {
         console.error(`openCustomDialog(编辑文件夹) 失败 code=${err.code} msg=${err.message}`);
         this.editFolderNode = null;
       });
-    }, 150);
+    }, DIALOG_DELAY_AFTER_MENU);
   }
 
   // 删除子文件夹（二次确认 + 级联）
@@ -388,7 +421,7 @@ export struct FolderPage {
         console.error(`openCustomDialog(移动文件夹) 失败 code=${err.code} msg=${err.message}`);
         this.moveFolderNode = null;
       });
-    }, 150);
+    }, DIALOG_DELAY_AFTER_MENU);
   }
 
   // 移动对话：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog）
@@ -420,40 +453,7 @@ export struct FolderPage {
         console.error(`openCustomDialog(移动对话) 失败 code=${err.code} msg=${err.message}`);
         this.convPickerNode = null;
       });
-    }, 150);
-  }
-
-  // 重命名对话（ComponentContent 方式，复用 RenameInputDialog）
-  private openRenameConvDialog(conv: Conversation): void {
-    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
-    if (this.renameConvNode) {
-      this.renameConvNode.dispose();
-      this.renameConvNode = null;
-    }
-    const params = new RenameDialogParams();
-    params.title = "重命名对话";
-    params.oldValue = conv.title;
-    params.onConfirm = (name: string) => {
-      this.vm.renameConv(conv, name);
-    };
-    params.onRequestClose = () => {
-      this.closeDialog();
-    };
-    const node = new ComponentContent<RenameDialogParams>(this.getUIContext(),
-      wrapBuilder(buildRenameDialog), params);
-    this.renameConvNode = node;
-    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
-    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
-    setTimeout(() => {
-      this.getUIContext().getPromptAction().openCustomDialog(node, {
-        autoCancel: true,
-        alignment: DialogAlignment.Center,
-        offset: { dx: 0, dy: -60 }, // 居中并向下偏移，实现"页面居中偏下"
-      }).catch((err: BusinessError) => {
-        console.error(`openCustomDialog(重命名对话) 失败 code=${err.code} msg=${err.message}`);
-        this.renameConvNode = null;
-      });
-    }, 150);
+    }, DIALOG_DELAY_AFTER_MENU);
   }
 
   // 删除对话（二次确认）

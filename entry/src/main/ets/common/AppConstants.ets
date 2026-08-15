@@ -31,3 +31,11 @@ export const DEFAULT_FOLDER_COLOR: string = FOLDER_COLORS[0];
 export const BUBBLE_MAX_WIDTH_RATIO_USER: number = 0.8;
 // AI 气泡最大宽度占屏幕比例（=100%，即不限制）
 export const BUBBLE_MAX_WIDTH_RATIO_AI: number = 1;
+
+// 自定义弹窗（openCustomDialog）位置常量
+// 输入型弹窗统一居中并向上偏移：矮弹窗（重命名）-10，高弹窗（新建/编辑）-60
+// 类型用 Offset（含 dx/dy），与 openCustomDialog options.offset 的参数类型一致
+export const DIALOG_OFFSET_SLIGHT: Offset = { dx: 0, dy: -10 };
+export const DIALOG_OFFSET_TALL: Offset = { dx: 0, dy: -60 };
+// 长按菜单触发弹窗的延迟打开时间（ms）：等 bindContextMenu 子窗口关闭动画结束，避免弹窗被吞
+export const DIALOG_DELAY_AFTER_MENU: number = 150;
