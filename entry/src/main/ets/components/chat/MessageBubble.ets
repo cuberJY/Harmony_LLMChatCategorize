@@ -8,8 +8,8 @@ import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../co
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { promptAction, SymbolGlyphModifier, window } from '@kit.ArkUI';
-import { showToast } from "../../common/Utils";
+import { SymbolGlyphModifier, window } from '@kit.ArkUI';
+import { showDeleteConfirm, showToast } from "../../common/Utils";
 import { MessageErrorCard } from "./MessageErrorCard";
 import { WebSheetPanel } from "./WebSheetPanel";
 
@@ -53,19 +53,28 @@ export struct MessageBubble {
   @Local sheetKind: "none" | "text" | "web" = "none"; // 当前面板类型：「选择文本」/「xx个网页」
   @Local reasoningBlocks: ReasoningBlock[] = []; // 思考过程块列表（流式增量原地复用更新，见 rebuildReasoningBlocks）
 
-  // 监听流式状态：每次停止输出（正常完成 / 暂停 / 异常中断）时自动折叠思考过程。
-  // 延迟 500ms 折叠，让用户能短暂瞥见停止瞬间的最后内容；组件销毁时需取消定时器。
-  @Monitor('message.isStreaming')
-  onStreamingStopped(): void {
-    if (this.message.isStreaming) {
-      return; // 开始输出：保持用户当前的展开状态，不干预
+  // 监听折叠请求（ViewModel 在流式结束时按"用户是否在底部"决策后自增 foldVersion 信号）：
+  // 收到信号后延迟 500ms 折叠，让用户短暂瞥见停止瞬间的最后内容；组件销毁时需取消定时器。
+  // 不直接监听 message.isStreaming：折叠时机交由 ViewModel 统一决策
+  //（不在底部时挂起、滚动完全停止且回到底部后放行），避免思考块在用户阅读位置以外收缩导致页面跳动
+  @Monitor('message.foldVersion')
+  onFoldRequested(): void {
+    if (this.message.reasoning.length === 0) {
+      return; // 无思考内容（如仅搜索/正文场景）无需折叠
     }
     if (this.foldTimerId !== -1) {
       clearTimeout(this.foldTimerId);
     }
     this.foldTimerId = setTimeout(() => {
-      this.isReasoningExpanded = false;
       this.foldTimerId = -1;
+      if (!this.isReasoningExpanded) {
+        return; // 已被用户手动折叠，无需再动
+      }
+      // 用 200ms EaseOut 动画平滑收起：高度收缩由过渡动画吸收，
+      // 避免钉底态下视口内容突兀位移（"弹一下"），与页面正文跟随动画时长风格一致
+      this.getUIContext().animateTo({ duration: 200, curve: 'easeOut' }, () => {
+        this.isReasoningExpanded = false;
+      });
     }, 500);
   }
 
@@ -993,8 +1002,8 @@ export struct MessageBubble {
   }
 
   /**
-   * 「删除」确认弹窗：系统对话框二次确认，避免误删
-   * 用户点「删除」按钮（index=1）才真正回调 onDelete；取消/点遮罩关闭不删除
+   * 「删除」确认弹窗：统一走 showDeleteConfirm（showAlertDialog 封装）二次确认，避免误删
+   * 用户点「删除」才真正回调 onDelete；取消/点遮罩关闭不删除
    * 编辑中的消息直接 toast 提示，不进入确认弹窗（其内容正回填在输入框中）
    */
   private confirmDelete(): void {
@@ -1002,20 +1011,13 @@ export struct MessageBubble {
       showToast($r('app.string.edit_delete_forbidden'));
       return;
     }
-    this.getUIContext().getPromptAction().showDialog({
-      title: $r('app.string.delete_message_title'),
-      message: $r('app.string.delete_message_confirm'),
-      buttons: [
-        { text: $r('app.string.cancel'), color: $r('app.color.text_secondary') },
-        { text: $r('app.string.delete'), color: $r('app.color.text_danger') },
-      ],
-    }).then((result: promptAction.ShowDialogSuccessResponse) => {
-      // index=0 取消，index=1 删除
-      if (result.index === 1) {
+    showDeleteConfirm(
+      this.getUIContext(),
+      $r('app.string.delete_message_title'),
+      $r('app.string.delete_message_confirm'),
+      () => {
         this.onDelete(this.message);
-      }
-    }).catch(() => {
-      // 取消或对话框关闭失败，无需处理
-    });
+      },
+    );
   }
 }

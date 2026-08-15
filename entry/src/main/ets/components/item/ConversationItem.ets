@@ -5,6 +5,7 @@
  */
 
 import { Conversation } from "../../model/Conversation";
+import { SymbolGlyphModifier } from '@kit.ArkUI';
 @ComponentV2
 export struct ConversationItem {
   // 对话数据（由父组件传入的 @ObservedV2 对象，@Trace 属性变化驱动列表项刷新）
@@ -91,107 +92,86 @@ export struct ConversationItem {
   @Builder
   private itemMenu() {
     if (!this.isEditMode) {
-      Column() {
+      // 长按菜单统一为系统 Menu/MenuItem（与 MessageBubble 的「更多」菜单视觉一致）
+      Menu() {
         // 多选
-        Row() {
-          Text("多选")
-            .fontSize($r('app.float.font_button'))
-            .fontColor($r('app.color.text_primary'))
-        }
-        .width("100%")
-        .height(36)
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          if (this.onMenuSelect) this.onMenuSelect(this.conversation);
+        MenuItem({
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.checkmark_circle'))
+            .fontSize($r('app.float.font_icon_lg'))
+            .fontWeight(500)
+            .fontColor([$r('app.color.operation_icon')]),
+          content: "多选",
         })
-        Divider()
-          .strokeWidth(0.5)
-          .color($r('app.color.divider'))
-
+          .onChange(() => {
+            this.onMenuSelect(this.conversation);
+          })
         // 重命名
-        Row() {
-          Text("重命名")
-            .fontSize($r('app.float.font_button'))
-            .fontColor($r('app.color.text_primary'))
-        }
-        .width("100%")
-        .height(36)
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          if (this.onMenuRename) this.onMenuRename(this.conversation);
+        MenuItem({
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.square_and_pencil'))
+            .fontSize($r('app.float.font_icon_lg'))
+            .fontWeight(500)
+            .fontColor([$r('app.color.operation_icon')]),
+          content: "重命名",
         })
-        Divider()
-          .strokeWidth(0.5)
-          .color($r('app.color.divider'))
-
+          .onChange(() => {
+            this.onMenuRename(this.conversation);
+          })
         // 移动到文件夹（历史页 showMoveMenu=false 隐藏：未收藏对话不参与文件夹分类）
         if (this.showMoveMenu) {
-          Row() {
-            Text("移动")
-              .fontSize($r('app.float.font_button'))
-              .fontColor($r('app.color.text_primary'))
-          }
-          .width("100%")
-          .height(36)
-          .justifyContent(FlexAlign.Center)
-          .onClick(() => {
-            if (this.onMenuMove) this.onMenuMove(this.conversation);
+          MenuItem({
+            symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.folder'))
+              .fontSize($r('app.float.font_icon_lg'))
+              .fontWeight(500)
+              .fontColor([$r('app.color.operation_icon')]),
+            content: "移动",
           })
-          Divider()
-            .strokeWidth(0.5)
-            .color($r('app.color.divider'))
+            .onChange(() => {
+              this.onMenuMove(this.conversation);
+            })
         }
-
         // 置顶 / 取消置顶（动态切换：未置顶→蓝色"置顶"，已置顶→红色"取消置顶"）
         if (this.showPinMenu) {
-          Row() {
-            Text(this.conversation.isPinned ? "取消置顶" : "置顶")
-              .fontSize($r('app.float.font_button'))
-              .fontColor(this.conversation.isPinned ? $r('app.color.text_danger') : $r('app.color.primary'))
-          }
-          .width("100%")
-          .height(36)
-          .justifyContent(FlexAlign.Center)
-          .onClick(() => {
-            if (this.onMenuPin) this.onMenuPin(this.conversation);
+          MenuItem({
+            symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.pin'))
+              .fontSize($r('app.float.font_icon_lg'))
+              .fontWeight(500)
+              .fontColor([$r('app.color.operation_icon')]),
+            content: this.conversation.isPinned ? "取消置顶" : "置顶",
           })
-          Divider()
-            .strokeWidth(0.5)
-            .color($r('app.color.divider'))
+            .contentFontColor(
+              this.conversation.isPinned ? $r('app.color.text_danger') : $r('app.color.primary'),
+            )
+            .onChange(() => {
+              this.onMenuPin(this.conversation);
+            })
         }
-
         // 收藏 / 取消收藏（动态切换：未收藏→蓝色"收藏"，已收藏→红色"取消收藏"）
-        Row() {
-          Text(this.conversation.isFavorite ? "取消收藏" : "收藏")
-            .fontSize($r('app.float.font_button'))
-            .fontColor(this.conversation.isFavorite ? $r('app.color.text_danger') : $r('app.color.primary'))
-        }
-        .width("100%")
-        .height(36)
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          if (this.onMenuFavorite) this.onMenuFavorite(this.conversation);
+        MenuItem({
+          symbolStartIcon: new SymbolGlyphModifier(this.conversation.isFavorite ? $r('sys.symbol.star_slash') : $r('sys.symbol.star'))
+            .fontSize($r('app.float.font_icon_lg'))
+            .fontWeight(500)
+            .fontColor([$r('app.color.operation_icon')]),
+          content: this.conversation.isFavorite ? "取消收藏" : "收藏",
         })
-        Divider()
-          .strokeWidth(0.5)
-          .color($r('app.color.divider'))
-
+          .contentFontColor(
+            this.conversation.isFavorite ? $r('app.color.text_danger') : $r('app.color.primary'),
+          )
+          .onChange(() => {
+            this.onMenuFavorite(this.conversation);
+          })
         // 删除
-        Row() {
-          Text("删除")
-            .fontSize($r('app.float.font_button'))
-            .fontColor($r('app.color.text_danger'))
-        }
-        .width("100%")
-        .height(36)
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          if (this.onMenuDelete) this.onMenuDelete(this.conversation);
+        MenuItem({
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.trash'))
+            .fontSize($r('app.float.font_icon_lg'))
+            .fontWeight(500)
+            .fontColor([$r('app.color.text_danger')]),
+          content: "删除",
         })
+          .contentFontColor($r('app.color.text_danger'))
+          .onChange(() => {
+            this.onMenuDelete(this.conversation);
+          })
       }
-      .width(160)
-      .borderRadius(10)
-      .backgroundColor($r('app.color.menu_bg'));
     }
   }
 }

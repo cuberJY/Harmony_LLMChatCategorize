@@ -40,9 +40,9 @@ export class FolderViewModel {
 
   // 文件夹操作
 
-  // 执行新建子文件夹（失败提示）
-  async createSubFolder(name: string): Promise<void> {
-    const cat = new Category(undefined, name, this.folderId);
+  // 执行新建子文件夹（失败提示），颜色一并入库（与收藏 Tab 新建文件夹一致）
+  async createSubFolder(name: string, color: string): Promise<void> {
+    const cat = new Category(undefined, name, this.folderId, color); // 颜色一并入库
     const ok = await CategoryRepository.getInstance().insert(cat);
     if (!ok) {
       showToast("操作失败，请重试");

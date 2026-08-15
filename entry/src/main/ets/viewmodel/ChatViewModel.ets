@@ -83,6 +83,7 @@ export class ChatViewModel {
   private isUserOperating: boolean = false; // 用户是否正在操作屏幕（滚动/长按/选择文本；操作中停止自动滚底）
   private lastScrollIsUserGesture: boolean = false; // 最近一次滚动是否来自用户手势（onWillScroll 更新，供 onReachEnd 区分用户滚回 vs 代码滚动）
   private isUserScrolling: boolean = false; // 用户是否正在滚动手势中（DRAG/FLING/滚动条等）；期间暂停流式 UI 写入，避免底部高度变化与滚动竞争抖动
+  private pendingAutoFold: Message[] = []; // 流式结束时用户不在底部 → 思考块折叠请求挂起，回到底部后统一放行
   private followAnimationTimerId: number = -1; // 流式正文跟随动画的防抖定时器（-1 表示无挂起）
   private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isListLayoutReady: boolean = false; // List 是否已完成首帧布局（onAreaChange 首次回调置位）
@@ -157,6 +158,7 @@ export class ChatViewModel {
     this.editingPrefill = "";
     this.title = "新对话";
     this.resetScrollFollow(); // 新对话 → 恢复自动跟随
+    this.pendingAutoFold = []; // 清空上个对话挂起的折叠请求
     this.streamState = "idle"; // 新对话无进行中任务，恢复发送键
   }
 
@@ -174,6 +176,7 @@ export class ChatViewModel {
     this.isFirstUserMsg = false; // 历史对话已有消息，不再生成标题
     this.editingMessageId = "";
     this.editingPrefill = "";
+    this.pendingAutoFold = []; // 清空上个对话挂起的折叠请求
     this.title = conv.title.length > 0 ? conv.title : "新聊天";
 
     // 2. 从数据库查询该对话的全部消息（含非激活分支变体）
@@ -453,6 +456,7 @@ export class ChatViewModel {
         if (this.isDestroyed) return;
         // 仅在用户仍停留在原对话时滚动到底部，避免误滚其他对话
         if (this.currentConversationId === task.conversationId) {
+          this.requestAutoFold(aiMsg); // 思考块折叠请求（在底部立即、不在底部挂起）
           this.scrollToBottom();
         }
       },
@@ -480,6 +484,7 @@ export class ChatViewModel {
         // 仅当该对话仍在前台展示时更新 UI 状态并提示（Toast 只显示一句文案，详情在气泡错误卡片）
         if (this.isDestroyed) return;
         if (this.currentConversationId === task.conversationId) {
+          this.requestAutoFold(aiMsg); // 思考块折叠请求（在底部立即、不在底部挂起）
           this.streamState = "paused";
           this.scrollToBottom();
           showToast(errorMessageResource(error.code));
@@ -508,6 +513,7 @@ export class ChatViewModel {
         ConversationRepository.getInstance().updateMessage(aiMsg);
         if (this.isDestroyed) return;
         if (this.currentConversationId === task.conversationId) {
+          this.requestAutoFold(aiMsg); // 思考块折叠请求（在底部立即、不在底部挂起）
           if (error.retryable) {
             this.streamState = "paused"; // 可续写错误 → 输入区显示「继续生成」
           }
@@ -540,6 +546,7 @@ export class ChatViewModel {
         ConversationRepository.getInstance().updateMessage(aiMsg);
         // 仅当该对话仍在前台展示时更新 UI 状态并提示（Toast 只显示一句文案，详情在气泡错误卡片）
         if (this.currentConversationId === task.conversationId) {
+          this.requestAutoFold(aiMsg); // 思考块折叠请求（在底部立即、不在底部挂起）
           this.streamState = "paused";
           this.scrollToBottom();
           showToast(errorMessageResource(reason.code));
@@ -638,6 +645,7 @@ export class ChatViewModel {
     task.aiMsg.isPaused = true; // 暂停态 → 气泡操作栏右上角显示「继续生成」
     task.aiMsg.generationStatus = "partial"; // 未完整生成（进程终止重启后也能识别并恢复）
     task.endThinking(); // 结算当前思考阶段耗时（若有）
+    this.requestAutoFold(task.aiMsg); // 暂停同样触发思考块折叠请求（在底部立即、不在底部挂起）
     this.streamState = "paused";
     this.syncBackgroundGuardCount(); // 网络请求已中止，保活计数减一
     // 4. 持久化已接收内容（继续生成时以此为基础）
@@ -1378,6 +1386,8 @@ export class ChatViewModel {
       return;
     }
     this.setAtBottom(true);
+    // 挂起的思考块折叠请求延后到 onScrollStop 放行（见 handleScrollStop）：
+    // 若在此触底瞬间放行，折叠收缩会与"滚动刚停稳"的时刻重叠，产生突兀位移
     // 仅当"到达底部"由用户手势滚动（DRAG/FLING 等）导致时才清除"操作中"标记恢复跟随。
     // 代码滚动（自动跟随 scrollEdge）到达底部会异步触发 onReachEnd，若在此无条件 resetScrollFollow，
     // 会误清"生成中用户触摸阅读"设置的 isUserOperating，导致完成生成时重新钉底
@@ -1401,6 +1411,45 @@ export class ChatViewModel {
   // 滚动期间暂停流式 UI 写入，避免底部 item 高度变化与滚动竞争抖动
   setUserScrolling(scrolling: boolean): void {
     this.isUserScrolling = scrolling;
+  }
+
+  /**
+   * 滚动完全停止（ChatPage onScrollStop 回调）：
+   * 恢复流式 UI 写入；同时放行挂起的思考块折叠请求。
+   * 放行时机放在滚动停止而非触底瞬间：折叠收缩发生在用户手离开屏幕、回弹结束之后，
+   * 再配合气泡侧 200ms 收起动画，位移被过渡吸收，不再与"刚停稳"的动作重叠成突兀跳动
+   */
+  handleScrollStop(): void {
+    this.setUserScrolling(false);
+    // 仅在确实停在列表底部时放行：中途停下（未触底）放行折叠仍会造成阅读位置外收缩
+    if (this.isAtBottom) {
+      this.flushPendingAutoFold();
+    }
+  }
+
+  /**
+   * 流式结束 → 请求自动折叠思考块（MessageBubble 收到 foldVersion 信号后延迟折叠）：
+   * 用户在底部 → 立即放行：钉底态下高度收缩由滚动偏移补偿，不引起视口跳动；
+   * 用户已上滑离开底部 → 挂起，等回到底部（handleReachEnd / jumpToBottom）再统一放行，
+   * 避免思考块在用户阅读位置以外收缩导致页面跳动
+   */
+  private requestAutoFold(msg: Message): void {
+    if (this.isAtBottom) {
+      msg.foldVersion++;
+    } else {
+      this.pendingAutoFold.push(msg);
+    }
+  }
+
+  // 用户回到列表底部 → 放行所有挂起的折叠请求（此刻高度收缩发生在钉底态，不产生跳动）
+  private flushPendingAutoFold(): void {
+    if (this.pendingAutoFold.length === 0) {
+      return;
+    }
+    this.pendingAutoFold.forEach((msg: Message) => {
+      msg.foldVersion++;
+    });
+    this.pendingAutoFold = [];
   }
 
   // 是否处于"自动跟随"状态（用户未在操作屏幕、且停留在底部时才允许自动钉底）
@@ -1439,6 +1488,7 @@ export class ChatViewModel {
     this.resetScrollFollow(); // 用户主动回到底部 → 恢复自动跟随
     this.setAtBottom(true); // 兜底：滚完直接隐藏按钮（个别版本 scrollEdge 可能不触发 onReachEnd）
     this.setUserScrolling(false); // 主动回到底部 → 结束滚动状态，恢复流式 UI 写入
+    this.flushPendingAutoFold(); // 用户主动回到底部 → 放行挂起的思考块折叠请求
     this.scrollToBottomEdge();
   }
 

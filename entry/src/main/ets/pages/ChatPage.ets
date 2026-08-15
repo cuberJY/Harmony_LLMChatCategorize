@@ -243,10 +243,10 @@ export struct ChatPage {
       .onReachEnd(() => {
         this.vm.handleReachEnd();
       })
-      // 滚动完全停止（含惯性滑完）→ 用户滚动一定结束，恢复流式 UI 写入
+      // 滚动完全停止（含惯性滑完）→ 用户滚动一定结束，恢复流式 UI 写入；同时放行挂起的思考块折叠
       // 兜底：onTouch Up 可能被 Markdown 文本选择等手势拦截而未触发，此处确保 isUserScrolling 归位
       .onScrollStop(() => {
-        this.vm.setUserScrolling(false);
+        this.vm.handleScrollStop();
       })
       .width("100%")
       .backgroundColor($r('app.color.page_bg'))

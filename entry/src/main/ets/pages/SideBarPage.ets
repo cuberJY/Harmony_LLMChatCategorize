@@ -20,8 +20,8 @@ import { BusinessError } from "@kit.BasicServicesKit";
 import { common } from "@kit.AbilityKit";
 import { Category } from "../model/Category";
 import { FolderItem } from "../components/item/FolderItem";
-import { EditFolderDialog, EditFolderDialogParams, buildEditFolderContent } from "../components/dialog/EditFolderDialog";
-import { FolderPickerDialog, FolderPickerDialogParams, buildFolderPickerContent } from "../components/dialog/FolderPickerDialog";
+import { EditFolderDialogParams, buildEditFolderContent } from "../components/dialog/EditFolderDialog";
+import { FolderPickerDialogParams, buildFolderPickerContent } from "../components/dialog/FolderPickerDialog";
 import { DatabaseHelper } from "../database/DatabaseHelper";
 import { CategoryRepository } from "../database/CategoryRepository";
 import { Conversation } from "../model/Conversation";
@@ -46,13 +46,20 @@ export struct SideBarPage {
   // 数据与业务逻辑（@Trace 状态 + 分组 + 编辑模式）全部收敛到 ViewModel，页面只保留 build / 路由 / 弹窗
   private vm: SideBarViewModel = new SideBarViewModel();
 
-  private dialogId: number = -1; // 当前打开的弹窗 ID（openCustomDialog 返回值，供 closeCustomDialog 使用）
   // 重命名弹窗的内容节点（ComponentContent 方式）：非空表示已打开或残留待清理
   private renameDialogNode: ComponentContent<RenameDialogParams> | null = null;
   // 收藏位置选择弹窗的内容节点（ComponentContent 方式）
   private favoritePickerNode: ComponentContent<FolderPickerDialogParams> | null = null;
   // 新建文件夹弹窗的内容节点（ComponentContent 方式）
   private newFolderDialogNode: ComponentContent<EditFolderDialogParams> | null = null;
+  // 编辑文件夹弹窗的内容节点（ComponentContent 方式）
+  private editFolderNode: ComponentContent<EditFolderDialogParams> | null = null;
+  // 移动文件夹弹窗的内容节点（ComponentContent 方式）
+  private moveFolderNode: ComponentContent<FolderPickerDialogParams> | null = null;
+  // 移动对话弹窗的内容节点（ComponentContent 方式）
+  private convPickerNode: ComponentContent<FolderPickerDialogParams> | null = null;
+  // 批量移动弹窗的内容节点（ComponentContent 方式）
+  private batchMoveNode: ComponentContent<FolderPickerDialogParams> | null = null;
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE; // 记录全局避让模式
   private swiperController: SwiperController = new SwiperController(); // Swiper 控制器：程序化带动画切换
 
@@ -398,10 +405,10 @@ export struct SideBarPage {
 
             // 悬浮新建按钮（右下角）
             Button() {
-              Text("+")
+              SymbolGlyph($r("sys.symbol.plus"))
                 .fontSize($r('app.float.font_icon_xxl'))
-                .fontColor(Color.White)
-                .fontWeight(500)
+                .fontColor([Color.White])
+                .fontWeight(900)
             }
             .width(48)
             .height(48)
@@ -573,15 +580,19 @@ export struct SideBarPage {
     const node = new ComponentContent<RenameDialogParams>(this.getUIContext(),
       wrapBuilder(buildRenameDialog), params);
     this.renameDialogNode = node;
-    this.getUIContext().getPromptAction().openCustomDialog(node, {
-      autoCancel: true,
-      alignment: DialogAlignment.Bottom,
-      offset: { dx: 0, dy: -360 }, // 在 alignment 基础上再偏移（vp 单位）
-    }).catch((err: BusinessError) => {
-      // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
-      console.error(`openCustomDialog(重命名) 失败 code=${err.code} msg=${err.message}`);
-      this.renameDialogNode = null;
-    });
+    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
+    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    setTimeout(() => {
+      this.getUIContext().getPromptAction().openCustomDialog(node, {
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+        offset: { dx: 0, dy: -60 }, // 居中并向下偏移，实现"页面居中偏下"
+      }).catch((err: BusinessError) => {
+        // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
+        console.error(`openCustomDialog(重命名) 失败 code=${err.code} msg=${err.message}`);
+        this.renameDialogNode = null;
+      });
+    }, 150);
   }
 
   // 关闭一个 ComponentContent 弹窗节点并释放（关闭成功或已自动关闭都保证 dispose）
@@ -614,10 +625,25 @@ export struct SideBarPage {
       this.newFolderDialogNode = null;
       this.closeContentNode(newFolderNode);
     }
-    // 2) 其余弹窗仍走 dialogId 方式
-    if (this.dialogId >= 0) {
-      this.getUIContext().getPromptAction().closeCustomDialog(this.dialogId);
-      this.dialogId = -1;
+    const editFolderNode = this.editFolderNode;
+    if (editFolderNode) {
+      this.editFolderNode = null;
+      this.closeContentNode(editFolderNode);
+    }
+    const moveFolderNode = this.moveFolderNode;
+    if (moveFolderNode) {
+      this.moveFolderNode = null;
+      this.closeContentNode(moveFolderNode);
+    }
+    const convPickerNode = this.convPickerNode;
+    if (convPickerNode) {
+      this.convPickerNode = null;
+      this.closeContentNode(convPickerNode);
+    }
+    const batchMoveNode = this.batchMoveNode;
+    if (batchMoveNode) {
+      this.batchMoveNode = null;
+      this.closeContentNode(batchMoveNode);
     }
   }
 
@@ -655,14 +681,18 @@ export struct SideBarPage {
     const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
       wrapBuilder(buildFolderPickerContent), params);
     this.favoritePickerNode = node;
-    this.getUIContext().getPromptAction().openCustomDialog(node, {
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-    }).catch((err: BusinessError) => {
-      // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
-      console.error(`openCustomDialog(收藏) 失败 code=${err.code} msg=${err.message}`);
-      this.favoritePickerNode = null;
-    });
+    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
+    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    setTimeout(() => {
+      this.getUIContext().getPromptAction().openCustomDialog(node, {
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+      }).catch((err: BusinessError) => {
+        // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
+        console.error(`openCustomDialog(收藏) 失败 code=${err.code} msg=${err.message}`);
+        this.favoritePickerNode = null;
+      });
+    }, 150);
   }
 
   // 新建顶级文件夹对话框（ComponentContent 方式，复用 EditFolderDialog：名称 + 颜色）
@@ -689,8 +719,8 @@ export struct SideBarPage {
     this.newFolderDialogNode = node;
     this.getUIContext().getPromptAction().openCustomDialog(node, {
       autoCancel: true,
-      alignment: DialogAlignment.Bottom,
-      offset: { dx: 0, dy: -360 }, // 在 alignment 基础上再偏移（vp 单位）
+      alignment: DialogAlignment.Center,
+      offset: { dx: 0, dy: -60 }, // 居中并向下偏移，实现"页面居中偏下"
     }).catch((err: BusinessError) => {
       // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
       console.error(`openCustomDialog(新建文件夹) 失败 code=${err.code} msg=${err.message}`);
@@ -698,107 +728,134 @@ export struct SideBarPage {
     });
   }
 
-  // 编辑文件夹：重命名 + 切换图标颜色
+  // 编辑文件夹：重命名 + 切换图标颜色（ComponentContent 方式，与重命名/新建文件夹统一）
   private openEditFolder(cat: Category): void {
-    this.getUIContext().getPromptAction().openCustomDialog({
-      builder: this.buildEditFolderDialog(cat),
-      autoCancel: true,
-      alignment: DialogAlignment.Bottom,
-      offset: { dx: 0, dy: -360 },
-    }).then((id: number) => {
-      this.dialogId = id;
-    });
+    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
+    if (this.editFolderNode) {
+      this.editFolderNode.dispose();
+      this.editFolderNode = null;
+    }
+    const params = new EditFolderDialogParams();
+    params.oldName = cat.name;
+    params.oldColor = cat.color;
+    params.onConfirm = (name: string, color: string) => {
+      this.vm.saveEdit(cat, name, color);
+    };
+    params.onRequestClose = () => {
+      this.closeDialog();
+    };
+    const node = new ComponentContent<EditFolderDialogParams>(this.getUIContext(),
+      wrapBuilder(buildEditFolderContent), params);
+    this.editFolderNode = node;
+    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
+    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    setTimeout(() => {
+      this.getUIContext().getPromptAction().openCustomDialog(node, {
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+        offset: { dx: 0, dy: -60 }, // 居中并向下偏移，实现"页面居中偏下"
+      }).catch((err: BusinessError) => {
+        console.error(`openCustomDialog(编辑文件夹) 失败 code=${err.code} msg=${err.message}`);
+        this.editFolderNode = null;
+      });
+    }, 150);
   }
 
-  @Builder
-  buildEditFolderDialog(cat: Category) {
-    EditFolderDialog({
-      oldName: cat.name,
-      oldColor: cat.color,
-      onConfirm: (name: string, color: string) => {
-        this.vm.saveEdit(cat, name, color);
-      },
-      onRequestClose: () => {
-        this.closeDialog();
-      },
-    })
-  }
-
-  // 移动文件夹：弹出目标选择器（排除自身及子孙，防止成环）
+  // 移动文件夹：弹出目标选择器（ComponentContent 方式，排除自身及子孙，防止成环）
   private async openMoveFolder(cat: Category): Promise<void> {
+    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
+    if (this.moveFolderNode) {
+      this.moveFolderNode.dispose();
+      this.moveFolderNode = null;
+    }
     // 候选目标 = 全部文件夹 - 自身及子孙（空串"不分类"由选择器提供，表示移到顶级）
     const candidates = await CategoryRepository.getInstance().getMoveCandidates(cat.id);
-    this.getUIContext().getPromptAction().openCustomDialog({
-      builder: this.buildMoveFolderPicker(cat, candidates),
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-    }).then((id: number) => {
-      this.dialogId = id;
-    });
+    const params = new FolderPickerDialogParams();
+    params.title = "移动到文件夹";
+    params.folders = candidates;
+    params.onSelect = (targetId: string) => {
+      this.vm.doMoveFolder(cat, targetId);
+    };
+    params.onRequestClose = () => {
+      this.closeDialog();
+    };
+    const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
+      wrapBuilder(buildFolderPickerContent), params);
+    this.moveFolderNode = node;
+    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
+    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    setTimeout(() => {
+      this.getUIContext().getPromptAction().openCustomDialog(node, {
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+      }).catch((err: BusinessError) => {
+        console.error(`openCustomDialog(移动文件夹) 失败 code=${err.code} msg=${err.message}`);
+        this.moveFolderNode = null;
+      });
+    }, 150);
   }
 
-  @Builder
-  buildMoveFolderPicker(cat: Category, folders: Category[]) {
-    FolderPickerDialog({
-      title: "移动到文件夹",
-      folders: folders,
-      onSelect: (targetId: string) => {
-        this.vm.doMoveFolder(cat, targetId);
-      },
-      onRequestClose: () => {
-        this.closeDialog();
-      },
-    })
-  }
-
-  // 移动对话：弹出文件夹选择器（复用 FolderPickerDialog）
+  // 移动对话：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog）
   private async openConvPicker(conv: Conversation): Promise<void> {
+    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
+    if (this.convPickerNode) {
+      this.convPickerNode.dispose();
+      this.convPickerNode = null;
+    }
     const allFolders = await CategoryRepository.getInstance().getAll();
-    this.getUIContext().getPromptAction().openCustomDialog({
-      builder: this.buildConvPicker(conv, allFolders),
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-    }).then((id: number) => {
-      this.dialogId = id;
-    });
+    const params = new FolderPickerDialogParams();
+    params.title = "移动到文件夹";
+    params.folders = allFolders;
+    params.onSelect = (folderId: string) => {
+      this.vm.doMoveConv(conv, folderId);
+    };
+    params.onRequestClose = () => {
+      this.closeDialog();
+    };
+    const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
+      wrapBuilder(buildFolderPickerContent), params);
+    this.convPickerNode = node;
+    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
+    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    setTimeout(() => {
+      this.getUIContext().getPromptAction().openCustomDialog(node, {
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+      }).catch((err: BusinessError) => {
+        console.error(`openCustomDialog(移动对话) 失败 code=${err.code} msg=${err.message}`);
+        this.convPickerNode = null;
+      });
+    }, 150);
   }
 
-  @Builder
-  buildConvPicker(conv: Conversation, folders: Category[]) {
-    FolderPickerDialog({
-      folders: folders,
-      onSelect: (folderId: string) => {
-        this.vm.doMoveConv(conv, folderId);
-      },
-      onRequestClose: () => {
-        this.closeDialog();
-      },
-    })
-  }
-
-  // 批量移动：弹出文件夹选择器（收藏 Tab 多选模式）
+  // 批量移动：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog，收藏 Tab 多选模式）
   private async openBatchMovePicker(): Promise<void> {
+    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
+    if (this.batchMoveNode) {
+      this.batchMoveNode.dispose();
+      this.batchMoveNode = null;
+    }
     const allFolders = await CategoryRepository.getInstance().getAll();
-    this.getUIContext().getPromptAction().openCustomDialog({
-      builder: this.buildBatchMovePicker(allFolders),
+    const params = new FolderPickerDialogParams();
+    params.title = "批量移动到文件夹";
+    params.folders = allFolders;
+    params.onSelect = (folderId: string) => {
+      this.vm.doBatchMove(folderId);
+    };
+    params.onRequestClose = () => {
+      this.closeDialog();
+    };
+    const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
+      wrapBuilder(buildFolderPickerContent), params);
+    this.batchMoveNode = node;
+    // 该弹窗由底部编辑栏"移动"按钮触发（非菜单），无需延迟，直接打开
+    this.getUIContext().getPromptAction().openCustomDialog(node, {
       autoCancel: true,
       alignment: DialogAlignment.Center,
-    }).then((id: number) => {
-      this.dialogId = id;
+    }).catch((err: BusinessError) => {
+      console.error(`openCustomDialog(批量移动) 失败 code=${err.code} msg=${err.message}`);
+      this.batchMoveNode = null;
     });
-  }
-
-  @Builder
-  buildBatchMovePicker(folders: Category[]) {
-    FolderPickerDialog({
-      folders: folders,
-      onSelect: (folderId: string) => {
-        this.vm.doBatchMove(folderId);
-      },
-      onRequestClose: () => {
-        this.closeDialog();
-      },
-    })
   }
 
   // 删除文件夹（二次确认 + 级联）

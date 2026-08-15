@@ -35,6 +35,13 @@ export class Message {
   @Trace searchFailed: boolean = false; // 联网搜索是否失败（已降级普通模式）
   @Trace isStreaming: boolean = false; // 是否正在流式输出（UI 据此保持渲染，Markdown 组件由 content 增量自动重绘）
   @Trace isPaused: boolean = false; // 是否已暂停生成（暂停态时气泡操作栏右上角显示「继续生成」；仅内存状态，不持久化）
+  /**
+   * 思考块自动折叠请求信号（仅内存状态，不持久化）：
+   * 流式结束（正常完成 / 暂停 / 异常中断）时由 ViewModel 自增，驱动气泡延迟折叠思考过程。
+   * 用"版本号自增"而非布尔值：同一消息可能多次请求折叠（生成→折叠→重新生成→再次折叠），
+   * 布尔值第二次置 true 不会触发 @Monitor；自增保证每次请求都被气泡感知
+   */
+  @Trace foldVersion: number = 0;
   @Trace thinkingStartTime: number = 0; // 思考开始时间戳
   @Trace thinkingDuration: number = 0; // 思考耗时（秒），思考完成时赋值
   @Trace createdAt: number = 0; // 发送时间戳（毫秒）

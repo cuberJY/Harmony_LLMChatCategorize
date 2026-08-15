@@ -6,6 +6,7 @@
  */
 
 import { Category } from "../../model/Category";
+import { SymbolGlyphModifier } from '@kit.ArkUI';
 @ComponentV2
 export struct FolderItem {
   // 文件夹数据（父组件传入的 @ObservedV2 对象，@Trace 属性变化驱动本项刷新）
@@ -57,66 +58,56 @@ export struct FolderItem {
 
   @Builder
   private folderMenu() {
-    Column() {
-      Row() {
-        Text("编辑")
-          .fontSize($r('app.float.font_button'))
-          .fontColor($r('app.color.text_primary'))
-      }
-      .width("100%")
-      .height(36)
-      .justifyContent(FlexAlign.Center)
-      .onClick(() => {
-        if (this.onMenuRename) this.onMenuRename(this.category);
+    // 长按菜单统一为系统 Menu/MenuItem（与 MessageBubble 的「更多」菜单视觉一致）
+    Menu() {
+      // 编辑（重命名 + 切换图标颜色）
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.square_and_pencil'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.operation_icon')]),
+        content: "编辑",
       })
-      Divider()
-        .strokeWidth(0.5)
-        .color($r('app.color.divider'))
-      
-      Row() {
-        Text("移动")
-          .fontSize($r('app.float.font_button'))
-          .fontColor($r('app.color.text_primary'))
-      }
-      .width("100%")
-      .height(36)
-      .justifyContent(FlexAlign.Center)
-      .onClick(() => {
-        if (this.onMenuMove) this.onMenuMove(this.category);
+        .onChange(() => {
+          this.onMenuRename(this.category);
+        })
+      // 移动
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.folder'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.operation_icon')]),
+        content: "移动",
       })
-      Divider()
-        .strokeWidth(0.5)
-        .color($r('app.color.divider'))
-
-      Row() {
-        Text(this.category.isPinned ? "取消置顶" : "置顶")
-          .fontSize($r('app.float.font_button'))
-          .fontColor(this.category.isPinned ? $r('app.color.text_danger') : $r('app.color.primary'))
-      }
-      .width("100%")
-      .height(36)
-      .justifyContent(FlexAlign.Center)
-      .onClick(() => {
-        if (this.onMenuPin) this.onMenuPin(this.category);
+        .onChange(() => {
+          this.onMenuMove(this.category);
+        })
+      // 置顶 / 取消置顶（动态切换：未置顶→蓝色"置顶"，已置顶→红色"取消置顶"）
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.pin'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.operation_icon')]),
+        content: this.category.isPinned ? "取消置顶" : "置顶",
       })
-      Divider()
-        .strokeWidth(0.5)
-        .color($r('app.color.divider'))
-      
-      Row() {
-        Text("删除")
-          .fontSize($r('app.float.font_button'))
-          .fontColor($r('app.color.text_danger'))
-      }
-      .width("100%")
-      .height(36)
-      .justifyContent(FlexAlign.Center)
-      .onClick(() => {
-        if (this.onMenuDelete) this.onMenuDelete(this.category);
+        .contentFontColor(
+          this.category.isPinned ? $r('app.color.text_danger') : $r('app.color.primary'),
+        )
+        .onChange(() => {
+          this.onMenuPin(this.category);
+        })
+      // 删除
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.trash'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.text_danger')]),
+        content: "删除",
       })
+        .contentFontColor($r('app.color.text_danger'))
+        .onChange(() => {
+          this.onMenuDelete(this.category);
+        })
     }
-    .width(160)
-    .borderRadius(10)
-    .backgroundColor($r('app.color.menu_bg'));
   }
 }
