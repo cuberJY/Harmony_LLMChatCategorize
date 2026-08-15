@@ -1,12 +1,8 @@
 /**
  * 安全凭据存储（基于 Asset Store Kit）
- * 解决 API Key 明文存储问题，类比 iOS Keychain / Android Keystore：
- *   - 密钥存入硬件级安全区域（TrustZone），以密文落盘
- *   - 应用数据即使被读取/备份，也无法还原明文
- *   - 默认 SyncType.NEVER：不参与云同步、不随云备份带走
- *
- * 限制：secret 长度 1~1024 字节、alias 长度 1~256 字节（API Key 远小于上限）
- * 依赖：@kit.AssetStoreKit（API 11+，HarmonyOS NEXT 内置）
+ * 密钥存入硬件级安全区域（TrustZone）以密文落盘，应用数据被读取/备份也无法还原明文；
+ * 默认 SyncType.NEVER，不参与云同步与云备份
+ * 限制：secret 1~1024 字节、alias 1~256 字节；依赖 @kit.AssetStoreKit（API 11+）
  */
 
 import { asset } from '@kit.AssetStoreKit';
@@ -14,12 +10,11 @@ import { util } from '@kit.ArkTS';
 import { Logger } from '../common/Logger';
 
 export class SecureKeyStore {
-  // 字符串 -> UTF-8 字节数组（Asset 的 secret/alias 要求 Uint8Array）
+  /* 字符串 -> UTF-8 字节数组（Asset 的 secret/alias 要求 Uint8Array） */
   private static encode(str: string): Uint8Array {
     return new util.TextEncoder().encode(str);
   }
 
-  // 字节数组 -> 字符串
   private static decode(bytes: Uint8Array): string {
     return new util.TextDecoder().decodeToString(bytes);
   }
@@ -32,8 +27,7 @@ export class SecureKeyStore {
    */
   static async save(alias: string, secret: string): Promise<boolean> {
     if (secret.length === 0) {
-      // 空串视为「清除」：删除该别名下已存在的旧密钥，
-      // 避免设置页清空 Key 后，下次启动又从 Asset 读回旧值
+      /* 空串视为「清除」：删除该别名下已存在的旧密钥，避免设置页清空 Key 后下次启动又从 Asset 读回旧值 */
       await SecureKeyStore.remove(alias);
       return true;
     }
@@ -41,11 +35,11 @@ export class SecureKeyStore {
       const attr: asset.AssetMap = new Map();
       attr.set(asset.Tag.ALIAS, SecureKeyStore.encode(alias));
       attr.set(asset.Tag.SECRET, SecureKeyStore.encode(secret));
-      // 首次解锁后可访问（默认锁屏策略）
+      /* 首次解锁后可访问（默认锁屏策略） */
       attr.set(asset.Tag.ACCESSIBILITY, asset.Accessibility.DEVICE_FIRST_UNLOCKED);
-      // 不参与设备间同步/云备份，避免密钥随迁移外泄
+      /* 不参与设备间同步/云备份，避免密钥随迁移外泄 */
       attr.set(asset.Tag.SYNC_TYPE, asset.SyncType.NEVER);
-      // 别名已存在时覆盖旧值
+      /* 别名已存在时覆盖旧值 */
       attr.set(asset.Tag.CONFLICT_RESOLUTION, asset.ConflictResolution.OVERWRITE);
       await asset.add(attr);
       return true;
@@ -63,7 +57,7 @@ export class SecureKeyStore {
     try {
       const query: asset.AssetMap = new Map();
       query.set(asset.Tag.ALIAS, SecureKeyStore.encode(alias));
-      // 返回全部字段（包含 SECRET 明文）
+      /* 返回全部字段（包含 SECRET 明文） */
       query.set(asset.Tag.RETURN_TYPE, asset.ReturnType.ALL);
       const result: asset.AssetMap[] = await asset.query(query);
       if (result.length > 0) {
@@ -76,7 +70,7 @@ export class SecureKeyStore {
     }
   }
 
-  // 删除密钥（用于清除/重置场景）
+  /* 删除密钥（用于清除/重置场景） */
   static async remove(alias: string): Promise<void> {
     try {
       const query: asset.AssetMap = new Map();

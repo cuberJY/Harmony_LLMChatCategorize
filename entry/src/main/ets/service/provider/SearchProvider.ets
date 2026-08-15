@@ -1,16 +1,13 @@
 /**
- * 联网搜索服务接口抽象（服务层接口抽象）
- *
- * 设计意图：业务层（ChatViewModel）只依赖本接口与工厂，不直接依赖具体实现。
- * 未来接入其他搜索服务商（如 Serper / Tavily 等）时，
- * 只需新增一个实现 SearchProvider 的 Provider 类，并在 SearchProviderFactory 中注册。
+ * 联网搜索服务接口抽象
+ * 业务层只依赖本接口与工厂；接入新搜索服务商只需新增实现类并在 SearchProviderFactory 注册。
  */
 
 /**
  * 搜索服务统一接口
  */
 export interface SearchProvider {
-  // 搜索渠道是否已配置（URL 和 Key 都非空）
+  /* 搜索渠道是否已配置（URL 和 Key 都非空） */
   isAvailable(): boolean;
   /**
    * 执行联网搜索

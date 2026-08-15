@@ -35,39 +35,39 @@ import { SideBarViewModel, GroupItem } from "../viewmodel/SideBarViewModel";
 
 @ComponentV2
 export struct SideBarPage {
-  // 路由栈（NavDestination.onReady 获取）：跳转 FolderPage/SettingsPage 并转发返回结果
+  /* 路由栈（NavDestination.onReady 获取）：跳转 FolderPage/SettingsPage 并转发返回结果 */
   private pathStack: NavPathStack = new NavPathStack();
-  // 当前打开的对话 id（来自 ChatPage 路由参数，用于历史列表高亮当前对话）
+  /* 当前打开的对话 id（来自 ChatPage 路由参数，用于历史列表高亮当前对话） */
   @Param currentConversationId: string = "";
-  // 转场位移动画状态：百分比字符串，绑定 NavDestination.translate（由转场回调驱动）
+  /* 转场位移动画状态：百分比字符串，绑定 NavDestination.translate（由转场回调驱动） */
   @Local offsetX: string = "0%";
-  // 本页在路由栈中的索引（注册/注销转场回调用，onReady 时确定）
+  /* 本页在路由栈中的索引（注册/注销转场回调用，onReady 时确定） */
   private transitionIndex: number = -1;
-  // 数据与业务逻辑（@Trace 状态 + 分组 + 编辑模式）全部收敛到 ViewModel，页面只保留 build / 路由 / 弹窗
+  /* 数据与业务逻辑（@Trace 状态 + 分组 + 编辑模式）全部收敛到 ViewModel，页面只保留 build / 路由 / 弹窗 */
   private vm: SideBarViewModel = new SideBarViewModel();
 
-  // 重命名弹窗的内容节点（ComponentContent 方式）：非空表示已打开或残留待清理
+  /* 重命名弹窗的内容节点（ComponentContent 方式）：非空表示已打开或残留待清理 */
   private renameDialogNode: ComponentContent<RenameDialogParams> | null = null;
-  // 收藏位置选择弹窗的内容节点（ComponentContent 方式）
+  /* 收藏位置选择弹窗的内容节点（ComponentContent 方式） */
   private favoritePickerNode: ComponentContent<FolderPickerDialogParams> | null = null;
-  // 新建文件夹弹窗的内容节点（ComponentContent 方式）
+  /* 新建文件夹弹窗的内容节点（ComponentContent 方式） */
   private newFolderDialogNode: ComponentContent<EditFolderDialogParams> | null = null;
-  // 编辑文件夹弹窗的内容节点（ComponentContent 方式）
+  /* 编辑文件夹弹窗的内容节点（ComponentContent 方式） */
   private editFolderNode: ComponentContent<EditFolderDialogParams> | null = null;
-  // 移动文件夹弹窗的内容节点（ComponentContent 方式）
+  /* 移动文件夹弹窗的内容节点（ComponentContent 方式） */
   private moveFolderNode: ComponentContent<FolderPickerDialogParams> | null = null;
-  // 移动对话弹窗的内容节点（ComponentContent 方式）
+  /* 移动对话弹窗的内容节点（ComponentContent 方式） */
   private convPickerNode: ComponentContent<FolderPickerDialogParams> | null = null;
-  // 批量移动弹窗的内容节点（ComponentContent 方式）
+  /* 批量移动弹窗的内容节点（ComponentContent 方式） */
   private batchMoveNode: ComponentContent<FolderPickerDialogParams> | null = null;
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE; // 记录全局避让模式
   private swiperController: SwiperController = new SwiperController(); // Swiper 控制器：程序化带动画切换
 
   aboutToAppear(): void {
-    // 记住全局模式（EntryAbility 里设的 RESIZE），本页切换为 NONE：键盘不顶起底部"设置"
+    /* 记住全局模式（EntryAbility 里设的 RESIZE），本页切换为 NONE：键盘不顶起底部"设置" */
     this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode();
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
-    // 初始化数据库（单例已初始化则跳过）
+    /* 初始化数据库（单例已初始化则跳过） */
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     if (context) {
       DatabaseHelper.getInstance()
@@ -80,9 +80,9 @@ export struct SideBarPage {
   }
 
   aboutToDisappear(): void {
-    // 离开页面恢复全局模式，保证 ChatPage 底部输入框的避让不受影响
+    /* 离开页面恢复全局模式，保证 ChatPage 底部输入框的避让不受影响 */
     this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
-    // 注销转场动画回调
+    /* 注销转场动画回调 */
     if (this.transitionIndex >= 0) {
       NavTransitionManager.getInstance().unregister(this.transitionIndex);
       this.transitionIndex = -1;
@@ -92,7 +92,7 @@ export struct SideBarPage {
   build() {
     NavDestination() {
       Column() {
-        // 顶部栏：Tab 切换 + 返回
+        /* 顶部栏：Tab 切换 + 返回 */
         if (this.vm.isEditMode) {
           Row() {
             Text("已选择 ")
@@ -114,9 +114,9 @@ export struct SideBarPage {
           .border({ width: { bottom: 1 }, color: { bottom: $r('app.color.divider') } });
         } else {
           Row() {
-            // Tab 容器（左对齐）
+            /* Tab 容器（左对齐） */
             Row() {
-              // 「历史」Tab（index 0，默认页）
+              /* 「历史」Tab（index 0，默认页） */
               Text("历史")
                 .fontSize($r('app.float.font_toggle'))
                 .fontColor(
@@ -136,7 +136,7 @@ export struct SideBarPage {
                   this.switchTab(0);
                 })
 
-              // 「收藏」Tab（index 1）
+              /* 「收藏」Tab（index 1） */
               Text("收藏")
                 .fontSize($r('app.float.font_toggle'))
                 .fontColor(
@@ -159,7 +159,6 @@ export struct SideBarPage {
             .layoutWeight(1)
             .alignItems(VerticalAlign.Center)
 
-            // 右侧：返回按钮
             Row() {
               SymbolGlyph($r("sys.symbol.ellipsis_message "))
                 .fontSize($r('app.float.font_icon_xxl'))
@@ -176,19 +175,16 @@ export struct SideBarPage {
           .height($r('app.float.title_bar_height'))
           .padding({ left: $r('app.float.space_lg'), right: $r('app.float.space_xl') })
           .backgroundColor($r('app.color.title_bar_bg'))
-          // 底部分割线
           .border({
             width: { bottom: 1 },
             color: { bottom: $r('app.color.divider') },
           });
         }
 
-        // 内容区：Swiper 支持左右滑动切换 Tab（顺序与顶部 Tab 栏一致：历史在左、收藏在右）
-        // 控制器作为构造参数传入：Tab 点击时通过 changeIndex 带动画切换
+        /* 内容区：Swiper 左右滑动切换 Tab（历史左、收藏右），控制器供 Tab 点击时 changeIndex 带动画切换 */
         Swiper(this.swiperController) {
-          // 历史 Tab（index 0，默认页）
+          /* 历史 Tab */
           Column() {
-            // 搜索框
             if (this.vm.conversations.length > 0) {
               TextInput({ placeholder: "搜索对话...", text: this.vm.searchText })
                 .height(40)
@@ -202,15 +198,13 @@ export struct SideBarPage {
                 .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
                 .margin({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_md'), bottom: $r('app.float.space_md') })
                 .onChange((value: string) => {
-                  // 实时过滤：重新分组
+                  /* 实时过滤：重新分组 */
                   this.vm.searchText = value;
                   this.vm.rebuildGroups();
                 });
             }
 
-            // 分组对话列表
             if (this.vm.groups.length === 0) {
-              // 空态提示
               Column() {
                 Text("暂无历史对话")
                   .fontSize($r('app.float.font_remind'))
@@ -221,11 +215,11 @@ export struct SideBarPage {
               .justifyContent(FlexAlign.Center);
             } else {
               List() {
-                // 遍历分组：每组先渲染组标题，再渲染该组对话
+                /* 遍历分组：每组先渲染组标题，再渲染该组对话 */
                 ForEach(
                   this.vm.groups,
                   (group: GroupItem) => {
-                    // 组标题（左对齐）
+                    /* 组标题（左对齐） */
                     ListItem() {
                       Text(group.name)
                         .fontSize($r('app.float.font_time'))
@@ -240,7 +234,7 @@ export struct SideBarPage {
                         })
                     };
 
-                    // 该组下的对话
+                    /* 该组下的对话 */
                     ForEach(
                       group.conversations,
                       (conv: Conversation) => {
@@ -249,13 +243,13 @@ export struct SideBarPage {
                             conversation: conv,
                             isEditMode: this.vm.isEditMode,
                             isSelected: this.vm.selectedIds.indexOf(conv.id) >= 0,
-                            // 是否为当前对话（高亮显示）
+                            /* 是否为当前对话（高亮显示） */
                             isCurrent: conv.id === this.currentConversationId,
-                            // 历史页：星标显示在行尾；不显示"移动"（未收藏对话不参与文件夹分类）
+                            /* 历史页：星标显示在行尾；不显示"移动"（未收藏对话不参与文件夹分类） */
                             showMoveMenu: false,
 
                             onClickItem: (selected: Conversation) => {
-                              // 选中对话 → pop 携带结果返回 ChatPage（pushPathByName 的 onPop 接收）
+                              /* 选中对话 → pop 携带结果返回 ChatPage（pushPathByName 的 onPop 接收） */
                               this.pathStack.pop(selected);
                             },
                             onSelectChange: (selected: Conversation, checked: boolean) => {
@@ -276,10 +270,10 @@ export struct SideBarPage {
                           })
                         }.width("100%");
                       },
-                      (conv: Conversation) => `${conv.id}_${this.vm.listVersion}`,
+                      (conv: Conversation) => conv.id,
                     );
                   },
-                  (group: GroupItem) => `${group.name}_${this.vm.listVersion}`,
+                  (group: GroupItem) => group.name,
                 )
               }
               .width("100%")
@@ -294,10 +288,9 @@ export struct SideBarPage {
           .width("100%")
           .height("100%")
 
-          // 收藏 Tab（index 1）
+          /* 收藏 Tab */
           Stack() {
             if (this.vm.topFolders.length === 0 && this.vm.uncategorizedConvs.length === 0) {
-              // 空态
               Column() {
                 Text("暂无收藏")
                   .fontSize($r('app.float.font_remind'))
@@ -308,7 +301,7 @@ export struct SideBarPage {
               .justifyContent(FlexAlign.Center);
             } else {
               List() {
-                // 顶级文件夹
+                /* 顶级文件夹 */
                 ForEach(
                   this.vm.topFolders,
                   (cat: Category) => {
@@ -316,14 +309,14 @@ export struct SideBarPage {
                       FolderItem({
                         category: cat,
                         onClickItem: (selected: Category) => {
-                          // 点击 → 进入 FolderPage；onPop 转发 FolderPage 返回的选中对话给 ChatPage
+                          /* 点击 → 进入 FolderPage；onPop 转发 FolderPage 返回的选中对话给 ChatPage */
                           this.pathStack.pushPathByName(
                             "FolderPage",
                             new FolderParams(selected.id, selected.name),
                             (popInfo: PopInfo) => {
                               const conv = popInfo.result as Conversation | undefined;
                               if (conv && conv.id.length > 0) {
-                                // 文件夹页选中对话 → 继续 pop 回 ChatPage 并携带结果
+                                /* 文件夹页选中对话 → 继续 pop 回 ChatPage 并携带结果 */
                                 this.pathStack.pop(conv);
                               }
                             },
@@ -344,10 +337,10 @@ export struct SideBarPage {
                       })
                     }.width("100%");
                   },
-                  (cat: Category) => `${cat.id}_${this.vm.listVersion}`,
+                  (cat: Category) => cat.id,
                 )
 
-                // 未分类对话（category_id 为空）
+                /* 未分类对话（category_id 为空） */
                 ForEach(
                   this.vm.uncategorizedConvs,
                   (conv: Conversation) => {
@@ -356,12 +349,12 @@ export struct SideBarPage {
                         conversation: conv,
                         isEditMode: this.vm.isEditMode,
                         isSelected: this.vm.selectedIds.indexOf(conv.id) >= 0,
-                        // 收藏页：不显示星标（该页全是已收藏对话）；保留"移动"菜单调整位置
+                        /* 收藏页：不显示星标（该页全是已收藏对话）；保留"移动"菜单调整位置 */
                         showFavoriteIcon: false,
                         showPinMenu: true,
 
                         onClickItem: (selected: Conversation) => {
-                          // 直接进入对话 → pop 携带结果返回 ChatPage
+                          /* 直接进入对话 → pop 携带结果返回 ChatPage */
                           this.pathStack.pop(selected);
                         },
                         onSelectChange: (selected: Conversation, checked: boolean) => {
@@ -388,14 +381,14 @@ export struct SideBarPage {
                       })
                     }.width("100%");
                   },
-                  (conv: Conversation) => `${conv.id}_${this.vm.listVersion}`,
+                  (conv: Conversation) => conv.id,
                 )
               }
               .width("100%")
               .height("100%")
               .padding({ top: $r('app.float.space_md') })
               .backgroundColor($r('app.color.page_bg'))
-              // 项间自动分割线（与历史 Tab 一致：文件夹/对话之间都有全宽分割线）
+              /* 项间自动分割线（与历史 Tab 一致：文件夹/对话之间都有全宽分割线） */
               .divider({
                 strokeWidth: 0.5,
                 color: $r('app.color.divider'),
@@ -403,7 +396,7 @@ export struct SideBarPage {
               .edgeEffect(EdgeEffect.Spring);
             }
 
-            // 悬浮新建按钮（右下角）
+            /* 悬浮新建按钮（右下角） */
             Button() {
               SymbolGlyph($r("sys.symbol.plus"))
                 .fontSize($r('app.float.font_icon_xxl'))
@@ -427,9 +420,8 @@ export struct SideBarPage {
         .layoutWeight(1)
         .width("100%")
         .duration(150) // 动画时长 150ms（对 changeIndex 与手势滑动都生效）
-        .curve(Curve.EaseOut) // 或指定曲线
-        .loop(false) // 禁止循环
-        .indicator(false) // 隐藏底部指示点（已有自己的 Tab 栏）
+        .curve(Curve.EaseOut)
+        .loop(false)
         .disableSwipe(this.vm.isEditMode) // 多选编辑模式下禁止滑动，避免误操作
         .onChange((index: number) => {
           if (index === 0 && this.vm.currentTab !== 0) {
@@ -438,7 +430,7 @@ export struct SideBarPage {
           this.vm.setCurrentTab(index); // 滑动后同步状态，Tab 栏高亮跟随变化
         })
 
-        // 底部：设置按钮
+        /* 底部：设置按钮 */
         if (this.vm.isEditMode) {
           Row() {
             Row() {
@@ -459,7 +451,7 @@ export struct SideBarPage {
                 .onClick(() => {
                   if (this.vm.selectedIds.length > 0) this.confirmBatchDelete();
                 })
-              // 批量移动到文件夹：仅收藏 Tab 显示（收藏对话才参与文件夹分类）
+              /* 批量移动到文件夹：仅收藏 Tab 显示（收藏对话才参与文件夹分类） */
               if (this.vm.currentTab === 1) {
                 Text("移动")
                   .fontSize($r('app.float.font_button'))
@@ -501,7 +493,6 @@ export struct SideBarPage {
           .height($r('app.float.title_bar_height'))
           .justifyContent(FlexAlign.Center)
           .backgroundColor($r('app.color.title_bar_bg'))
-          // 顶部分割线
           .border({
             width: { top: 1 },
             color: { top: $r('app.color.divider') },
@@ -516,37 +507,36 @@ export struct SideBarPage {
       .backgroundColor($r('app.color.page_bg'));
     }
     .hideTitleBar(true)
-    // 转场位移：由 HomePage 的 customNavContentTransition 通过动画回调驱动（0% 时无偏移）
+    /* 转场位移：由 HomePage 的 customNavContentTransition 通过动画回调驱动（0% 时无偏移） */
     .translate({ x: this.offsetX })
     .onReady((context: NavDestinationContext) => {
       this.pathStack = context.pathStack;
-      // 注册转场动画回调：本页在路由栈中的索引 = 当前栈内页面数 - 1
+      /* 注册转场动画回调：本页在路由栈中的索引 = 当前栈内页面数 - 1 */
       this.transitionIndex = this.pathStack.getAllPathName().length - 1;
       NavTransitionManager.getInstance().register(this.transitionIndex, {
         start: (isPush: boolean, isExit: boolean) => {
-          // 初始位置：作为 to（打开侧边栏）先位于左侧屏外；作为 from（关闭侧边栏）留在原位
+          /* 初始位置：作为 to（打开侧边栏）先位于左侧屏外；作为 from（关闭侧边栏）留在原位 */
           this.offsetX = isExit ? "0%" : "-100%";
         },
         finish: (isPush: boolean, isExit: boolean) => {
-          // 目标位置：作为 to 左滑入原位；作为 from 左滑出屏幕
+          /* 目标位置：作为 to 左滑入原位；作为 from 左滑出屏幕 */
           this.offsetX = isExit ? "-100%" : "0%";
         },
         onFinish: () => {
-          // 动画结束重置，供下次转场使用
+          /* 动画结束重置，供下次转场使用 */
           this.offsetX = "0%";
         },
       });
     })
     .onShown(() => {
-      // 从 FolderPage/SettingsPage 返回时重新可见：收藏/历史数据可能已变化（移动/取消收藏/重命名），刷新
-      // 兜底：任何上层页面改过全局键盘模式（如 SettingsPage 恢复时），回到本页都纠正为 NONE
+      /* 返回时刷新数据（收藏/历史可能已变）；兜底纠正上层页面改过的全局键盘模式为 NONE */
       this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
       this.vm.loadConversations();
       this.vm.loadFavorites();
       this.vm.listVersion++;
     })
     .onBackPressed(() => {
-      // 多选编辑模式：系统返回键优先退出编辑模式（拦截本次返回），再按一次才真正返回 ChatPage
+      /* 多选编辑模式：系统返回键优先退出编辑模式（拦截本次返回），再按一次才真正返回 ChatPage */
       if (this.vm.isEditMode) {
         this.vm.exitEditMode();
         return true; // true = 本页自行处理返回键，框架不再执行默认弹栈
@@ -561,19 +551,19 @@ export struct SideBarPage {
    * @param index 目标 Tab：0=历史 1=收藏
    */
   private switchTab(index: number): void {
-    if (this.vm.currentTab === index) return; // 已在该 Tab，无需切换
+    if (this.vm.currentTab === index) return;
     this.vm.setCurrentTab(index); // 先更新高亮
     this.swiperController.changeIndex(index, true); // 带动画滑动到目标页
   }
 
-  // 重命名：弹出输入对话框（ComponentContent 方式，内容与页面解耦）
+  /* 重命名：弹出输入对话框（ComponentContent 方式，内容与页面解耦） */
   private openRenameDialog(conv: Conversation): void {
-    // 上一次弹窗若通过点遮罩（autoCancel）自动关闭，节点会残留，先释放避免内存泄漏
+    /* 上一次弹窗若通过点遮罩（autoCancel）自动关闭，节点会残留，先释放避免内存泄漏 */
     if (this.renameDialogNode) {
       this.renameDialogNode.dispose();
       this.renameDialogNode = null;
     }
-    // 组装弹窗参数与回调（onConfirm 在弹窗"确定"时回调，闭包内 this 仍指向本页面）
+    /* 组装弹窗参数与回调（onConfirm 在弹窗"确定"时回调，闭包内 this 仍指向本页面） */
     const params = new RenameDialogParams();
     params.title = "重命名对话";
     params.oldValue = conv.title;
@@ -584,26 +574,25 @@ export struct SideBarPage {
       this.closeDialog();
     };
 
-    // ComponentContent：内容绑定本页面 UIContext，但组件实例独立，规避成员 @Builder 的时序/绑定问题
+    /* ComponentContent：内容绑定本页面 UIContext，但组件实例独立，规避成员 @Builder 的时序/绑定问题 */
     const node = new ComponentContent<RenameDialogParams>(this.getUIContext(),
       wrapBuilder(buildRenameDialog), params);
     this.renameDialogNode = node;
-    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
-    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    /* 延迟打开：等长按菜单（子窗口）关闭动画结束后再弹，否则弹窗会被菜单关闭流程吞掉 */
     setTimeout(() => {
       this.getUIContext().getPromptAction().openCustomDialog(node, {
         autoCancel: true,
         alignment: DialogAlignment.Center,
         offset: DIALOG_OFFSET_SLIGHT,
       }).catch((err: BusinessError) => {
-        // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
+        /* 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码 */
         console.error(`openCustomDialog(重命名) 失败 code=${err.code} msg=${err.message}`);
         this.renameDialogNode = null;
       });
     }, DIALOG_DELAY_AFTER_MENU);
   }
 
-  // 关闭一个 ComponentContent 弹窗节点并释放（关闭成功或已自动关闭都保证 dispose）
+  /* 关闭一个 ComponentContent 弹窗节点并释放（关闭成功或已自动关闭都保证 dispose） */
   private closeContentNode<T extends Object>(node: ComponentContent<T>): void {
     this.getUIContext().getPromptAction().closeCustomDialog(node)
       .then(() => {
@@ -615,9 +604,9 @@ export struct SideBarPage {
       });
   }
 
-  // 关闭当前打开的弹窗（弹窗组件通过 onRequestClose 回调触发）
+  /* 关闭当前打开的弹窗（弹窗组件通过 onRequestClose 回调触发） */
   private closeDialog(): void {
-    // 1) ComponentContent 方式的弹窗（重命名/收藏/新建文件夹，同一时刻只会有一个节点非空）
+    /* 1) ComponentContent 方式的弹窗（重命名/收藏/新建文件夹，同一时刻只会有一个节点非空） */
     const renameNode = this.renameDialogNode;
     if (renameNode) {
       this.renameDialogNode = null;
@@ -667,15 +656,15 @@ export struct SideBarPage {
     }
   }
 
-  // 收藏：弹出收藏位置选择器（ComponentContent 方式，内容与页面解耦）
+  /* 收藏：弹出收藏位置选择器（ComponentContent 方式，内容与页面解耦） */
   private async openFavoritePicker(conv: Conversation): Promise<void> {
-    // 上一次弹窗若通过点遮罩（autoCancel）自动关闭，节点会残留，先释放避免内存泄漏
+    /* 上一次弹窗若通过点遮罩（autoCancel）自动关闭，节点会残留，先释放避免内存泄漏 */
     if (this.favoritePickerNode) {
       this.favoritePickerNode.dispose();
       this.favoritePickerNode = null;
     }
     const allFolders = await CategoryRepository.getInstance().getAll();
-    // 组装弹窗参数与回调（onSelect 在弹窗选中"默认"或某个文件夹时回调）
+    /* 组装弹窗参数与回调（onSelect 在弹窗选中"默认"或某个文件夹时回调） */
     const params = new FolderPickerDialogParams();
     params.title = "选择收藏位置";
     params.folders = allFolders;
@@ -689,28 +678,27 @@ export struct SideBarPage {
     const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
       wrapBuilder(buildFolderPickerContent), params);
     this.favoritePickerNode = node;
-    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
-    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    /* 延迟打开：等长按菜单（子窗口）关闭动画结束后再弹，否则弹窗会被菜单关闭流程吞掉 */
     setTimeout(() => {
       this.getUIContext().getPromptAction().openCustomDialog(node, {
         autoCancel: true,
         alignment: DialogAlignment.Center,
       }).catch((err: BusinessError) => {
-        // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
+        /* 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码 */
         console.error(`openCustomDialog(收藏) 失败 code=${err.code} msg=${err.message}`);
         this.favoritePickerNode = null;
       });
     }, DIALOG_DELAY_AFTER_MENU);
   }
 
-  // 新建顶级文件夹对话框（ComponentContent 方式，复用 EditFolderDialog：名称 + 颜色）
+  /* 新建顶级文件夹对话框（ComponentContent 方式，复用 EditFolderDialog：名称 + 颜色） */
   private openNewFolderDialog(): void {
-    // 先释放上次点遮罩关闭后残留的节点
+    /* 先释放上次点遮罩关闭后残留的节点 */
     if (this.newFolderDialogNode) {
       this.newFolderDialogNode.dispose();
       this.newFolderDialogNode = null;
     }
-    // 组装弹窗参数与回调（onConfirm 在弹窗"确定"时回调）
+    /* 组装弹窗参数与回调（onConfirm 在弹窗"确定"时回调） */
     const params = new EditFolderDialogParams();
     params.title = "新建文件夹"; // 覆盖默认标题
     params.oldName = "";
@@ -730,15 +718,15 @@ export struct SideBarPage {
       alignment: DialogAlignment.Center,
       offset: DIALOG_OFFSET_TALL,
     }).catch((err: BusinessError) => {
-      // 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码
+      /* 失败静默正是"按钮无效"的主要嫌疑，这里打日志暴露真实错误码 */
       console.error(`openCustomDialog(新建文件夹) 失败 code=${err.code} msg=${err.message}`);
       this.newFolderDialogNode = null;
     });
   }
 
-  // 编辑文件夹：重命名 + 切换图标颜色（ComponentContent 方式，与重命名/新建文件夹统一）
+  /* 编辑文件夹：重命名 + 切换图标颜色（ComponentContent 方式，与重命名/新建文件夹统一） */
   private openEditFolder(cat: Category): void {
-    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
+    /* 先释放上次点遮罩关闭后残留的节点，防止内存泄漏 */
     if (this.editFolderNode) {
       this.editFolderNode.dispose();
       this.editFolderNode = null;
@@ -755,8 +743,7 @@ export struct SideBarPage {
     const node = new ComponentContent<EditFolderDialogParams>(this.getUIContext(),
       wrapBuilder(buildEditFolderContent), params);
     this.editFolderNode = node;
-    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
-    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    /* 延迟打开：等长按菜单（子窗口）关闭动画结束后再弹，否则弹窗会被菜单关闭流程吞掉 */
     setTimeout(() => {
       this.getUIContext().getPromptAction().openCustomDialog(node, {
         autoCancel: true,
@@ -769,14 +756,14 @@ export struct SideBarPage {
     }, DIALOG_DELAY_AFTER_MENU);
   }
 
-  // 移动文件夹：弹出目标选择器（ComponentContent 方式，排除自身及子孙，防止成环）
+  /* 移动文件夹：弹出目标选择器（ComponentContent 方式，排除自身及子孙，防止成环） */
   private async openMoveFolder(cat: Category): Promise<void> {
-    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
+    /* 先释放上次点遮罩关闭后残留的节点，防止内存泄漏 */
     if (this.moveFolderNode) {
       this.moveFolderNode.dispose();
       this.moveFolderNode = null;
     }
-    // 候选目标 = 全部文件夹 - 自身及子孙（空串"不分类"由选择器提供，表示移到顶级）
+    /* 候选目标 = 全部文件夹 - 自身及子孙（空串"不分类"由选择器提供，表示移到顶级） */
     const candidates = await CategoryRepository.getInstance().getMoveCandidates(cat.id);
     const params = new FolderPickerDialogParams();
     params.title = "移动到文件夹";
@@ -790,8 +777,7 @@ export struct SideBarPage {
     const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
       wrapBuilder(buildFolderPickerContent), params);
     this.moveFolderNode = node;
-    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
-    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    /* 延迟打开：等长按菜单（子窗口）关闭动画结束后再弹，否则弹窗会被菜单关闭流程吞掉 */
     setTimeout(() => {
       this.getUIContext().getPromptAction().openCustomDialog(node, {
         autoCancel: true,
@@ -803,9 +789,9 @@ export struct SideBarPage {
     }, DIALOG_DELAY_AFTER_MENU);
   }
 
-  // 移动对话：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog）
+  /* 移动对话：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog） */
   private async openConvPicker(conv: Conversation): Promise<void> {
-    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
+    /* 先释放上次点遮罩关闭后残留的节点，防止内存泄漏 */
     if (this.convPickerNode) {
       this.convPickerNode.dispose();
       this.convPickerNode = null;
@@ -823,8 +809,7 @@ export struct SideBarPage {
     const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
       wrapBuilder(buildFolderPickerContent), params);
     this.convPickerNode = node;
-    // 延迟打开：该弹窗由长按菜单（bindContextMenu，渲染于子窗口）触发，
-    // 需等菜单关闭动画结束后再打开，否则弹窗会被菜单关闭流程吞掉（表现为点击无反应）
+    /* 延迟打开：等长按菜单（子窗口）关闭动画结束后再弹，否则弹窗会被菜单关闭流程吞掉 */
     setTimeout(() => {
       this.getUIContext().getPromptAction().openCustomDialog(node, {
         autoCancel: true,
@@ -836,9 +821,9 @@ export struct SideBarPage {
     }, DIALOG_DELAY_AFTER_MENU);
   }
 
-  // 批量移动：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog，收藏 Tab 多选模式）
+  /* 批量移动：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog，收藏 Tab 多选模式） */
   private async openBatchMovePicker(): Promise<void> {
-    // 先释放上次点遮罩关闭后残留的节点，防止内存泄漏
+    /* 先释放上次点遮罩关闭后残留的节点，防止内存泄漏 */
     if (this.batchMoveNode) {
       this.batchMoveNode.dispose();
       this.batchMoveNode = null;
@@ -856,7 +841,7 @@ export struct SideBarPage {
     const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
       wrapBuilder(buildFolderPickerContent), params);
     this.batchMoveNode = node;
-    // 该弹窗由底部编辑栏"移动"按钮触发（非菜单），无需延迟，直接打开
+    /* 该弹窗由底部编辑栏"移动"按钮触发（非菜单），无需延迟，直接打开 */
     this.getUIContext().getPromptAction().openCustomDialog(node, {
       autoCancel: true,
       alignment: DialogAlignment.Center,
@@ -866,7 +851,7 @@ export struct SideBarPage {
     });
   }
 
-  // 删除文件夹（二次确认 + 级联）
+  /* 删除文件夹（二次确认 + 级联） */
   private confirmFolderDelete(cat: Category): void {
     showDeleteConfirm(
       this.getUIContext(),
@@ -878,7 +863,7 @@ export struct SideBarPage {
     );
   }
 
-  // 单选删除确认（API 26 推荐 UIContext 弹窗）
+  /* 单选删除确认（API 26 推荐 UIContext 弹窗） */
   private confirmDeleteSingle(conv: Conversation): void {
     showDeleteConfirm(
       this.getUIContext(),

@@ -89,8 +89,10 @@ export class RenameDialogParams {
   onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
 }
 
-// 全局 @Builder：包装 RenameInputDialog，供 openCustomDialog(ComponentContent) 使用
-// 注意：必须用全局函数而非组件成员 @Builder，才能规避成员 Builder 在弹窗场景的绑定/刷新问题
+/**
+ * 全局 @Builder：包装 RenameInputDialog，供 openCustomDialog(ComponentContent) 使用。
+ * 注意：必须用全局函数而非组件成员 @Builder，才能规避成员 Builder 在弹窗场景的绑定/刷新问题
+ */
 @Builder
 export function buildRenameDialog(params: RenameDialogParams) {
   RenameInputDialog({

@@ -1,31 +1,22 @@
 /**
  * 后台长时任务保活服务（方案 A：dataTransfer 长时任务）
- *
- * 背景：HarmonyOS 对退至后台的应用有资源管控——约 2 秒后网络资源被冻结、
- * 约 12 秒后被释放。流式回复（requestInStream 的 SSE 连接）此时会被掐断，
- * 回到前台即报"网络请求失败"。
- *
- * 解法：当"应用在后台 且 仍有流式任务进行中"时，申请 dataTransfer 类型长时任务，
- * 让系统豁免冻结，保持网络连接继续推进；任务全部结束或应用回到前台时，
- * 调用 stopBackgroundRunning 及时释放，避免资源占用与合规风险。
- *
- * 使用前提（已在 module.json5 配置）：
- *   1. requestPermissions 声明 ohos.permission.KEEP_BACKGROUND_RUNNING
- *   2. EntryAbility 的 backgroundModes 声明 ["dataTransfer"]
+ * 背景：应用退后台约 2 秒网络被冻结、约 12 秒被释放，流式 SSE 连接会被掐断。
+ * 后台且有流式任务时申请 dataTransfer 长时任务豁免冻结；任务结束或回前台时及时释放。
+ * 前提（已在 module.json5 配置）：KEEP_BACKGROUND_RUNNING 权限 + backgroundModes ["dataTransfer"]。
  */
 import { Context, wantAgent, WantAgent } from '@kit.AbilityKit';
 import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 
-// 与 AppScope/app.json5 中的 bundleName 保持一致
+/* 与 AppScope/app.json5 中的 bundleName 保持一致 */
 const BUNDLE_NAME = 'com.cuberjy.chatcategorize';
 const ABILITY_NAME = 'EntryAbility';
 
 export class BackgroundRunGuardService {
   private static instance: BackgroundRunGuardService | null = null;
   private context: Context | null = null; // UIAbility 上下文（onCreate 时注入）
-  private appInBackground: boolean = false; // 应用当前是否在后台
+  private appInBackground: boolean = false;
   private streamingTaskCount: number = 0; // 进行中的流式任务数（ChatViewModel 同步）
-  private continuousTaskActive: boolean = false; // 长时任务是否已启动
+  private continuousTaskActive: boolean = false;
   private syncInProgress: boolean = false; // 防止并发重入
   private syncAgainRequested: boolean = false; // 重入期间状态又变化，需再同步一次
 
@@ -40,13 +31,13 @@ export class BackgroundRunGuardService {
     this.context = context;
   }
 
-  // EntryAbility.onForeground/onBackground 调用，切换后台状态
+  /* EntryAbility.onForeground/onBackground 调用，切换后台状态 */
   onAppBackgroundChanged(inBackground: boolean): void {
     this.appInBackground = inBackground;
     this.syncContinuousTaskState();
   }
 
-  // ChatViewModel 在流任务登记/结束时调用，传入当前进行中的任务数
+  /* ChatViewModel 在流任务登记/结束时调用，传入当前进行中的任务数 */
   updateStreamingTaskCount(count: number): void {
     this.streamingTaskCount = Math.max(0, count);
     this.syncContinuousTaskState();
@@ -92,7 +83,7 @@ export class BackgroundRunGuardService {
       this.continuousTaskActive = true;
       console.info('BackgroundRunGuard', 'startBackgroundRunning ok (dataTransfer)');
     } catch (error) {
-      // 申请失败不阻断流式本身，仅失去后台保活能力
+      /* 申请失败不阻断流式本身，仅失去后台保活能力 */
       console.error('BackgroundRunGuard', `startBackgroundRunning failed: ${JSON.stringify(error)}`);
     }
   }
@@ -110,7 +101,7 @@ export class BackgroundRunGuardService {
     }
   }
 
-  // 构造 WantAgent：长时任务通知被点击时拉起应用
+  /* 构造 WantAgent：长时任务通知被点击时拉起应用 */
   private async createWantAgent(): Promise<WantAgent> {
     const wantInfo: wantAgent.WantAgentInfo = {
       wants: [

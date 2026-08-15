@@ -17,58 +17,61 @@
  */
 
 import { KeyboardAvoidMode } from "@kit.ArkUI";
+import { common } from "@kit.AbilityKit";
 import { AppConfig } from "../config/AppConfig";
 import { MODEL_PRESETS, getModelPreset } from "../config/ModelPresets";
 import { showToast } from "../common/Utils";
 
 @ComponentV2
 export struct SettingsPage {
-  // 路由栈（NavDestination.onReady 获取）：返回上一页
+  /* 路由栈（NavDestination.onReady 获取）：返回上一页 */
   private pathStack: NavPathStack = new NavPathStack();
-  // 表单状态（初始值取自 AppConfig，保证编辑时能看到已保存的值）
+  /* 表单状态（初始值取自 AppConfig，保证编辑时能看到已保存的值） */
   @Local providerId: string = "";
   @Local selectedIndex: number = 0; // 供应商下拉当前选中项索引
   @Local selectedModel: string = ""; // 模型下拉当前选中的模型名
   @Local modelIndex: number = 0; // 模型下拉当前选中项索引
   @Local apiKey: string = "";
   private saveTimerId: number = -1; // 保存后返回的定时器，离开页面时清理
+  private isSaving: boolean = false; // 保存中标记（防连点重复保存与双 pop）
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE;
 
   aboutToAppear(): void {
-    // 输入法避让：本页是表单页，切到"上抬"模式（键盘弹出时页面整体上抬，保证当前输入框不被遮挡）
+    /* 输入法避让：本页是表单页，切到"上抬"模式（键盘弹出时页面整体上抬，保证当前输入框不被遮挡） */
     this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode(); // 记录进入前的模式
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
 
-    // 回显已保存的配置
+    /* 回显已保存的配置 */
     const config = AppConfig.getInstance().getConfig();
     this.providerId = config.providerId;
-    // 根据已保存的供应商定位下拉选中项（找不到时回退第一项）
+    /* 根据已保存的供应商定位下拉选中项（找不到时回退第一项） */
     const idx = MODEL_PRESETS.findIndex((p) => p.id === this.providerId);
     this.selectedIndex = idx >= 0 ? idx : 0;
-    // 模型：回显已保存的模型名；无记录或不属于当前供应商时回退默认模型
+    /* 模型：回显已保存的模型名；无记录或不属于当前供应商时回退默认模型 */
     this.selectedModel =
       config.model.length > 0 ? config.model : getModelPreset(this.providerId).defaultModel;
     const midx = getModelPreset(this.providerId).models.indexOf(this.selectedModel);
     this.modelIndex = midx >= 0 ? midx : 0;
     this.apiKey = config.apiKey;
+    /* 修复：AppConfig.init 失败后无重试路径，此处幂等重试（成功即返回） */
+    const hostContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    AppConfig.getInstance().init(hostContext);
   }
 
   aboutToDisappear(): void {
-    // 离开页面时清理返回定时器，避免越层返回
+    /* 离开页面时清理返回定时器，避免越层返回 */
     if (this.saveTimerId !== -1) {
       clearTimeout(this.saveTimerId);
       this.saveTimerId = -1;
     }
-    // 离开页面时恢复全局压缩模式
+    /* 离开页面时恢复全局压缩模式 */
     this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
   }
 
   build() {
     NavDestination() {
       Column() {
-        // 顶部标题栏
         Row() {
-          // 返回按钮
           Row() {
             SymbolGlyph($r("sys.symbol.chevron_left"))
               .fontSize($r('app.float.font_icon_xl'))
@@ -81,7 +84,6 @@ export struct SettingsPage {
             this.pathStack.pop();
           })
 
-          // 标题
           Text("设置")
             .fontSize($r('app.float.font_title'))
             .fontWeight(700)
@@ -89,7 +91,6 @@ export struct SettingsPage {
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
-          // 右侧占位（保持对称）
           Row().width(40)
         }
         .width("100%")
@@ -100,13 +101,11 @@ export struct SettingsPage {
           width: { bottom: 1 },
           color: { bottom: $r('app.color.divider') },
         })
-        // 上抬避让时让标题栏保持原位，不被键盘顶出屏幕
+        /* 上抬避让时让标题栏保持原位，不被键盘顶出屏幕 */
         .expandSafeArea([SafeAreaType.KEYBOARD])
 
-        // 表单区域
         Scroll() {
           Column() {
-            // 供应商选择
             Text("供应商")
               .fontSize($r('app.float.font_body'))
               .fontColor($r('app.color.text_primary'))
@@ -129,13 +128,13 @@ export struct SettingsPage {
               .height(44)
               .width("100%")
               .onSelect((index: number) => {
-                // 切换供应商 → 模型列表随之切换，重置为该供应商默认模型
+                /* 切换供应商 → 模型列表随之切换，重置为该供应商默认模型 */
                 this.selectedIndex = index;
                 this.providerId = MODEL_PRESETS[index].id;
                 this.selectedModel = getModelPreset(this.providerId).defaultModel;
                 this.modelIndex = 0;
               })
-            // 当前选中供应商的接口信息（只读展示，不可手动修改）
+            /* 当前选中供应商的接口信息（只读展示，不可手动修改） */
             Text(`接口：${getModelPreset(this.providerId).endpoint}`)
               .fontSize($r('app.float.font_body'))
               .fontColor($r('app.color.text_secondary'))
@@ -143,7 +142,7 @@ export struct SettingsPage {
               .textAlign(TextAlign.Start)
               .margin({ top: $r('app.float.space_sm'), bottom: $r('app.float.space_md') })
 
-            // 模型名称选择（由所选供应商的 ModelPresets.models 提供，当前仅 deepseek-v4-flash）
+            /* 模型列表由所选供应商的 ModelPresets.models 提供 */
             Text("模型名称")
               .fontSize($r('app.float.font_body'))
               .fontColor($r('app.color.text_primary'))
@@ -170,7 +169,6 @@ export struct SettingsPage {
                 this.selectedModel = getModelPreset(this.providerId).models[index];
               })
 
-            // API Key
             Text("API Key")
               .fontSize($r('app.float.font_body'))
               .fontColor($r('app.color.text_primary'))
@@ -188,12 +186,10 @@ export struct SettingsPage {
               .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
               .margin({ bottom: $r('app.float.space_md') })
               .type(InputType.Password)
-              // 密码输入，防偷窥
               .onChange((value: string) => {
                 this.apiKey = value;
               })
 
-            // 保存按钮
             Button("保存")
               .width("100%")
               .height(44)
@@ -223,7 +219,7 @@ export struct SettingsPage {
     })
   }
 
-  // 供应商下拉选项：来自 ModelPresets 预设（未来多供应商自动出现在这里）
+  /* 供应商下拉选项：来自 ModelPresets 预设（未来多供应商自动出现在这里） */
   private buildSelectOptions(): SelectOption[] {
     const options: SelectOption[] = [];
     MODEL_PRESETS.forEach((preset) => {
@@ -232,7 +228,7 @@ export struct SettingsPage {
     return options;
   }
 
-  // 模型下拉选项：来自当前供应商预设的 models 列表（未来多模型自动出现在这里）
+  /* 模型下拉选项：来自当前供应商预设的 models 列表（未来多模型自动出现在这里） */
   private buildModelOptions(): SelectOption[] {
     const options: SelectOption[] = [];
     const models = getModelPreset(this.providerId).models;
@@ -242,41 +238,58 @@ export struct SettingsPage {
     return options;
   }
 
-  // 供应商下拉当前显示的文本（绑定 .value，解决 Select 不显示当前值的问题）
+  /* 供应商下拉当前显示的文本（绑定 .value，解决 Select 不显示当前值的问题） */
   private getProviderName(): string {
     return getModelPreset(this.providerId).providerName;
   }
 
-  // 模型下拉当前显示的文本（绑定 .value；无选择记录时显示默认模型）
+  /* 模型下拉当前显示的文本（绑定 .value；无选择记录时显示默认模型） */
   private getSelectedModelName(): string {
     return this.selectedModel.length > 0
       ? this.selectedModel
       : getModelPreset(this.providerId).defaultModel;
   }
 
-  // 保存按钮逻辑：校验必填项 → 持久化 → 提示并返回
+  /* 保存按钮逻辑：校验必填项 → 持久化 → 提示并返回 */
 
   private async handleSave(): Promise<void> {
-    const config = AppConfig.getInstance();
-
-    // 必填校验：API Key 不能为空
-    if (this.apiKey.trim().length === 0) {
-      showToast($r('app.string.config_incomplete'));
+    /* 防重入：连点保存会导致两次 updateConfig 与两个返回定时器（双 pop 越层返回） */
+    if (this.isSaving) {
       return;
     }
+    this.isSaving = true;
+    try {
+      const config = AppConfig.getInstance();
 
-    // 归一化所选模型：不属于当前供应商时回退默认模型（防御性校验）
-    const models = getModelPreset(this.providerId).models;
-    const model = models.indexOf(this.selectedModel) >= 0 ? this.selectedModel : models[0];
+      /* 必填校验：API Key 不能为空 */
+      if (this.apiKey.trim().length === 0) {
+        showToast($r('app.string.config_incomplete'));
+        return;
+      }
 
-    // 保存（Key 加密入 Asset Store，供应商与模型选择入 Preferences）
-    await config.updateConfig(this.providerId, this.apiKey.trim(), model);
+      /* 归一化所选模型：不属于当前供应商时回退默认模型（防御性校验） */
+      const models = getModelPreset(this.providerId).models;
+      const model = models.indexOf(this.selectedModel) >= 0 ? this.selectedModel : models[0];
 
-    showToast($r('app.string.save_success'));
-    // 延时返回，让 Toast 可见（记录定时器便于离开页面时清理）
-    this.saveTimerId = setTimeout(() => {
-      this.saveTimerId = -1;
-      this.pathStack.pop();
-    }, 500);
+      /* 保存（Key 加密入 Asset Store，供应商与模型选择入 Preferences） */
+      const ok: boolean = await config.updateConfig(this.providerId, this.apiKey.trim(), model);
+      if (!ok) {
+        /* 落盘失败：提示并停留本页，避免"提示成功但重启后配置丢失" */
+        showToast($r('app.string.save_failed'));
+        return;
+      }
+
+      showToast($r('app.string.save_success'));
+      /* 延时返回，让 Toast 可见（先清旧定时器，杜绝双 pop） */
+      if (this.saveTimerId !== -1) {
+        clearTimeout(this.saveTimerId);
+      }
+      this.saveTimerId = setTimeout(() => {
+        this.saveTimerId = -1;
+        this.pathStack.pop();
+      }, 500);
+    } finally {
+      this.isSaving = false;
+    }
   }
 }

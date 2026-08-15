@@ -1,10 +1,6 @@
 /**
  * 对话分类数据模型（状态管理 V2）
- * 对应一个聊天分类
- * 用于：侧边栏分类筛选、分类管理页
- *
- * @ObservedV2 + @Trace：属性级观察。
- * 重命名/改色等操作直接修改 @Trace 属性即可驱动列表项实时刷新（无需 listVersion 强刷）
+ * 用于侧边栏分类筛选与分类管理页；@ObservedV2 + @Trace 使重命名/改色直接驱动列表项实时刷新
  */
 import { generateId } from "../common/Utils";
 import { DEFAULT_FOLDER_COLOR } from "../common/AppConstants";

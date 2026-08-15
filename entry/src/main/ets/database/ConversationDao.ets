@@ -20,12 +20,11 @@ export class ConversationDao {
     return ConversationDao.instance;
   }
 
-  // 共享 RdbStore（init 完成前为 undefined）
+  /* 共享 RdbStore（init 完成前为 undefined） */
   private get store(): relationalStore.RdbStore | undefined {
     return DatabaseHelper.getInstance().getStore();
   }
 
-  // 新增对话
   async insert(conv: Conversation): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -42,12 +41,10 @@ export class ConversationDao {
       await store.insert("conversation", values);
     } catch (e) {
       Logger.error(`ConversationDao.insert failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     }
   }
 
-  // 设置对话置顶状态（失败上抛，由 Repository 捕获）
   async setPinned(conv: Conversation, pinned: boolean): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -63,7 +60,11 @@ export class ConversationDao {
     }
   }
 
-  // 更新对话（标题、分类、更新时间），按 id 更新
+  /**
+   * 更新对话的标题、分类、收藏/置顶状态
+   * updated_at 不在此更新：排序时间戳由 updateTimestampOnly 单独维护，
+   * 避免用内存中陈旧的 updatedAt 覆盖流式期间刚刷新的排序时间
+   */
   async update(conv: Conversation): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -73,20 +74,20 @@ export class ConversationDao {
         category_id: conv.categoryId,
         is_favorite: conv.isFavorite ? 1 : 0,
         is_pinned: conv.isPinned ? 1 : 0,
-        updated_at: conv.updatedAt,
       };
       const predicates = new relationalStore.RdbPredicates("conversation");
       predicates.equalTo("id", conv.id);
       await store.update(values, predicates);
     } catch (e) {
       Logger.error(`ConversationDao.update failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     }
   }
 
-  // 仅更新对话的 updated_at（流式结束后刷新排序时间戳）
-  // 不整体 update：避免用捕获的旧对话对象覆盖流式期间的重命名/收藏等字段
+  /**
+   * 仅更新对话的 updated_at（流式结束后刷新排序时间戳）
+   * 不整体 update：避免用捕获的旧对话对象覆盖流式期间的重命名/收藏等字段
+   */
   async updateTimestampOnly(id: string, updatedAt: number): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -97,12 +98,11 @@ export class ConversationDao {
       await store.update(values, predicates);
     } catch (e) {
       Logger.error(`ConversationDao.updateTimestampOnly failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     }
   }
 
-  // 按 id 批量删除对话（不含消息，消息由 Repository 事务内一并删除）
+  /* 只删对话，不删消息（消息由 Repository 事务内一并删除） */
   async deleteByIds(ids: string[]): Promise<void> {
     const store = this.store;
     if (!store || ids.length === 0) return;
@@ -112,13 +112,12 @@ export class ConversationDao {
       await store.delete(predicates);
     } catch (e) {
       Logger.error(`ConversationDao.deleteByIds failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     }
   }
   
 
-  // 查询全部对话，按最后更新时间倒序（最新在前）
+  /* 全部对话按最后更新时间倒序 */
   async getAll(): Promise<Conversation[]> {
     const store = this.store;
     if (!store) return [];
@@ -126,28 +125,27 @@ export class ConversationDao {
     let resultSet: relationalStore.ResultSet | undefined = undefined;
     try {
       const predicates = new relationalStore.RdbPredicates("conversation");
-      predicates.orderByDesc("updated_at"); // 最近更新的排最前
+      predicates.orderByDesc("updated_at");
       resultSet = await store.query(predicates);
       while (resultSet.goToNextRow()) {
         list.push(this.conversationFromResultSet(resultSet));
       }
     } catch (e) {
       Logger.error(`ConversationDao.getAll failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     } finally {
       if (resultSet) {
         try {
           resultSet.close();
         } catch (e) {
-          // 关闭失败可忽略
+          /* 关闭失败可忽略 */
         }
       }
     }
     return list;
   }
 
-  // 按 id 查询单个对话；不存在时返回 undefined
+  /* 单个对话；不存在时返回 undefined */
   async getById(id: string): Promise<Conversation | undefined> {
     const store = this.store;
     if (!store) return undefined;
@@ -161,14 +159,13 @@ export class ConversationDao {
       }
     } catch (e) {
       Logger.error(`ConversationDao.getById failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     } finally {
       if (resultSet) {
         try {
           resultSet.close();
         } catch (e) {
-          // 关闭失败可忽略
+          /* 关闭失败可忽略 */
         }
       }
     }
@@ -187,30 +184,29 @@ export class ConversationDao {
     try {
       const predicates = new relationalStore.RdbPredicates("conversation");
       predicates.equalTo("category_id", categoryId);
-      predicates.equalTo("is_favorite", 1); // 只返回已收藏对话
-      predicates.orderByDesc("is_pinned"); // 置顶优先
-      predicates.orderByDesc("updated_at"); // 排序序号升序，最近更新的排最前
+      predicates.equalTo("is_favorite", 1);
+      predicates.orderByDesc("is_pinned");
+      predicates.orderByDesc("updated_at");
       resultSet = await store.query(predicates);
       while (resultSet.goToNextRow()) {
         list.push(this.conversationFromResultSet(resultSet));
       }
     } catch (e) {
       Logger.error(`ConversationDao.getByCategory failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     } finally {
       if (resultSet) {
         try {
           resultSet.close();
         } catch (e) {
-          // 关闭失败可忽略
+          /* 关闭失败可忽略 */
         }
       }
     }
     return list;
   }
 
-  // 查询全部已收藏对话，按更新时间倒序
+  /* 全部已收藏对话，按更新时间倒序 */
   async getFavorites(): Promise<Conversation[]> {
     const store = this.store;
     if (!store) return [];
@@ -219,22 +215,21 @@ export class ConversationDao {
     try {
       const predicates = new relationalStore.RdbPredicates("conversation");
       predicates.equalTo("is_favorite", 1);
-      predicates.orderByDesc("is_pinned"); // 置顶优先
-      predicates.orderByDesc("updated_at"); // 排序序号升序，最近更新的排最前
+      predicates.orderByDesc("is_pinned");
+      predicates.orderByDesc("updated_at");
       resultSet = await store.query(predicates);
       while (resultSet.goToNextRow()) {
         list.push(this.conversationFromResultSet(resultSet));
       }
     } catch (e) {
       Logger.error(`ConversationDao.getFavorites failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     } finally {
       if (resultSet) {
         try {
           resultSet.close();
         } catch (e) {
-          // 关闭失败可忽略
+          /* 关闭失败可忽略 */
         }
       }
     }
@@ -252,17 +247,23 @@ export class ConversationDao {
       const values: relationalStore.ValuesBucket = {
         category_id: folderId,
       };
+      /**
+       * 修复：移入文件夹的对话必须同步置为已收藏——文件夹查询强制 is_favorite=1，
+       * 否则"已挂分类但未收藏"的对话在目标文件夹中不可见
+       */
+      if (folderId.length > 0) {
+        values.is_favorite = 1;
+      }
       const predicates = new relationalStore.RdbPredicates("conversation");
       predicates.in("id", ids);
       await store.update(values, predicates);
     } catch (e) {
       Logger.error(`ConversationDao.move failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     }
   }
 
-  // 设置对话收藏状态；取消收藏时自动清空 categoryId（未收藏不参与文件夹分类）
+  /* 取消收藏时自动清空 categoryId（未收藏不参与文件夹分类） */
   async setFavorite(conv: Conversation, isFavorite: boolean): Promise<void> {
     const store = this.store;
     if (!store) return;
@@ -277,7 +278,6 @@ export class ConversationDao {
       conv.isFavorite = isFavorite; // 同步内存对象
     } catch (e) {
       Logger.error(`ConversationDao.setFavorite failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     }
   }
@@ -296,12 +296,11 @@ export class ConversationDao {
       await store.update(values, predicates);
     } catch (e) {
       Logger.error(`ConversationDao.clearCategory failed: ${JSON.stringify(e)}`);
-      // ArkTS 限制只能抛 Error 类型，包装后上抛，由 Repository 捕获（事务回滚）
       throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
     }
   }
 
-  // 游标行 → Conversation 对象
+  /* 游标行 → Conversation 对象 */
   private conversationFromResultSet(rs: relationalStore.ResultSet): Conversation {
     const conv = new Conversation();
     try {
@@ -313,7 +312,7 @@ export class ConversationDao {
       conv.createdAt = rs.getLong(rs.getColumnIndex("created_at"));
       conv.updatedAt = rs.getLong(rs.getColumnIndex("updated_at"));
     } catch (e) {
-      // 单行读取异常：保留默认值
+      /* 单行读取异常：保留默认值 */
     }
     return conv;
   }

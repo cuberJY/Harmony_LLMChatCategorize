@@ -9,7 +9,7 @@ import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { SymbolGlyphModifier, window } from '@kit.ArkUI';
-import { showDeleteConfirm, showToast } from "../../common/Utils";
+import { showDeleteConfirm, showToast, stripMarkdown } from "../../common/Utils";
 import { MessageErrorCard } from "./MessageErrorCard";
 import { WebSheetPanel } from "./WebSheetPanel";
 
@@ -42,7 +42,7 @@ export struct MessageBubble {
    */
   @Param message: Message = new Message("", "user", "");
 
-  // UI 本地状态（@Local，仅组件内部维护）
+  /* UI 本地状态（@Local，仅组件内部维护） */
   @Local isReasoningExpanded: boolean = true; // 是否展开思考/搜索过程块
   @Local isDarkMode: boolean = false; // 跟随系统深浅色（驱动代码块/思维导图主题切换）
   /**
@@ -53,10 +53,12 @@ export struct MessageBubble {
   @Local sheetKind: "none" | "text" | "web" = "none"; // 当前面板类型：「选择文本」/「xx个网页」
   @Local reasoningBlocks: ReasoningBlock[] = []; // 思考过程块列表（流式增量原地复用更新，见 rebuildReasoningBlocks）
 
-  // 监听折叠请求（ViewModel 在流式结束时按"用户是否在底部"决策后自增 foldVersion 信号）：
-  // 收到信号后延迟 500ms 折叠，让用户短暂瞥见停止瞬间的最后内容；组件销毁时需取消定时器。
-  // 不直接监听 message.isStreaming：折叠时机交由 ViewModel 统一决策
-  //（不在底部时挂起、滚动完全停止且回到底部后放行），避免思考块在用户阅读位置以外收缩导致页面跳动
+  /**
+   * 监听折叠请求：ViewModel 在流式结束时按"用户是否在底部"决策后自增 foldVersion 版本号，
+   * 收到信号延迟 500ms 折叠，让用户短暂瞥见停止瞬间的最后内容；组件销毁时取消定时器。
+   * 不直接监听 message.isStreaming——折叠时机交由 ViewModel 统一决策（不在底部时挂起、滚动停止且回到底部后放行），
+   * 避免思考块在用户阅读位置以外收缩导致页面跳动
+   */
   @Monitor('message.foldVersion')
   onFoldRequested(): void {
     if (this.message.reasoning.length === 0) {
@@ -70,23 +72,27 @@ export struct MessageBubble {
       if (!this.isReasoningExpanded) {
         return; // 已被用户手动折叠，无需再动
       }
-      // 用 200ms EaseOut 动画平滑收起：高度收缩由过渡动画吸收，
-      // 避免钉底态下视口内容突兀位移（"弹一下"），与页面正文跟随动画时长风格一致
+      /**
+       * 用 200ms EaseOut 动画平滑收起：高度收缩由过渡动画吸收，
+       * 避免钉底态下视口内容突兀位移（"弹一下"），与页面正文跟随动画时长风格一致
+       */
       this.getUIContext().animateTo({ duration: 200, curve: 'easeOut' }, () => {
         this.isReasoningExpanded = false;
       });
     }, 500);
   }
 
-  // 监听思考内容变化：增量重解析并原地复用更新块列表。
-  // ForEach 的 key 固定为 index（append-only 下稳定），块文本经 @Trace 属性级刷新，
-  // 避免 "key 不变 → 组件不重建 → 流式内容停留旧快照"（表现为思考逐行渲染、切页重建才恢复块渲染）
+  /**
+   * 监听思考内容变化：增量重解析并原地复用更新块列表。
+   * ForEach 的 key 固定为 index（append-only 下稳定），块文本经 @Trace 属性级刷新，
+   * 避免 "key 不变 → 组件不重建 → 流式内容停留旧快照"（表现为思考逐行渲染、切页重建才恢复块渲染）
+   */
   @Monitor('message.reasoning')
   onReasoningChanged(): void {
     this.rebuildReasoningBlocks();
   }
 
-  // 对话分支：变体信息与操作回调（父组件注入）
+  /* 对话分支：变体信息与操作回调（父组件注入） */
   /**
    * 注意：不通过 @Param 传入"流式生成中"标志——@Param 在渲染时冻结，流式结束后不会刷新，
    * 会导致操作栏永久隐藏（必须切页面重建列表才恢复）。改用 message.isStreaming（@Trace 实时驱动）。
@@ -106,26 +112,30 @@ export struct MessageBubble {
   @Event onDelete: (msg: Message) => void = () => {}; // 「删除」：删除单条消息（含后续分支）
   @Event onResume: (msg: Message) => void = () => {}; // 「继续生成」：暂停态下从未完成处续写
 
-  // 非响应式成员（普通成员即可，无需观察）
+  /* 非响应式成员（普通成员即可，无需观察） */
   private mdController: MarkdownController = new MarkdownController(); // lv-markdown-in 样式/拦截控制器
   private envCallbackId: number = -1; // 系统环境监听回调 ID（aboutToDisappear 注销用）
   private foldTimerId: number = -1; // 停止输出后自动折叠思考的定时器 ID（组件销毁时取消）
+  /* 增量解析状态（流式 O(n) 优化）：已解析过的 reasoning 快照与未闭合段落块引用 */
+  private parsedReasoning: string = ""; // 已解析快照（非追加变化时触发全量重建）
+  private lastParagraph: ReasoningBlock | null = null; // 未闭合段落块（增量续写目标）
+  private paragraphOpen: boolean = false; // 上一段增量是否以"无换行"的未闭合片段结尾
 
   aboutToAppear(): void {
-    // 初始化过程块：当前消息的 reasoning（历史完整或流式已有）先解析为块列表；
-    // 后续流式增量由 @Monitor('message.reasoning') 驱动原地更新
+    /* 初始化过程块：当前消息的 reasoning（历史完整或流式已有）先解析为块列表；
+       后续流式增量由 @Monitor('message.reasoning') 驱动原地更新 */
     this.rebuildReasoningBlocks();
-    // 进入对话记录时默认折叠思考过程：非流式的历史消息（isStreaming=false）初始即为折叠态；
-    // 流式中的新消息（创建时已置 isStreaming=true）保持展开以实时展示思考内容
+    /* 进入对话记录时默认折叠思考过程：非流式的历史消息（isStreaming=false）初始即为折叠态；
+       流式中的新消息（创建时已置 isStreaming=true）保持展开以实时展示思考内容 */
     if (!this.message.isStreaming) {
       this.isReasoningExpanded = false;
     }
-    // 依据当前系统颜色模式配置 Markdown 颜色与代码块/思维导图主题
+    /* 依据当前系统颜色模式配置 Markdown 颜色与代码块/思维导图主题 */
     this.applyMarkdownTheme();
     this.mdController
-      // 1. 开启长按选中文本
+      /* 1. 开启长按选中文本 */
       .setTextSelectionEnable(true)
-      // 2. 选中后点击"复制"回调——自行写入系统剪贴板
+      /* 2. 选中后点击"复制"回调——自行写入系统剪贴板 */
       .setTextSelectionCopyListener((text: string) => {
         const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
         pasteboard.getSystemPasteboard().setData(data)
@@ -136,7 +146,7 @@ export struct MessageBubble {
             this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copy_failed') });
           });
       })
-      // 3. 可选：代码块右上角"复制"按钮
+      /* 3. 可选：代码块右上角"复制"按钮 */
       .setCodeCopyListener((text: string) => {
         const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
         pasteboard.getSystemPasteboard().setData(data)
@@ -144,13 +154,12 @@ export struct MessageBubble {
             this.getUIContext().getPromptAction().showToast({ message: $r('app.string.code_copied') });
           });
       });
-    // 注册系统环境监听（深浅色切换时动态更新代码块/思维导图主题）
     this.registerEnvironmentListener();
   }
 
   aboutToDisappear(): void {
     this.unregisterEnvironmentListener();
-    // 取消自动折叠定时器（组件销毁后回调不再有意义）
+    /* 取消自动折叠定时器（组件销毁后回调不再有意义） */
     if (this.foldTimerId !== -1) {
       clearTimeout(this.foldTimerId);
       this.foldTimerId = -1;
@@ -174,7 +183,7 @@ export struct MessageBubble {
   }
 
   private applyMarkdownColors(isDark: boolean): void {
-    // 链式部分（返回 this 的 setter）
+    /* 链式部分（返回 this 的 setter） */
     const controller = this.mdController
       .setLazyRender(true) // 屏幕外块先用轻量占位渲染
       .setLazyPreloadBlockCount(2) // 仅预渲染可视区附近少量块
@@ -198,7 +207,7 @@ export struct MessageBubble {
       .setUlPointColor($r('app.color.text_secondary'))
       .setFootnoteTextColor($r('app.color.text_secondary'))
       .setLineColor($r('app.color.divider'))
-      // 字号统一（float.json 资源管理）
+      /* 字号统一（float.json 资源管理） */
       .setTextSize($r('app.float.font_body')) // 正文 = font_body，与用户消息一致
       .setTitleSize([ // 标题 1-6 级字号
         $r('app.float.font_h1'),
@@ -209,18 +218,18 @@ export struct MessageBubble {
         $r('app.float.font_h6'),
       ])
       .setLatexMathTextSize(16) // 公式字号
-      // LaTeX 公式颜色：库只接受十六进制 number，手动随系统深浅色切换
+      /* LaTeX 公式颜色：库只接受十六进制 number，手动随系统深浅色切换 */
       .setLatexMathTextColor(isDark ? 0xFFE5E5E7 : 0xFF1A1A1A)
       .setCodeBlockTheme(isDark ? 'dark' : 'light')
       .setCodeBlockIdxState(true) // 代码块是否显示行号索引（可减少渲染节点，提升长代码块滚动性能）
       .setCodeBlockAutoCollapseEnable(true) // 超过阈值(默认10行)的代码块自动折叠，长代码块渲染压力大时受益
       .setMermaidTheme(isDark ? 'dark' : 'light');
-    // 以下两个 setter 返回 void，不能链式调用，需单独设置
+    /* 以下两个 setter 返回 void，不能链式调用，需单独设置 */
     controller.setTableNormalTextColor($r('app.color.text_ai'));
     controller.setTableInterleaveTextColor($r('app.color.text_secondary'));
   }
 
-  // 监听系统配置变化（深色/浅色切换），仅需动态更新字符串/数值类型的主题
+  /* 监听系统配置变化（深色/浅色切换），仅需动态更新字符串/数值类型的主题 */
   private registerEnvironmentListener(): void {
     const host = this.getUIContext().getHostContext();
     if (host === undefined) {
@@ -236,7 +245,7 @@ export struct MessageBubble {
         }
       },
       onMemoryLevel: (level): void => {
-        // 内存紧张回调，本组件无需处理
+        /* 内存紧张回调，本组件无需处理 */
       },
     };
     this.envCallbackId = appCtx.on('environment', callback);
@@ -253,42 +262,50 @@ export struct MessageBubble {
   build() {
     Row() {
       Column() {
-        // 仅AI消息且有思考内容时显示
+        /* 仅 AI 消息且有思考内容时显示 */
         if (!this.message.isUser() && this.message.reasoning.length > 0) {
           this.reasoningBlock();
         }
-        // 正文气泡
+        /* 正文气泡 */
         if (this.message.isUser()) {
           this.bubbleContent($r('app.color.text_user'), $r('app.color.bubble_bg_user'));
         } else {
           this.bubbleContent($r('app.color.text_ai'), $r('app.color.bubble_bg_ai'));
         }
-        // 生成终止错误卡片（AI 消息且有结构化错误时显示；正文保持纯净，错误信息独立呈现）
+        /* 生成终止错误卡片（AI 消息且有结构化错误时显示；正文保持纯净，错误信息独立呈现） */
         if (!this.message.isUser() && this.message.error !== undefined) {
           MessageErrorCard({ error: this.message.error });
         }
-        // 底部操作栏（复制/编辑/换个回答/生成新回复/切换分支）
-        // 流式生成中不显示操作栏（isStreaming 为 @Trace，流式结束自动恢复显示）
+        /**
+         * 底部操作栏（复制/编辑/换个回答/生成新回复/切换分支）。
+         * 流式生成中不显示（isStreaming 为 @Trace，流式结束自动恢复显示）
+         */
         if (!this.message.isStreaming) {
           this.actionBar();
         }
       }
       .alignItems(this.message.isUser() ? HorizontalAlign.End : HorizontalAlign.Start)
-      // 关键：Column 显式撑满整行（不能 wrap-content 自适应），
-      // 否则子元素 actionBar 的 width("100%") 会按外层整行约束解析，把气泡与操作栏撑开错位
+      /**
+       * 关键：Column 显式撑满整行（不能 wrap-content 自适应），
+       * 否则子元素 actionBar 的 width("100%") 会按外层整行约束解析，把气泡与操作栏撑开错位
+       */
       .width("100%")
     }
     .width("100%")
-    // 气泡与操作栏已由内部 alignItems 统一对齐（用户贴右 / AI 贴左），
-    // 整行不再需要 justifyContent
+    /**
+     * 气泡与操作栏已由内部 alignItems 统一对齐（用户贴右 / AI 贴左），
+     * 整行不再需要 justifyContent
+     */
     .padding({
       left: $r('app.float.space_md'),
       right: $r('app.float.space_md'),
       top: $r('app.float.space_sm'),
       bottom: $r('app.float.space_sm'),
     })
-    // 半模态面板（「选择文本」/「xx个网页」共用）：从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏（顶部与标题栏下缘对齐）
-    // 双向绑定：拖拽/点遮罩关闭时框架自动把 isSheetShow 置回 false；内容由 sheetKind 分支（bindSheet 不可多次链式调用）
+    /**
+     * 半模态面板（「选择文本」/「xx个网页」共用）：从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏（顶部与标题栏下缘对齐）。
+     * 双向绑定：拖拽/点遮罩关闭时框架自动把 isSheetShow 置回 false；内容由 sheetKind 分支（bindSheet 不可多次链式调用）
+     */
     .bindSheet($$this.isSheetShow, this.sheetContent(), {
       height: this.textSheetHeight(),
       dragBar: false,
@@ -297,7 +314,7 @@ export struct MessageBubble {
     });
   }
 
-  // 半模态面板内容：按当前面板类型分支渲染（sheetKind 在打开前设置）
+  /* 半模态面板内容：按当前面板类型分支渲染（sheetKind 在打开前设置） */
   @Builder
   sheetContent() {
     if (this.sheetKind === "text") {
@@ -313,7 +330,7 @@ export struct MessageBubble {
   @Builder
   reasoningBlock() {
     Column() {
-      // 标题行：点击可折叠/展开（阶段优先：搜索 > 思考 > 已思考）
+      /* 标题行：点击可折叠/展开（阶段优先：搜索 > 思考 > 已思考） */
       Row() {
         Text(
           this.message.isSearching
@@ -326,7 +343,7 @@ export struct MessageBubble {
           .fontColor($r('app.color.text_secondary'))
           .margin({ left: $r('app.float.space_xxs') })
           .layoutWeight(1)
-        // 折叠/展开箭头
+        /* 折叠/展开箭头 */
         SymbolGlyph(
           this.isReasoningExpanded ? $r("sys.symbol.chevron_down") : $r("sys.symbol.chevron_right"),
         )
@@ -372,14 +389,30 @@ export struct MessageBubble {
   }
 
   /**
-   * 解析思考过程为"块"序列（纯函数，不修改状态，仅返回当前快照）：
-   *  - 连续非空思考行聚合成一个段落块（空行 / 搜索 / 浏览活动行作为段落分隔）
-   *  - 末尾未闭合的思考段落也作为最后一个块输出，流式中正在增长的文本可实时展示
+   * 解析思考过程为"块"序列（流式增量版）：
+   *  - reasoning 纯追加时只解析增量后缀并原地复用块（O(增量)，替代原每 30ms 全量 O(n)）
+   *  - 出现清空/替换/回退（重新生成、分支切换等）时回退全量重建
    */
-  private parseReasoningBlocks(): ReasoningBlock[] {
-    const lines = this.message.reasoning.split('\n');
+  private rebuildReasoningBlocks(): void {
+    const reasoning = this.message.reasoning;
+    if (this.parsedReasoning.length === 0 || !reasoning.startsWith(this.parsedReasoning)) {
+      /* 非追加（清空/替换/回退）→ 全量重建 */
+      this.fullRebuildReasoningBlocks(reasoning);
+      return;
+    }
+    if (reasoning.length === this.parsedReasoning.length) {
+      return; // 无新增
+    }
+    const suffix = reasoning.slice(this.parsedReasoning.length);
+    this.parsedReasoning = reasoning;
+    this.appendReasoningSuffix(suffix);
+  }
+
+  /* 全量重建（首次 / 回归场景） */
+  private fullRebuildReasoningBlocks(reasoning: string): void {
+    const lines = reasoning.split('\n');
     const blocks: ReasoningBlock[] = [];
-    let paragraph: string[] = []; // 当前思考段落的行缓存
+    let paragraph: string[] = [];
     const flushParagraph = (): void => {
       if (paragraph.length > 0) {
         blocks.push(new ReasoningBlock("paragraph", paragraph.join('\n')));
@@ -388,61 +421,86 @@ export struct MessageBubble {
     };
     for (const line of lines) {
       if (line.startsWith("【搜索】") || line.startsWith("【浏览】")) {
-        flushParagraph(); // 活动行先收尾当前段落，形成"思考一段 → 搜索 → 再思考一段"的自然分段
+        flushParagraph();
         blocks.push(new ReasoningBlock(
           line.startsWith("【搜索】") ? "search" : "browse",
           line.substring(4),
         ));
       } else if (line.trim().length === 0) {
-        flushParagraph(); // 空行 = 段落分隔符
+        flushParagraph();
       } else {
-        paragraph.push(line); // 普通思考行归入当前段落
+        paragraph.push(line);
       }
     }
-    flushParagraph(); // 收尾：末尾未闭合段落也输出（流式中随增量持续增长）
-    return blocks;
+    flushParagraph();
+    this.reasoningBlocks = blocks;
+    this.parsedReasoning = reasoning;
+    /**
+     * 修复：全量重建后若文本未以换行结尾，说明末行仍是未闭合片段，
+     * 后续增量需直接续接（否则段落会被错误切成两个块）
+     */
+    this.paragraphOpen = reasoning.length > 0 && !reasoning.endsWith('\n');
+    this.lastParagraph = blocks.length > 0 && blocks[blocks.length - 1].kind === "paragraph"
+      ? blocks[blocks.length - 1]
+      : null;
   }
 
-  /**
-   * 重建块列表（复用策略）：
-   *  - reasoning 是纯追加（append-only），块序列只增不减，index 恒定
-   *  - 按 index 原地复用旧块对象、更新其 @Trace 字段 → Text 属性级刷新，组件不重建（无抖动）
-   *  - 块数量增长时 push 追加（触发 ForEach 新增），收缩时 pop 移除（正常追加场景不会发生，防御处理）
-   */
-  private rebuildReasoningBlocks(): void {
-    const parsed = this.parseReasoningBlocks();
-    let i = 0;
-    for (; i < parsed.length; i++) {
-      if (i < this.reasoningBlocks.length) {
-        // 复用旧块实例：更新 @Trace 字段，驱动已渲染组件实时刷新
-        const blk = this.reasoningBlocks[i];
-        blk.kind = parsed[i].kind;
-        blk.text = parsed[i].text;
+  /* 追加增量后缀（suffix = reasoning 自上次解析后的新增部分） */
+  private appendReasoningSuffix(suffix: string): void {
+    let lines = suffix.split('\n');
+    /* 上一段以未闭合片段结尾 → 首段是该片段的直接延续（无换行） */
+    if (this.paragraphOpen && this.lastParagraph !== null) {
+      this.lastParagraph.text += lines[0];
+      lines = lines.slice(1);
+      if (lines.length === 0) {
+        return; // 纯续写，段落保持打开
+      }
+      this.paragraphOpen = false;
+    }
+    /* 完整行（每行都以换行结尾） */
+    for (let i = 0; i < lines.length - 1; i++) {
+      this.appendReasoningLine(lines[i]);
+    }
+    /* 尾部片段：非空说明行未闭合，保持段落打开等待续写；空串说明以换行结尾 */
+    const tail = lines[lines.length - 1];
+    if (tail.length > 0) {
+      this.appendReasoningLine(tail);
+      this.paragraphOpen = true;
+    } else {
+      this.paragraphOpen = false;
+    }
+  }
+
+  /* 处理一个完整行（或以无换行结尾的尾部片段） */
+  private appendReasoningLine(line: string): void {
+    if (line.startsWith("【搜索】") || line.startsWith("【浏览】")) {
+      this.closeLastParagraph();
+      this.reasoningBlocks.push(new ReasoningBlock(
+        line.startsWith("【搜索】") ? "search" : "browse",
+        line.substring(4),
+      ));
+    } else if (line.trim().length === 0) {
+      this.closeLastParagraph(); // 空行 = 段落分隔
+    } else {
+      if (this.lastParagraph === null) {
+        this.lastParagraph = new ReasoningBlock("paragraph", line);
+        this.reasoningBlocks.push(this.lastParagraph);
       } else {
-        this.reasoningBlocks.push(parsed[i]);
+        this.lastParagraph.text += "\n" + line;
       }
     }
-    while (this.reasoningBlocks.length > i) {
-      this.reasoningBlocks.pop();
-    }
   }
 
-  /**
-   * 过程块渲染（块结构说明见 ReasoningBlock 接口注释）
-   *
-   * 前缀约定（行首 4 字符，ChatViewModel 写入）：
-   *   【搜索】→ 搜索活动行，如"【搜索】正在搜索：北京 今天 天气"
-   *   【浏览】→ 浏览活动行，如"【浏览】正在浏览 weather.com"
-   *   其余行 → 思考文本（模型输出的原始思维链）
-   *
-   * 解析规则：前缀由 parseReasoningBlocks 识别为块类型，文案统一 substring(4) 去掉前缀，
-   * 因此界面不显示方括号本身，只显示"图标 + 文案"。两个前缀均为 4 字符（中文括号 2 + 汉字 2），
-   * 统一 substring(4) 有效；模型思维链内容几乎不可能以【搜索】/【浏览】起行，标记冲突风险可忽略。
-   */
+  /* 关闭未闭合段落（搜索/浏览活动行、空行到来时调用） */
+  private closeLastParagraph(): void {
+    this.lastParagraph = null;
+  }
+
+  /* 过程块渲染：行首 4 字符前缀（【搜索】/【浏览】）由 rebuildReasoningBlocks 识别为块类型，文案统一 substring(4) 去掉前缀，界面只显示"图标 + 文案" */
   @Builder
   processBlock(block: ReasoningBlock) {
     if (block.kind === "search") {
-      // 搜索活动行：图标 + 文案
+      /* 搜索活动行 */
       Row() {
         SymbolGlyph($r("sys.symbol.AI_search"))
           .fontSize($r('app.float.font_icon_sm'))
@@ -464,7 +522,7 @@ export struct MessageBubble {
         top: $r('app.float.space_sm')
       })
     } else if (block.kind === "browse") {
-      // 浏览活动行：链接图标 + 文案
+      /* 浏览活动行 */
       Row() {
         SymbolGlyph($r("sys.symbol.link"))
           .fontSize($r('app.float.font_icon_sm'))
@@ -486,7 +544,7 @@ export struct MessageBubble {
         top: $r('app.float.space_sm')
       })
     } else {
-      // 连续思考段落：整段一个图标 + 多行 Text，段内行距收紧，观感更接近"一整段连续思考"
+      /* 连续思考段落：整段一个图标，段内行距收紧 */
       Row() {
         SymbolGlyph($r("sys.symbol.AI_deep_thinking"))
           .fontSize($r('app.float.font_icon_sm'))
@@ -513,7 +571,7 @@ export struct MessageBubble {
 
   @Builder
   bubbleContent(fontColor: ResourceColor, bgColor: ResourceColor) {
-    // 用户消息：保持纯文本渲染（气泡宽度自适应）
+    /* 用户消息：保持纯文本渲染（气泡宽度自适应） */
     if (this.message.isUser()) {
       Text(this.message.content)
         .fontSize($r('app.float.font_body'))
@@ -569,7 +627,7 @@ export struct MessageBubble {
       } else if (this.message.isThinking && this.message.reasoning.length === 0) {
         this.statusHint("思考中…");
       }
-      // 若 reasoning 非空（有推理内容），推理块标题本身会显示"思考中…"，这里留空避免重复
+      /* 若 reasoning 非空（有推理内容），推理块标题本身会显示"思考中…"，这里留空避免重复 */
     }
   }
 
@@ -588,18 +646,13 @@ export struct MessageBubble {
       .backgroundColor($r('app.color.bubble_bg_ai'));
   }
 
-  /**
-   * 「选择文本」半模态面板内容
-   *  - 顶部标题行：上方居中「选择文本」，右上角叉号关闭
-   *  - 下方正文：显示渲染前的原始文本（Markdown 源码），可长按选择/复制
-   *  - 面板整体高度由 textSheetHeight() 控制，顶部与页面标题栏下缘对齐
-   */
+  /* 「选择文本」面板：居中标题 + 右上角关闭，正文为 Markdown 源码可长按复制；高度由 textSheetHeight() 控制 */
   @Builder
   textSheet() {
     Column() {
-      // 标题行：左右等宽占位保证标题居中
+      /* 标题行：左右等宽占位保证标题居中 */
       Row() {
-        // 左侧占位（与右侧关闭按钮等宽，保证标题视觉居中）
+        /* 左侧占位（与右侧关闭按钮等宽，保证标题视觉居中） */
         Row().width($r('app.float.space_xxl'))
         Text($r('app.string.select_text'))
           .fontSize($r('app.float.font_title'))
@@ -607,7 +660,7 @@ export struct MessageBubble {
           .fontColor($r('app.color.text_primary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
-        // 右上角关闭按钮（叉）
+        /* 右上角关闭按钮（叉） */
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
             .fontSize($r('app.float.font_icon_lg'))
@@ -626,13 +679,13 @@ export struct MessageBubble {
         left: $r('app.float.space_xl'),
         right: $r('app.float.space_xl'),
       })
-      // 标题行底部分割线
+      /* 标题行底部分割线 */
       .border({
         width: { bottom: 1 },
         color: { bottom: $r('app.color.divider') },
       })
 
-      // 渲染前的原始文本（Markdown 源码），copyOption 支持长按选择与复制
+      /* 渲染前的原始文本（Markdown 源码），copyOption 支持长按选择与复制 */
       Scroll() {
         Text(this.message.content)
           .fontSize($r('app.float.font_body'))
@@ -667,13 +720,13 @@ export struct MessageBubble {
       if (host === undefined || host.windowStage === undefined) {
         return 500; // 兜底高度
       }
-      // 标题栏高度（float 资源带 'vp' 单位，getNumber 返回 px，需转回 vp）
+      /* 标题栏高度（float 资源带 'vp' 单位，getNumber 返回 px，需转回 vp） */
       const titleBarHeightPx = host.resourceManager.getNumber($r('app.float.title_bar_height').id);
       const titleBarHeight = this.getUIContext().px2vp(titleBarHeightPx);
       const win = host.windowStage.getMainWindowSync();
-      // 窗口总高度（px）
+      /* 窗口总高度（px） */
       const windowHeightPx = win.getWindowProperties().windowRect.height;
-      // 状态栏（顶部安全区）高度（px），非沉浸式窗口时为 0
+      /* 状态栏（顶部安全区）高度（px），非沉浸式窗口时为 0 */
       const safeTopPx = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect.height;
       const windowHeight = this.getUIContext().px2vp(windowHeightPx);
       const safeTop = this.getUIContext().px2vp(safeTopPx);
@@ -683,28 +736,22 @@ export struct MessageBubble {
     }
   }
 
-  // 底部操作栏（对话分支交互入口）
+  /* 底部操作栏（对话分支交互入口） */
 
-  /**
-   * 操作栏布局：
-   *  - 用户消息：右下角 [复制] [编辑] [切换分支]（从左到右）
-   *  - AI 消息：
-   *     第一行（仅暂停态显示）右上角 [继续生成]
-   *     第二行 左下角 [切换分支] [复制]；右下角 [生成新回复] [换个回答]
-   */
+  /* 操作栏布局：用户消息右下角 [复制][编辑][切换分支]；AI 消息第一行（暂停态）右上角 [继续生成]，第二行左 [切换分支][复制]、右 [生成新回复][换个回答] */
   @Builder
   actionBar() {
     Column() {
-      // 第一行（AI 消息）：左侧「xx个网页」按钮（有浏览记录即显示，与是否暂停对话无关）+ 右上角「继续生成」（仅暂停态）
+      /* 第一行（AI 消息）：左侧「xx个网页」按钮（有浏览记录即显示，与是否暂停对话无关）+ 右上角「继续生成」（仅暂停态） */
       if (!this.message.isUser() && (this.message.isPaused || this.message.searchedWebs.length > 0)) {
         Row() {
-          // 左「xx个网页」按钮（仅当有浏览记录时显示）
+          /* 左「xx个网页」按钮（仅当有浏览记录时显示） */
           if (this.message.searchedWebs.length > 0) {
             this.webButton();
           }
           Row()
             .layoutWeight(1) // 占位，把「继续生成」推到最右
-          // 右「继续生成」（仅暂停态显示）
+          /* 右「继续生成」（仅暂停态显示） */
           if (this.message.isPaused) {
             this.resumeButton();
           }
@@ -719,15 +766,15 @@ export struct MessageBubble {
         })
       }
 
-      // 第二行：常规操作按钮（用户消息靠右一组 / AI 消息左组+右组）
+      /* 第二行：常规操作按钮（用户消息靠右一组 / AI 消息左组+右组） */
       Row() {
         if (this.message.isUser()) {
-          // 用户消息：一组按钮靠右
+          /* 用户消息：一组按钮靠右 */
           Row() {
             this.iconButton($r("sys.symbol.trash"), () => this.confirmDelete());
             this.iconButton($r("sys.symbol.square_and_square"), () => this.copyMessage());
             this.iconButton($r("sys.symbol.square_and_pencil"), () => this.onEdit(this.message));
-            // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
+            /* 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏） */
             if (this.variantTotal > 1) {
               this.variantSwitcher();
             }
@@ -736,20 +783,20 @@ export struct MessageBubble {
           .margin({ right: $r('app.float.space_xs') })
           .justifyContent(FlexAlign.End)
         } else {
-          // AI 消息：
+          /* AI 消息： */
           Row() {
-            // 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏）
+            /* 仅当存在多个变体时才显示切换分支控件（只有一个分支时隐藏） */
             if (this.variantTotal > 1) {
               this.variantSwitcher();
             }
-            // 「更多」按钮（dot_grid_2x2，位于复制键右侧）：点击弹出菜单
+            /* 「更多」按钮（位于复制键右侧） */
             this.moreButton();
           }
           .layoutWeight(1)
           .justifyContent(FlexAlign.Start)
 
           Row() {
-            // 「换个回答」：仅激活链最后一条显示，避免在历史消息上重新生成导致上下文混乱
+            /* 「换个回答」 */
             if (this.isLastMessage) {
               this.iconButton($r("sys.symbol.arrow_clockwise"),
                 () => {
@@ -771,7 +818,7 @@ export struct MessageBubble {
     .width("100%")
   }
 
-  // 「更多」按钮（dot_grid_2x2）：样式与 iconButton 保持一致，点击展开纵向菜单
+  /* 「更多」按钮（dot_grid_2x2）：样式与 iconButton 一致 */
   @Builder
   moreButton() {
     Row() {
@@ -793,11 +840,11 @@ export struct MessageBubble {
       bottom: $r('app.float.space_xs')
     })
     .backgroundColor($r('app.color.bubble_bg_ai'))
-    // 点击展开菜单：复制 / 选择文本 / 生成新回复 / 换个回答 / 删除（默认出现在按钮下方，空间不足自动调整）
+    /* 点击展开菜单：复制 / 选择文本 / 生成新回复 / 换个回答 / 删除（默认出现在按钮下方，空间不足自动调整） */
     .bindMenu(this.moreMenu())
   }
 
-  // 「更多」菜单：从上到下 = 复制、选择文本、生成新回复、换个回答、删除
+  /* 「更多」菜单：复制、选择文本、生成新回复、换个回答（仅最后一条）、删除 */
   @Builder
   moreMenu() {
     Menu() {
@@ -819,7 +866,7 @@ export struct MessageBubble {
         content: $r('app.string.select_text'),
       })
         .onChange(() => {
-          // 打开「选择文本」半模态面板（显示渲染前的原文）
+          /* 打开「选择文本」半模态面板（显示渲染前的原文） */
           this.sheetKind = "text";
           this.isSheetShow = true;
         })
@@ -833,7 +880,7 @@ export struct MessageBubble {
         .onChange(() => {
           this.onCreateBranch(this.message);
         })
-      // 「换个回答」：仅激活链最后一条显示，避免在历史消息上重新生成导致上下文混乱
+      /* 「换个回答」（仅激活链最后一条显示） */
       if (this.isLastMessage) {
         MenuItem({
           symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.arrow_clockwise'))
@@ -847,7 +894,7 @@ export struct MessageBubble {
             this.onRegenerate(this.message);
           })
       }
-      // 删除：置于菜单最下面，图标与文字变红（危险操作醒目提示）
+      /* 删除：置于菜单最下面，图标与文字变红（危险操作醒目提示） */
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.trash'))
           .fontSize($r('app.float.font_icon_lg'))
@@ -862,7 +909,7 @@ export struct MessageBubble {
     }
   }
 
-  // 通用图标按钮：无文字仅图标（操作栏仅在非流式时显示，按钮恒可用）
+  /* 通用图标按钮：无文字仅图标（操作栏仅在非流式时显示，按钮恒可用） */
   @Builder
   iconButton(icon: Resource, action: () => void) {
     Row() {
@@ -889,8 +936,7 @@ export struct MessageBubble {
     })
   }
 
-  // 「继续生成」胶囊按钮：仅暂停态显示，样式与输入区「深度思考」「联网搜索」开关一致
-  //（圆角胶囊 + active 蓝底白字），点击从未完成处续写
+  /* 「继续生成」胶囊按钮：仅暂停态显示，样式与输入区「深度思考」「联网搜索」开关一致（圆角胶囊 + active 蓝底白字） */
   @Builder
   resumeButton() {
     Text($r('app.string.continue_generate'))
@@ -912,11 +958,7 @@ export struct MessageBubble {
       })
   }
 
-  /**
-   * 「xx个网页」按钮：展示该消息思考过程中浏览过的网页数量
-   *  - 位于操作栏第一行最左侧（与「继续生成」同行），点击弹出网页面板
-   *  - 显示条件仅 message.searchedWebs 非空，与是否暂停对话无关
-   */
+  /* 「xx个网页」按钮：操作栏第一行最左侧，展示浏览过的网页数量，点击弹出网页面板（显示条件仅 searchedWebs 非空） */
   @Builder
   webButton() {
     Row() {
@@ -940,13 +982,13 @@ export struct MessageBubble {
     .backgroundColor($r('app.color.bubble_bg_ai'))
     .border({ width: 1, color: $r('app.color.operation_icon') })
     .onClick(() => {
-      // 打开「xx个网页」半模态面板
+      /* 打开「xx个网页」半模态面板 */
       this.sheetKind = "web";
       this.isSheetShow = true;
     })
   }
 
-  // 分支切换控件：< 当前 / 总数 >（点击两侧箭头在变体间循环切换；操作栏仅在非流式时显示，恒可切换）
+  /* 分支切换控件：< 当前 / 总数 >（点击两侧箭头在变体间循环切换；操作栏仅在非流式时显示，恒可切换） */
   @Builder
   variantSwitcher() {
     Row() {
@@ -989,9 +1031,10 @@ export struct MessageBubble {
     .backgroundColor($r('app.color.bubble_bg_ai'))
   }
 
-  // 复制整条消息正文到系统剪贴板
   private copyMessage(): void {
-    const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.message.content);
+    /* 修复：AI 消息复制纯文本（去掉 Markdown 标记），用户消息原文复制 */
+    const text = this.message.isUser() ? this.message.content : stripMarkdown(this.message.content);
+    const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
     pasteboard.getSystemPasteboard().setData(data)
       .then(() => {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.copied') });

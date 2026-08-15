@@ -9,7 +9,7 @@ import { ErrorCategory, errorMessageResource, errorTitleResource, LLMError } fro
  */
 @ComponentV2
 export struct MessageErrorCard {
-  /** 生成终止时的结构化错误（由 MessageBubble 传入 message.error） */
+  /* 生成终止时的结构化错误（由 MessageBubble 传入 message.error） */
   @Param error: LLMError | undefined = undefined;
   /**
    * 错误详情展开状态：按"错误身份签名"（code|httpStatus|rawMessage）记录而非 boolean——
@@ -19,9 +19,9 @@ export struct MessageErrorCard {
 
   build() {
     Column() {
-      // 标题行
+      /* 标题行 */
       Row() {
-        // 警告图标（错误三角标）
+        /* 警告图标（错误三角标） */
         SymbolGlyph($r('sys.symbol.exclamationmark_triangle'))
           .fontSize($r('app.float.font_icon_xl'))
           .fontWeight(600)
@@ -42,7 +42,7 @@ export struct MessageErrorCard {
         bottom: $r('app.float.space_xs'),
       })
 
-      // 说明行：与 Toast 相同的简短文案
+      /* 说明行：与 Toast 相同的简短文案 */
       Text(errorMessageResource(this.errCode()))
         .fontSize($r('app.float.font_body'))
         .fontColor($r('app.color.text_primary'))
@@ -52,7 +52,7 @@ export struct MessageErrorCard {
           bottom: $r('app.float.space_sm'),
         })
 
-      // 详情折叠开关（默认收起）：chevron 图标 + 文案（与思考内容折叠风格一致）
+      /* 详情折叠开关（默认收起）：chevron 图标 + 文案（与思考内容折叠风格一致） */
       Row() {
         SymbolGlyph(
           this.isErrorExpanded() ? $r("sys.symbol.chevron_down") : $r("sys.symbol.chevron_right"),
@@ -74,7 +74,7 @@ export struct MessageErrorCard {
         this.expandedErrorSignature = this.isErrorExpanded() ? "" : this.errorSignature();
       })
 
-      // 展开后的详情区：供应商原始错误信息 + HTTP 状态码
+      /* 展开后的详情区：供应商原始错误信息 + HTTP 状态码 */
       if (this.isErrorExpanded()) {
         Column() {
           Row() {
@@ -124,7 +124,7 @@ export struct MessageErrorCard {
     })
     .backgroundColor($r('app.color.bubble_bg_thinking'))
     .borderRadius($r('app.float.bubble_radius'))
-    // 左侧强调色条：红色 = 需用户处理（失败）；橙色 = 可重试（异常）；黄色 = 可继续生成（中断）
+    /* 左侧强调色条：红色 = 需用户处理（失败）；橙色 = 可重试（异常）；黄色 = 可继续生成（中断） */
     .border({
       width: { left: 6 },
       color: { left: this.errorAccentColor() },
@@ -132,7 +132,7 @@ export struct MessageErrorCard {
     .margin({ bottom: $r('app.float.space_xs') });
   }
 
-  // 错误卡片字段安全访问（错误卡片仅在 error 非空时渲染，此处兜底防编译期空检查）
+  /* 错误卡片字段安全访问（错误卡片仅在 error 非空时渲染，此处兜底防编译期空检查） */
   private errCategory(): ErrorCategory {
     return this.error !== undefined ? this.error.category : "unknown";
   }
@@ -151,8 +151,7 @@ export struct MessageErrorCard {
     return this.error !== undefined ? this.error.httpStatus : undefined;
   }
 
-  // 当前错误的身份签名（code|httpStatus|rawMessage）：用于判断详情是否展开。
-  // 新错误（签名变化）自动回到收起状态
+  /* 当前错误的身份签名（code|httpStatus|rawMessage）：新错误（签名变化）自动回到收起状态 */
   private errorSignature(): string {
     if (this.error === undefined) {
       return "";
@@ -160,13 +159,13 @@ export struct MessageErrorCard {
     return `${this.error.code}|${this.error.httpStatus}|${this.error.rawMessage}`;
   }
 
-  // 详情是否展开：仅当记录的签名与当前错误一致（同一错误保持展开，新错误默认收起）
+  /* 详情是否展开：仅当记录的签名与当前错误一致（同一错误保持展开，新错误默认收起） */
   private isErrorExpanded(): boolean {
     const sig = this.errorSignature();
     return sig.length > 0 && this.expandedErrorSignature === sig;
   }
 
-  // 错误分类 → 强调色（红 = 需用户处理（失败）；橙 = 可重试（异常）；黄 = 可继续生成（中断））
+  /* 错误分类 → 强调色（红 = 需用户处理（失败）；橙 = 可重试（异常）；黄 = 可继续生成（中断）） */
   private errorAccentColor(): ResourceColor {
     switch (this.errCategory()) {
       case "auth":

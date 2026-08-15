@@ -1,14 +1,8 @@
 /**
  * 模型供应商预设注册表
- *
- * 设计意图：将「供应商 → API 地址 / 模型名 / 能力开关」收敛为一份可配置的注册表。
- * 设置页只展示供应商下拉（选择 id），Provider 工厂按 id 返回对应实现，
- * 业务层（ChatViewModel）不感知任何供应商细节。
- *
- * 扩展方式（后续接入多模型适配）：
- *   1. 在本数组追加一条 ModelPreset（如 Moonshot / Qwen / 本地 Ollama）
- *   2. 若为新协议（apiStyle 非 responses），在 LLMProviderFactory 按 providerId 分支返回对应 Provider
- *   3. 设置页下拉自动带出新供应商，业务代码零改动
+ * 将「供应商 → API 地址 / 模型名 / 能力开关」收敛为一份注册表：
+ * 设置页按 id 展示供应商下拉，Provider 工厂按 id 返回实现，业务层不感知供应商细节
+ * 扩展新供应商：数组追加一条 ModelPreset；新协议（apiStyle 非 responses）在 LLMProviderFactory 按 providerId 分支
  */
 
 /**
@@ -33,7 +27,7 @@ export interface ModelPreset {
   supportsReasoning: boolean;
 }
 
-// 当前支持的供应商列表（未来多模型在此追加）
+/* 当前支持的供应商列表（未来多模型在此追加） */
 export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "deepseek",
@@ -47,7 +41,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
   },
 ];
 
-// 默认供应商（未配置 / 配置缺失时回退到第一个，保证永远有可用配置）
+/* 默认供应商（未配置 / 配置缺失时回退到第一个，保证永远有可用配置） */
 export const DEFAULT_PROVIDER_ID: string = "deepseek";
 
 /**

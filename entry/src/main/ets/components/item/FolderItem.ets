@@ -9,10 +9,10 @@ import { Category } from "../../model/Category";
 import { SymbolGlyphModifier } from '@kit.ArkUI';
 @ComponentV2
 export struct FolderItem {
-  // 文件夹数据（父组件传入的 @ObservedV2 对象，@Trace 属性变化驱动本项刷新）
+  /* 文件夹数据（父组件传入的 @ObservedV2 对象，@Trace 属性变化驱动本项刷新） */
   @Param category: Category = new Category();
 
-  // 回调：点击进入 / 长按菜单操作（@Event：V2 允许父组件初始化的普通事件）
+  /* 回调：点击进入 / 长按菜单操作（@Event：V2 允许父组件初始化的普通事件） */
   @Event onClickItem: (cat: Category) => void = (cat: Category) => {}; // 点击文件夹
   @Event onMenuRename: (cat: Category) => void = (cat: Category) => {}; // 长按-编辑（重命名+改色）
   @Event onMenuPin: (cat: Category) => void = (cat: Category) => {}; // 长按-置顶/取消置顶
@@ -21,13 +21,13 @@ export struct FolderItem {
 
   build() {
     Row() {
-      // 文件夹图标（按 color 着色，彩色图标）
+      /* 文件夹图标（按 color 着色） */
       SymbolGlyph($r("sys.symbol.folder"))
         .fontSize($r('app.float.font_icon_lg'))
         .fontColor([this.category.color])
         .margin({ right: $r('app.float.space_md') })
 
-      // 名称
+      /* 名称 */
       Text(this.category.name)
         .fontSize($r('app.float.font_name'))
         .fontColor($r('app.color.text_primary'))
@@ -36,7 +36,7 @@ export struct FolderItem {
         .layoutWeight(1)
         .textAlign(TextAlign.Start)
 
-      // 进入箭头
+      /* 进入箭头 */
       SymbolGlyph($r("sys.symbol.chevron_right"))
         .fontSize($r('app.float.font_icon_md'))
         .fontColor([$r('app.color.text_secondary')])
@@ -52,15 +52,15 @@ export struct FolderItem {
     .onClick(() => {
       if (this.onClickItem) this.onClickItem(this.category);
     })
-    // 长按弹菜单：编辑 / 移动 / 删除
+    /* 长按弹上下文菜单 */
     .bindContextMenu(this.folderMenu(), ResponseType.LongPress);
   }
 
   @Builder
   private folderMenu() {
-    // 长按菜单统一为系统 Menu/MenuItem（与 MessageBubble 的「更多」菜单视觉一致）
+    /* 长按菜单统一为系统 Menu/MenuItem（与 MessageBubble 的「更多」菜单视觉一致） */
     Menu() {
-      // 编辑（重命名 + 切换图标颜色）
+      /* 编辑（重命名 + 切换图标颜色） */
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.square_and_pencil'))
           .fontSize($r('app.float.font_icon_lg'))
@@ -71,7 +71,7 @@ export struct FolderItem {
         .onChange(() => {
           this.onMenuRename(this.category);
         })
-      // 移动
+      /* 移动 */
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.folder'))
           .fontSize($r('app.float.font_icon_lg'))
@@ -82,7 +82,7 @@ export struct FolderItem {
         .onChange(() => {
           this.onMenuMove(this.category);
         })
-      // 置顶 / 取消置顶（动态切换：未置顶→蓝色"置顶"，已置顶→红色"取消置顶"）
+      /* 置顶 / 取消置顶（动态切换：未置顶→蓝色"置顶"，已置顶→红色"取消置顶"） */
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.pin'))
           .fontSize($r('app.float.font_icon_lg'))
@@ -96,7 +96,7 @@ export struct FolderItem {
         .onChange(() => {
           this.onMenuPin(this.category);
         })
-      // 删除
+      /* 删除 */
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.trash'))
           .fontSize($r('app.float.font_icon_lg'))

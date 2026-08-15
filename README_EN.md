@@ -31,9 +31,10 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **History** — auto-persisted, time-grouped sidebar, search / multi-select / batch delete
 - **Secure key storage** — API Key encrypted via Asset Store Kit (TEE); legacy plaintext auto-migrated
 - **Background keep-alive** — requests a `dataTransfer` continuous task while streaming in background
+- **System backup / restore** — DB and config restored with system backup (Bundle)
 - **Smart scroll** — staged follow (instant pin while thinking, smooth animation for main text), pause on manual scroll, "back to bottom" floating button
 - **Markdown rendering** — native rendering + lazy/threaded rendering optimizations + dark-mode support
-- **Text interaction** — long-press select/copy, code-block copy button, raw-text viewer
+- **Text interaction** — long-press select/copy, code-block copy button, raw-text viewer, plain-text copy of AI messages (Markdown stripped)
 
 ## Quick Start
 
@@ -116,7 +117,7 @@ Based on `relationalStore`, three tables:
 
 - `*Dao` for flat single-table CRUD, `*Repository` for cross-table aggregation and transactions
 - Singleton; `init()` idempotently creates tables; legacy DBs get columns via idempotent ALTER TABLE
-- Deleting a conversation cascades to messages; deleting a folder recursively removes category relations (conversations kept)
+- Deleting a conversation cascades to messages; deleting all messages in a conversation removes the conversation too (single transaction); deleting a folder recursively removes category relations (conversations kept)
 
 ### 5. State Management — MVVM
 

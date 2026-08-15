@@ -1,19 +1,8 @@
 /**
- * DeepSeek（Responses API）LLM Provider
- * 由 OpenAI 兼容 Chat Completions 迁移至 Responses API
- *
- * 与旧版（Chat Completions）的核心差异：
- *   1. 请求地址：https://api.deepseek.com/responses（由 ModelPresets 预设推导）
- *   2. 请求体：messages → input + instructions；thinking/reasoning_effort → reasoning.effort
- *   3. 联网搜索：tools: [{ type: "web_search" }] 由服务端执行，本地不再调用搜索 API
- *   4. 流式事件：choices[0].delta → 语义化事件（response.output_text.delta 等），
- *      无 data: [DONE]，以 response.completed / response.incomplete / response.failed 收尾
- *
- * 核心流程：
- *   1. 将 Message[] 转换为 Responses API 的 input item 列表
- *   2. 发起 HTTP POST 请求（stream: true）
- *   3. 监听 dataReceive 事件，逐 chunk 解析 SSE 事件（event: 行 + data: 行）
- *   4. 通过回调实时通知调用方更新 UI（正文/思考/搜索状态）
+ * DeepSeek（Responses API）LLM Provider（由 OpenAI 兼容 Chat Completions 迁移而来）
+ * 与旧版核心差异：请求地址 /responses；请求体 input + reasoning.effort；
+ * 联网搜索由服务端 web_search 工具执行；流式事件为语义化事件（response.output_text.delta 等），
+ * 无 data: [DONE]，以 response.completed / incomplete / failed 收尾。
  */
 
 import buffer from "@ohos.buffer";
@@ -23,49 +12,53 @@ import { AppConfig } from "../../config/AppConfig";
 import { AbortHandle, LLMProvider, StreamCallbacks } from "./LLMProvider";
 import { LLMError, ErrorCode, buildError } from "../LLMError";
 
-// 供应商标识（错误对象 provider 字段 / 日志定位）
+/* 供应商标识（错误对象 provider 字段 / 日志定位） */
 const PROVIDER_NAME = "deepseek";
 
-// API 请求中的消息格式（Responses API 的 input item：message 类型）
+/**
+ * 流不活跃看门狗阈值（ms）：距上次收到数据超过该阈值视为连接假死，
+ * 按网络中断收尾进入暂停态；取值小于 readTimeout(180s)，保证看门狗先触发
+ */
+const STREAM_IDLE_TIMEOUT_MS: number = 90 * 1000;
+
+/* API 请求中的消息格式（Responses API 的 input item：message 类型） */
 interface ApiMessage {
   role: string;
   content: string;
 }
 
-// 工具（服务端 web_search）
+/* 工具（服务端 web_search） */
 interface ResponsesTool {
   type: string; // "web_search" | "web_search_2025_08_26"（两者等效，服务端执行）
 }
 
 /**
  * tool_choice 配置（预留，暂不启用）
- * DeepSeek 支持四种形态：
- *   - "none"（禁用工具）/ "auto"（模型自决，当前默认行为）/ "required"（必须用工具）
- *   - {"type": "web_search"}（强制指定搜索工具）
- * 本接口对应对象形态；字符串形态（none/auto/required）启用时按需扩展为 string | ToolChoiceConfig
+ * DeepSeek 支持 "none" / "auto"（当前默认）/ "required" / {"type": "web_search"} 四种形态，
+ * 本接口对应对象形态；字符串形态启用时按需扩展为 string | ToolChoiceConfig
  */
 interface ToolChoiceConfig {
   type: string; // "web_search" | "web_search_2025_08_26" | "function"
 }
 
-// 思考模式配置（Responses API 通过 reasoning.effort 控制强度）
+/* 思考模式配置（Responses API 通过 reasoning.effort 控制强度） */
 interface ReasoningConfig {
   effort: string; // "high"（深度思考）| "low"（轻量思考）
 }
 
-// Responses API 请求体结构
+/* Responses API 请求体结构 */
 interface ResponsesRequestBody {
   model: string;
   input: ApiMessage[];
   stream: boolean;
   reasoning?: ReasoningConfig;
   tools?: ResponsesTool[];
-  // —— 预留字段（当前不启用，见 buildRequestBody 注释）——
+  /* —— 预留字段（当前不启用，启用说明见请求体构造处）—— */
   instructions?: string; // 作为第一条 system 消息注入（input 与 instructions 至少传一个）
   tool_choice?: ToolChoiceConfig; // 显式指定工具选择策略（默认 auto，不传）
 }
 
-// SSE data 行 JSON（包含事件类型与增量字段）
+/* SSE data 行 JSON（包含事件类型与增量字段） */
 interface ResponsesEventData {
   type?: string; // 事件类型（data JSON 自带时使用）
   event?: string; // 事件类型（部分实现用 event 字段）
@@ -74,27 +67,27 @@ interface ResponsesEventData {
   error?: ErrorDetail; // response.failed 时的错误详情
 }
 
-// output_item.done 的 item（仅关注 web_search_call；message/function_call 等忽略）
+/* output_item.done 的 item（仅关注 web_search_call；message/function_call 等忽略） */
 interface SearchCallItem {
   type?: string; // "web_search_call"
   status?: string; // "completed"
   action?: SearchCallAction; // 搜索/浏览动作详情
 }
 
-// web_search_call 的 action（实测：searching/completed 事件 action=null，只有 output_item.done 才带）
+/* web_search_call 的 action（实测：searching/completed 事件 action=null，只有 output_item.done 才带） */
 interface SearchCallAction {
   type?: string; // "search"（仅搜索词） | "open_page"（含浏览 URL）
   queries?: string[]; // 形态1：搜索词列表（混入 "ws_call_id=xxx" 追踪尾巴，需过滤）
   url?: string; // 形态2：模型主动打开的页面 URL（可能带 #ws_call_id= 尾巴）
 }
 
-// 错误详情（DeepSeek Responses API：error.code 可能是字符串或数字）
+/* 错误详情（DeepSeek Responses API：error.code 可能是字符串或数字） */
 interface ErrorDetail {
   code?: string | number;
   message?: string;
 }
 
-// SSE 单行解析结果
+/* SSE 单行解析结果 */
 interface SSEResult {
   kind: "none" | "chunk" | "reasoning" | "searchStart" | "searchEnd" | "searchQuery" | "searchBrowse"
     | "done" | "incomplete" | "failed";
@@ -113,7 +106,7 @@ interface SSEResult {
  * 故 sendMessage 返回的 AbortHandle 必须用显式声明的类构造
  */
 class StreamAbortHandle implements AbortHandle {
-  private aborted: boolean = false; // 幂等标记：abort 只执行一次
+  private aborted: boolean = false;
   private action: () => void; // 真正的中止动作（销毁 HTTP 请求等）
 
   constructor(action: () => void) {
@@ -122,7 +115,7 @@ class StreamAbortHandle implements AbortHandle {
 
   abort(): void {
     if (this.aborted) {
-      return; // 重复调用无副作用
+      return;
     }
     this.aborted = true;
     this.action();
@@ -130,13 +123,10 @@ class StreamAbortHandle implements AbortHandle {
 }
 
 export class DeepSeekProvider implements LLMProvider {
-  // 单例实例
   private static instance: DeepSeekProvider;
 
-  // 私有构造函数
   private constructor() {}
 
-  // 获取单例实例
   static getInstance(): DeepSeekProvider {
     if (!DeepSeekProvider.instance) {
       DeepSeekProvider.instance = new DeepSeekProvider();
@@ -144,31 +134,19 @@ export class DeepSeekProvider implements LLMProvider {
     return DeepSeekProvider.instance;
   }
 
-  // 渠道是否已配置（未配置时 sendMessage 会通过 onError 提示用户）
+  /* 渠道是否已配置（未配置时 sendMessage 会通过 onError 提示用户） */
   isConfigured(): boolean {
     return AppConfig.getInstance().isConfigured();
   }
 
   /**
    * 发送流式对话请求（Responses API）
-   *
    * @param messages 历史消息列表（包含用户和 AI 的完整对话）
    * @param callbacks 流式回调（含服务端搜索状态回调与网络中断回调）
    * @param deepThinking 是否开启深度思考（reasoning.effort: high / low）
    * @param webSearch 是否开启联网搜索（服务端 web_search 工具）
    * @returns 中止句柄：调用方在「暂停生成」时调用 abort()，
    *   中止后销毁底层 HTTP 连接且不再触发任何回调（已接收内容由调用方自行保留）
-   *
-   * 调用示例：
-   *   const handle = DeepSeekProvider.getInstance().sendMessage(messages, {
-   *     onChunk: (delta) => { // 追加到最后一条 AI 消息 },
-   *     onWebSearchStart: () => { // 显示"正在搜索…" },
-   *     onWebSearchEnd: () => { // 恢复思考状态 },
-   *     onComplete: (full) => { // 标记完成 },
-   *     onInterrupted: () => { // 网络异常中断 → 进入"暂停"态 },
-   *     onError: (err) => { // 显示错误 },
-   *   }, true, true);
-   *   // 需要暂停时：handle.abort()
    */
   sendMessage(
     messages: Message[],
@@ -176,18 +154,25 @@ export class DeepSeekProvider implements LLMProvider {
     deepThinking: boolean,
     webSearch: boolean,
   ): AbortHandle {
-    // 未配置时提前拦截，提示用户前往设置
+    /* 未配置时提前拦截，提示用户前往设置 */
     if (!this.isConfigured()) {
       callbacks.onError(buildError(
         ErrorCode.CFG_NOT_CONFIGURED, "API key not configured", undefined, PROVIDER_NAME));
-      // 请求从未真正发起，返回空操作的中止句柄（幂等安全）
+      /* 请求从未真正发起，返回空操作的中止句柄（幂等安全） */
       return new StreamAbortHandle((): void => {});
     }
     const preset = AppConfig.getInstance().getPreset();
-    // 关键：SSE 缓冲改为本次调用私有的局部变量（此前是单例共享实例字段）
-    // 并发场景下多个对话同时流式，若共享缓冲会被互相污染，导致解析错乱
+    /**
+     * 关键：SSE 缓冲为本次调用私有的局部变量（此前为单例共享字段），
+     * 并发多对话流式时共享缓冲会互相污染，导致解析错乱
+     */
     let sseBuffer: string = "";
-    // 当前 pending 的 SSE event: 行事件名（与 data: 行成对出现）
+    /**
+     * UTF-8 跨 chunk 解码缓冲（本次调用私有）：多字节字符被 TCP 分块切断时，
+     * 半截序列不能直接解码（会变 U+FFFD 乱码），需把不完整尾部字节留到下一 chunk 一起解码
+     */
+    let utf8Pending = buffer.alloc(0);
+    /* 当前 pending 的 SSE event: 行事件名（与 data: 行成对出现） */
     let pendingEventName: string = "";
 
     const httpRequest: http.HttpRequest = http.createHttp();
@@ -195,19 +180,21 @@ export class DeepSeekProvider implements LLMProvider {
     let fullText = "";
     let fullReasoning = "";
     let isFinished = false; // 防止 onComplete/onError/onInterrupted 重复调用
+    let cleaned = false; // cleanup 幂等标记（abort / dataEnd / catch / 兜底定时器 多路径可能先后触发）
+    let watchdogTimerId: number = -1; // 流不活跃看门狗定时器（-1 = 未挂起）
     let gotTerminalEvent = false; // 是否收到过正常结束事件（response.completed/incomplete/failed/[DONE]）
-    // HTTP 错误处理：错误响应体是 JSON（非 SSE），需等 dataEnd 收齐后解析 error.code/message 归一化上报
+    /* HTTP 错误处理：错误响应体是 JSON（非 SSE），需等 dataEnd 收齐后解析 error.code/message 归一化上报 */
     let httpErrorStatus = 0; // 响应码 >= 400 时记录（>0 表示处于 HTTP 错误态）
     let errorBody = ""; // HTTP 错误响应体累积缓冲
 
-    // 安全调用回调的辅助函数（统一错误对象，幂等防重）
+    /* 安全调用回调的辅助函数（统一错误对象，幂等防重） */
     const safeComplete = (text: string): void => {
       if (!isFinished) {
         isFinished = true;
         callbacks.onComplete(text);
       }
     };
-    // 达到输出上限被服务端截断（response.incomplete）：内容完整保留，走"暂停"态供用户「继续生成」
+    /* 达到输出上限被服务端截断（response.incomplete）：内容完整保留，走"暂停"态供用户「继续生成」 */
     const safeIncomplete = (text: string): void => {
       if (!isFinished) {
         isFinished = true;
@@ -222,7 +209,7 @@ export class DeepSeekProvider implements LLMProvider {
         callbacks.onError(err);
       }
     };
-    // 网络异常中断（未收到正常结束事件）→ 通知调用方进入"暂停"态，允许继续生成
+    /* 网络异常中断（未收到正常结束事件）→ 通知调用方进入"暂停"态，允许继续生成 */
     const safeInterrupted = (reason: LLMError): void => {
       if (!isFinished) {
         isFinished = true;
@@ -230,15 +217,72 @@ export class DeepSeekProvider implements LLMProvider {
       }
     };
     const cleanup = (): void => {
+      if (cleaned) {
+        return; // 幂等：避免对已销毁请求二次 destroy 抛异常
+      }
+      cleaned = true;
+      if (watchdogTimerId !== -1) {
+        clearTimeout(watchdogTimerId);
+        watchdogTimerId = -1;
+      }
       httpRequest.off("dataReceive");
       httpRequest.off("dataEnd");
-      httpRequest.destroy();
+      try {
+        httpRequest.destroy();
+      } catch (e) {
+        /* destroy 失败可忽略：请求已结束 */
+      }
     };
 
-    // 1. 流式数据接收
+    /* 流不活跃看门狗：每次收到数据复位；超时视为连接假死，按网络中断收尾（进入暂停态） */
+    const armWatchdog = (): void => {
+      if (watchdogTimerId !== -1) {
+        clearTimeout(watchdogTimerId);
+      }
+      watchdogTimerId = setTimeout(() => {
+        watchdogTimerId = -1;
+        if (!isFinished) {
+          safeInterrupted(
+            buildError(ErrorCode.NET_DISCONNECTED, "stream idle too long", undefined, PROVIDER_NAME));
+          cleanup();
+        }
+      }, STREAM_IDLE_TIMEOUT_MS);
+    };
+
+    /* 1. 流式数据接收 */
     httpRequest.on("dataReceive", (data: ArrayBuffer) => {
-      const chunk = this.arrayBufferToString(data);
-      // HTTP 错误响应：原始 body 是 JSON（非 SSE），只累积不解析，留待 dataEnd 归一化上报
+      if (isFinished) {
+        return; // 修复：终态/中止后不再处理迟到事件（闭合"abort 后零回调"契约）
+      }
+      /**
+       * 追加式 UTF-8 解码：上一 chunk 遗留的不完整多字节尾部与新 chunk 拼接，
+       * 只解码完整序列部分，剩余不完整尾部字节留待下一次（修复中文跨 chunk 乱码）
+       */
+      const rawChunk = buffer.from(data);
+      const combined = utf8Pending.length > 0 ? buffer.concat([utf8Pending, rawChunk]) : rawChunk;
+      let cut = combined.length;
+      let back = 1;
+      let i = cut - 1;
+      while (i >= 0 && back <= 3) {
+        const b: number = combined.readUInt8(i); // Buffer 无索引签名，用 readUInt8 读取单字节
+        if (b < 0x80) {
+          break; // ASCII 结尾：序列完整
+        }
+        if ((b & 0xC0) === 0xC0) {
+          /* 找到多字节序列起始字节：按前缀判断所需长度 */
+          const need = b < 0xE0 ? 2 : (b < 0xF0 ? 3 : 4);
+          if (cut - i < need) {
+            cut = i; // 不完整序列：整体留到下一 chunk
+          }
+          break;
+        }
+        i--;
+        back++;
+      }
+      utf8Pending = combined.subarray(cut);
+      const chunk = combined.subarray(0, cut).toString("utf-8");
+      armWatchdog(); // 收到数据 → 复位不活跃看门狗
+      /* HTTP 错误响应：原始 body 是 JSON（非 SSE），只累积不解析，留待 dataEnd 归一化上报 */
       if (httpErrorStatus > 0) {
         errorBody += chunk;
         return;
@@ -250,22 +294,23 @@ export class DeepSeekProvider implements LLMProvider {
 
       for (const line of lines) {
         const trimmed = line.trim();
-        // SSE 事件头：event: response.output_text.delta（记录类型，供紧邻的 data: 行使用）
+        /* SSE 事件头：event: response.output_text.delta（记录类型，供紧邻的 data: 行使用） */
         if (trimmed.startsWith("event:")) {
           pendingEventName = trimmed.substring(6).trim();
           continue;
         }
-        // 空行 / 注释行，跳过
+        /* 空行 / 注释行，跳过 */
         if (trimmed === "" || trimmed.startsWith(":")) {
           continue;
         }
-        // 结束标记（Responses API 无 [DONE]，此处仅作兼容兜底）
+        /* 结束标记（Responses API 无 [DONE]，此处仅作兼容兜底） */
         if (trimmed === "data: [DONE]") {
           gotTerminalEvent = true;
           safeComplete(fullText);
+          cleanup(); // 修复：终态即清理，不依赖 dataEnd（服务端可能保持连接）
           return;
         }
-        // 数据行：data: {json}（兼容 data: 后有无空格两种写法）
+        /* 数据行：data: {json}（兼容 data: 后有无空格两种写法） */
         let jsonStr: string = "";
         if (trimmed.startsWith("data: ")) {
           jsonStr = trimmed.substring(6);
@@ -276,7 +321,7 @@ export class DeepSeekProvider implements LLMProvider {
           const result = this.parseEventData(pendingEventName, jsonStr);
           pendingEventName = ""; // 该事件已消费，复位（后续 data 行需自带 event: 或 JSON type）
 
-          // 服务端搜索状态（不中断流程）
+          /* 服务端搜索状态（不中断流程） */
           if (result.kind === "searchStart") {
             callbacks.onWebSearchStart();
             continue;
@@ -285,41 +330,45 @@ export class DeepSeekProvider implements LLMProvider {
             callbacks.onWebSearchEnd();
             continue;
           }
-          // 搜索词已确定（output_item.done 的 search 动作）→ 供 UI 展示"正在搜索：xxx"
+          /* 搜索词已确定（output_item.done 的 search 动作）→ 供 UI 展示"正在搜索：xxx" */
           if (result.kind === "searchQuery") {
             callbacks.onSearchQuery(result.searchQueries);
             continue;
           }
-          // 模型正在浏览页面（output_item.done 的 open_page 动作）→ 供 UI 展示"正在浏览 xxx"
+          /* 模型正在浏览页面（output_item.done 的 open_page 动作）→ 供 UI 展示"正在浏览 xxx" */
           if (result.kind === "searchBrowse") {
             callbacks.onSearchBrowse(result.searchUrl);
             continue;
           }
-          // 流结束（正常完成 / 输出截断 / 空回复）
+          /* 流结束（正常完成 / 输出截断 / 空回复） */
           if (result.done) {
             gotTerminalEvent = true;
             if (result.kind === "incomplete") {
               safeIncomplete(fullText); // 截断：内容保留，由调用方进入"暂停"态可续写
             } else if (fullText.length === 0) {
-              // completed 但无正文（常见于联网搜索后模型空回复）：
-              // 语义上"未走完"→ 按可继续生成处理（进入暂停态，保留思考内容），不当作成功收尾
+              /**
+               * completed 但无正文（常见于联网搜索后模型空回复）：
+               * 语义上"未走完"→ 按可继续生成处理（进入暂停态，保留思考内容），不当作成功收尾
+               */
               safeInterrupted(buildError(ErrorCode.EMPTY_ANSWER, "model completed with empty output", undefined, PROVIDER_NAME));
             } else {
               safeComplete(fullText);
             }
+            cleanup(); // 修复：终态即清理，不依赖 dataEnd
             return;
           }
           if (result.failed) {
             gotTerminalEvent = true;
             safeError(this.mapResponseFailed(result.errorCode, result.errorMsg));
+            cleanup(); // 修复：终态即清理，不依赖 dataEnd
             return;
           }
-          // 思考内容增量
+          /* 思考内容增量 */
           if (result.kind === "reasoning" && result.text.length > 0) {
             fullReasoning += result.text;
             callbacks.onReasoningChunk(result.text);
           }
-          // 正文增量
+          /* 正文增量 */
           if (result.kind === "chunk" && result.text.length > 0) {
             fullText += result.text;
             callbacks.onChunk(result.text);
@@ -328,17 +377,19 @@ export class DeepSeekProvider implements LLMProvider {
       }
     });
 
-    // 2. 数据接收完毕 → 在这里清理资源
+    /* 2. 数据接收完毕 → 在这里清理资源 */
     httpRequest.on("dataEnd", () => {
-      // HTTP 错误响应：等 body 收齐后解析 error.code/message，按状态码归一化上报
+      /* HTTP 错误响应：等 body 收齐后解析 error.code/message，按状态码归一化上报 */
       if (httpErrorStatus > 0) {
         safeError(this.mapHttpError(httpErrorStatus, this.extractErrorMessage(errorBody)));
         cleanup();
         return;
       }
       if (!gotTerminalEvent) {
-        // 未收到正常结束事件（response.completed/incomplete/failed/[DONE]）就结束了
-        // = 连接被掐断/网络异常中断（已收到的内容保留，由调用方进入"暂停"态供用户继续生成）
+        /**
+         * 未收到正常结束事件（response.completed/incomplete/failed/[DONE]）就结束了
+         * = 连接被掐断/网络异常中断（已收到的内容保留，由调用方进入"暂停"态供用户继续生成）
+         */
         safeInterrupted(
           buildError(ErrorCode.NET_DISCONNECTED, "stream ended without terminal event", undefined, PROVIDER_NAME));
       } else if (fullText.length === 0 && fullReasoning.length === 0) {
@@ -349,7 +400,7 @@ export class DeepSeekProvider implements LLMProvider {
       cleanup();
     });
 
-    // 3. 构造请求体（Responses API 格式）
+    /* 3. 构造请求体（Responses API 格式） */
     const apiMessages: ApiMessage[] = messages.map((msg: Message): ApiMessage => {
       return { role: msg.role, content: msg.content };
     });
@@ -360,28 +411,34 @@ export class DeepSeekProvider implements LLMProvider {
       stream: true,
     };
 
-    // 思考模式（Responses API：reasoning.effort 控制强度）
-    // - 开启深度思考：high（深度推理）
-    // - 关闭深度思考：low（Responses API 无"完全关闭"开关，low 最接近轻量思考）
+    /**
+     * 思考模式（Responses API：reasoning.effort 控制强度）
+     * - 开启深度思考：high（深度推理）
+     * - 关闭深度思考：low（Responses API 无"完全关闭"开关，low 最接近轻量思考）
+     */
     if (preset.supportsReasoning) {
       requestBodyObj.reasoning = { effort: deepThinking ? "high" : "low" };
     }
 
-    // 服务端联网搜索：开启且供应商支持时携带 web_search 工具，
-    // 搜索结果由服务端自动注入供模型回答（本地不再调用搜索 API）
+    /**
+     * 服务端联网搜索：开启且供应商支持时携带 web_search 工具，
+     * 搜索结果由服务端自动注入供模型回答（本地不再调用搜索 API）
+     */
     if (webSearch && preset.supportsWebSearch) {
       requestBodyObj.tools = [{ type: "web_search" }];
     }
 
-    // —— 预留字段启用说明（当前刻意不传，保持 auto 默认行为）——
-    // 1. instructions：需要给所有对话注入统一系统指令时启用
-    //    requestBodyObj.instructions = "始终使用中文回答";
-    // 2. tool_choice：需要强制模型使用搜索工具时启用（会强制搜索，可能多耗延迟与 token）
-    //    requestBodyObj.tool_choice = { type: "web_search" };
+    /**
+     * —— 预留字段启用说明（当前刻意不传，保持 auto 默认行为）——
+     * 1. instructions：需要给所有对话注入统一系统指令时启用
+     *    requestBodyObj.instructions = "始终使用中文回答";
+     * 2. tool_choice：需要强制模型使用搜索工具时启用（会强制搜索，可能多耗延迟与 token）
+     *    requestBodyObj.tool_choice = { type: "web_search" };
+     */
 
     const requestBody = JSON.stringify(requestBodyObj);
 
-    // 4. 发起请求
+    /* 4. 发起请求 */
     httpRequest
       .requestInStream(preset.endpoint, {
         method: http.RequestMethod.POST,
@@ -396,11 +453,13 @@ export class DeepSeekProvider implements LLMProvider {
         readTimeout: 180 * 1000, // 多阶段思考/联网搜索超时 180s
       })
       .then((responseCode: number) => {
-        // HTTP 错误码：不立即结束，标记错误态后等 dataEnd 收齐错误响应体，
-        // 再解析 error.code/message 归一化上报（错误 body 是 JSON，非 SSE）
+        /**
+         * HTTP 错误码：不立即结束，标记错误态后等 dataEnd 收齐错误响应体，
+         * 再解析 error.code/message 归一化上报（错误 body 是 JSON，非 SSE）
+         */
         if (responseCode >= 400) {
           httpErrorStatus = responseCode;
-          // 兜底：若错误响应体迟迟未收完（dataEnd 未触发），8s 后按已收到内容上报，避免界面卡死
+          /* 兜底：若错误响应体迟迟未收完（dataEnd 未触发），8s 后按已收到内容上报，避免界面卡死 */
           setTimeout(() => {
             if (!isFinished && httpErrorStatus > 0) {
               safeError(this.mapHttpError(httpErrorStatus, this.extractErrorMessage(errorBody)));
@@ -409,11 +468,13 @@ export class DeepSeekProvider implements LLMProvider {
           }, 8000);
           return;
         }
-        // 正常情况（200）：不做任何事，等待 dataReceive 和 dataEnd
+        /* 正常情况（200）：不做任何事，等待 dataReceive 和 dataEnd */
       })
       .catch((error: BusinessError) => {
-        // 已收到部分内容后连接失败 → 视为网络异常中断（进入"暂停"态可继续生成）；
-        // 尚未收到任何内容 → 请求级失败，按错误上报（区分超时 / 普通失败）
+        /**
+         * 已收到部分内容后连接失败 → 视为网络异常中断（进入"暂停"态可继续生成）；
+         * 尚未收到任何内容 → 请求级失败，按错误上报（区分超时 / 普通失败）
+         */
         const rawMessage: string =
           error.message !== undefined && error.message.length > 0 ? error.message : JSON.stringify(error);
         if (fullText.length > 0 || fullReasoning.length > 0) {
@@ -427,9 +488,11 @@ export class DeepSeekProvider implements LLMProvider {
         cleanup();
       });
 
-    // 5. 返回中止句柄：暂停生成时调用 abort()
-    // abort 置 isFinished → 后续 dataReceive/dataEnd/catch 不再触发任何回调，
-    // 再销毁底层 HTTP 连接，保证"暂停"后不会收到残留事件
+    /**
+     * 5. 返回中止句柄：暂停生成时调用 abort()
+     * abort 置 isFinished → 后续 dataReceive/dataEnd/catch 不再触发任何回调，
+     * 再销毁底层 HTTP 连接，保证"暂停"后不会收到残留事件
+     */
     return new StreamAbortHandle((): void => {
       if (!isFinished) {
         isFinished = true;
@@ -455,7 +518,7 @@ export class DeepSeekProvider implements LLMProvider {
    * @returns SSEResult 解析结果
    */
   private parseEventData(eventName: string, jsonStr: string): SSEResult {
-    // ArkTS 要求对象字面量必须对应已声明的 interface
+    /* ArkTS 要求对象字面量必须对应已声明的 interface */
     const result: SSEResult = {
       kind: "none",
       text: "",
@@ -470,37 +533,37 @@ export class DeepSeekProvider implements LLMProvider {
     try {
       parsed = JSON.parse(jsonStr) as ResponsesEventData;
     } catch (e) {
-      // JSON 解析失败，跳过这一行（可能是心跳包或不完整数据）
+      /* JSON 解析失败，跳过这一行（可能是心跳包或不完整数据） */
       return result;
     }
-    // 事件类型解析（优先级：event: 行 > JSON type > JSON event）
+    /* 事件类型解析（优先级：event: 行 > JSON type > JSON event） */
     const jsonType: string =
       parsed.type !== undefined ? parsed.type : (parsed.event !== undefined ? parsed.event : "");
     const type: string = eventName.length > 0 ? eventName : jsonType;
 
     if (type === "response.output_text.delta") {
-      // 正文增量
+      /* 正文增量 */
       result.kind = "chunk";
       result.text = parsed.delta || "";
     } else if (type === "response.reasoning_text.delta") {
-      // 思维链增量
+      /* 思维链增量 */
       result.kind = "reasoning";
       result.text = parsed.delta || "";
     } else if (
       type === "response.web_search_call.in_progress" ||
       type === "response.web_search_call.searching"
     ) {
-      // 服务端搜索开始
+      /* 服务端搜索开始 */
       result.kind = "searchStart";
     } else if (type === "response.web_search_call.completed") {
-      // 服务端搜索完成
+      /* 服务端搜索完成 */
       result.kind = "searchEnd";
     } else if (type === "response.output_item.done") {
-      // 搜索动作细节（queries / url）实测只在 output_item.done 携带，searching/completed 事件 action=null
+      /* 搜索动作细节（queries / url）实测只在 output_item.done 携带，searching/completed 事件 action=null */
       if (parsed.item !== undefined && parsed.item.type === "web_search_call" && parsed.item.action !== undefined) {
         const action = parsed.item.action;
         if (action.type === "search" && action.queries !== undefined) {
-          // 形态1：search 动作 → 搜索词列表（过滤 "ws_call_id=xxx" 追踪尾巴与空白项）
+          /* 形态1：search 动作 → 搜索词列表（过滤 "ws_call_id=xxx" 追踪尾巴与空白项） */
           const clean: string[] = [];
           for (const q of action.queries) {
             const t = q.trim();
@@ -513,7 +576,7 @@ export class DeepSeekProvider implements LLMProvider {
             result.searchQueries = clean;
           }
         } else if (action.type === "open_page" && action.url !== undefined) {
-          // 形态2：open_page 动作 → 模型主动打开并浏览的页面 URL（去掉 #ws_call_id= 追踪尾巴）
+          /* 形态2：open_page 动作 → 模型主动打开并浏览的页面 URL（去掉 #ws_call_id= 追踪尾巴） */
           const url = action.url.trim();
           if (url.length > 0) {
             result.kind = "searchBrowse";
@@ -523,15 +586,15 @@ export class DeepSeekProvider implements LLMProvider {
         }
       }
     } else if (type === "response.completed") {
-      // 正常完成 → 流结束
+      /* 正常完成 → 流结束 */
       result.kind = "done";
       result.done = true;
     } else if (type === "response.incomplete") {
-      // 输出达到上限被服务端截断：同样终止流，但语义是"未走完"（供调用方进入暂停态续写）
+      /* 输出达到上限被服务端截断：同样终止流，但语义是"未走完"（供调用方进入暂停态续写） */
       result.kind = "incomplete";
       result.done = true;
     } else if (type === "response.failed") {
-      // 失败：提取供应商错误码与错误信息，由调用方按统一错误码归一化上报
+      /* 失败：提取供应商错误码与错误信息，由调用方按统一错误码归一化上报 */
       result.kind = "failed";
       result.failed = true;
       if (parsed.error !== undefined) {
@@ -539,7 +602,7 @@ export class DeepSeekProvider implements LLMProvider {
         result.errorMsg = parsed.error.message !== undefined ? parsed.error.message : "";
       }
     }
-    // 其余事件（response.created / in_progress / output_item.* / content_part.* 等）忽略
+    /* 其余事件（response.created / in_progress / output_item.* / content_part.* 等）忽略 */
     return result;
   }
 
@@ -558,7 +621,7 @@ export class DeepSeekProvider implements LLMProvider {
         return parsed.error.message;
       }
     } catch (e) {
-      // 非 JSON（网关错误页等）：走下方截断兜底
+      /* 非 JSON（网关错误页等）：走下方截断兜底 */
     }
     const trimmed = body.trim();
     return trimmed.length > 300 ? `${trimmed.substring(0, 300)}…` : trimmed;
@@ -575,13 +638,19 @@ export class DeepSeekProvider implements LLMProvider {
       case 429:
         return buildError(ErrorCode.RATE_LIMITED, rawMessage, status, PROVIDER_NAME);
       case 400: {
-        // 400 需结合错误信息判断：上下文超限（含 context/token 字样）否则按服务端错误处理
+        /**
+         * 400 需结合错误信息判断：上下文超限（含 context/token 字样）→ 可新建对话解决；
+         * 其余 400 = 请求本身非法 → 不可重试（否则「继续生成」会对同一非法请求无限重试）
+         */
         const lower = rawMessage.toLowerCase();
         if (lower.includes("context") || lower.includes("token")) {
           return buildError(ErrorCode.CTX_OVERFLOW, rawMessage, status, PROVIDER_NAME);
         }
-        return buildError(ErrorCode.SRV_ERROR, rawMessage, status, PROVIDER_NAME);
+        return buildError(ErrorCode.REQ_INVALID, rawMessage, status, PROVIDER_NAME);
       }
+      case 403:
+        /* 403 Forbidden（权限/区域限制等）：同属不可重试 */
+        return buildError(ErrorCode.REQ_INVALID, rawMessage, status, PROVIDER_NAME);
       default:
         if (status >= 500) {
           return buildError(ErrorCode.SRV_ERROR, rawMessage, status, PROVIDER_NAME);
@@ -607,23 +676,5 @@ export class DeepSeekProvider implements LLMProvider {
       return buildError(ErrorCode.AUTH_INVALID_KEY, raw, undefined, PROVIDER_NAME);
     }
     return buildError(ErrorCode.SRV_ERROR, raw, undefined, PROVIDER_NAME);
-  }
-
-  /**
-   * ArrayBuffer 转字符串
-   * SSE 数据以 UTF-8 编码传输，需要手动解码
-   * 使用 buffer API（util.TextDecoder.decode 在 API 26 已废弃）
-   *
-   * @param bufferData HTTP 接收到的二进制数据块
-   * @returns 解码后的字符串
-   */
-  private arrayBufferToString(bufferData: ArrayBuffer): string {
-    // buffer.from() 接受 ArrayBuffer，toString("utf-8") 解码为字符串
-    try {
-      return buffer.from(bufferData).toString("utf-8");
-    } catch (e) {
-      // 解码失败时返回空串，跳过该 chunk，不影响后续流式接收
-      return "";
-    }
   }
 }

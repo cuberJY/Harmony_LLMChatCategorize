@@ -1,9 +1,6 @@
 /**
  * 对话数据模型（状态管理 V2）
- * 对应一次完整的聊天会话
- *
- * @ObservedV2 + @Trace：属性级观察。
- * 收藏状态、标题、更新时间等变化时直接驱动列表项刷新
+ * @ObservedV2 + @Trace 属性级观察：收藏状态、标题、更新时间变化时直接驱动列表项刷新
  */
 import { generateId } from "../common/Utils";
 

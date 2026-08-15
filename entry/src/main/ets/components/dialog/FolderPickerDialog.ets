@@ -27,7 +27,7 @@ export struct FolderPickerDialog {
         .textAlign(TextAlign.Start)
         .padding({ bottom: $r('app.float.space_sm') })
 
-      // 「默认」选项：清空分类 / 移到顶级
+      /* 「默认」选项：清空分类 / 移到顶级 */
       Row() {
         Text("默认")
           .fontSize($r('app.float.font_name'))
@@ -44,7 +44,7 @@ export struct FolderPickerDialog {
         .strokeWidth(0.5)
         .color($r('app.color.divider'))
 
-      // 全部文件夹列表（可滚动）
+      /* 全部文件夹列表（可滚动） */
       List() {
         ForEach(
           this.folders,
@@ -76,7 +76,7 @@ export struct FolderPickerDialog {
       .width("100%")
       .height(280)
     }
-    // 固定高度，超出可滚动
+    /* 固定高度，超出可滚动 */
     .padding($r('app.float.space_lg'))
     .width("85%")
     .borderRadius(16)
@@ -96,8 +96,10 @@ export class FolderPickerDialogParams {
   onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
 }
 
-// 全局 @Builder：包装 FolderPickerDialog，供 openCustomDialog(ComponentContent) 使用
-// 注意：必须用全局函数而非组件成员 @Builder，才能规避成员 Builder 在弹窗场景的绑定/刷新问题
+/**
+ * 全局 @Builder：包装 FolderPickerDialog，供 openCustomDialog(ComponentContent) 使用。
+ * 注意：必须用全局函数而非组件成员 @Builder，才能规避成员 Builder 在弹窗场景的绑定/刷新问题
+ */
 @Builder
 export function buildFolderPickerContent(params: FolderPickerDialogParams) {
   FolderPickerDialog({

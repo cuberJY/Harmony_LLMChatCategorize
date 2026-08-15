@@ -28,9 +28,9 @@ export struct EditFolderDialog {
 
   @Builder
   private colorChip(color: string) {
-    // 单个颜色块：选中时带边框高亮
+    /* 单个颜色块：选中时带边框高亮 */
     Column() {
-      // 色块本体
+      /* 色块本体 */
       Row()
         .width(28)
         .height(28)
@@ -41,7 +41,7 @@ export struct EditFolderDialog {
     .height(36)
     .justifyContent(FlexAlign.Center)
     .border({
-      // 选中 → 主色边框；未选中 → 透明
+      /* 选中 → 主色边框；未选中 → 透明 */
       width: this.selectedColor === color ? 2 : 0,
       color: $r('app.color.primary'),
       radius: 18,
@@ -53,7 +53,7 @@ export struct EditFolderDialog {
 
   build() {
     Column({ space: $r('app.float.space_md') }) {
-      // 标题
+      /* 标题 */
       Text(this.title)
         .fontSize($r('app.float.font_body'))
         .fontWeight(700)
@@ -61,7 +61,7 @@ export struct EditFolderDialog {
         .width("100%")
         .textAlign(TextAlign.Start)
 
-      // 名称输入
+      /* 名称输入 */
       TextInput({ placeholder: "请输入文件夹名称", text: this.inputValue })
         .defaultFocus(true)
         .fontSize($r('app.float.font_input'))
@@ -76,14 +76,14 @@ export struct EditFolderDialog {
           this.inputValue = value;
         })
 
-      // 颜色选择区
+      /* 颜色选择区 */
       Text("图标颜色")
         .fontSize($r('app.float.font_body'))
         .fontColor($r('app.color.text_primary'))
         .width("100%")
         .textAlign(TextAlign.Start)
 
-      // 8 个色块横向排列（超出可横向滚动）
+      /* 8 个色块横向排列（超出可横向滚动） */
       Scroll() {
         Row({ space: $r('app.float.space_xs') }) {
           ForEach(FOLDER_COLORS, (color: string) => {
@@ -96,7 +96,7 @@ export struct EditFolderDialog {
       .scrollBar(BarState.Off)
       .width("100%")
 
-      // 按钮区
+      /* 按钮区 */
       Row() {
         Text("取消")
           .fontSize($r('app.float.font_button'))
@@ -143,8 +143,10 @@ export class EditFolderDialogParams {
   onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
 }
 
-// 全局 @Builder：包装 EditFolderDialog，供 openCustomDialog(ComponentContent) 使用
-// 注意：必须用全局函数而非组件成员 @Builder，才能规避成员 Builder 在弹窗场景的绑定/刷新问题
+/**
+ * 全局 @Builder：包装 EditFolderDialog，供 openCustomDialog(ComponentContent) 使用。
+ * 注意：必须用全局函数而非组件成员 @Builder，才能规避成员 Builder 在弹窗场景的绑定/刷新问题
+ */
 @Builder
 export function buildEditFolderContent(params: EditFolderDialogParams) {
   EditFolderDialog({

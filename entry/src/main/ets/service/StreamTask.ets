@@ -1,12 +1,8 @@
 /**
  * 单个进行中的流式任务（一个对话一个实例）
- *
- * 背景：并发场景下，同一时刻可能存在多个对话的流式回复（用户切到 B 对话后，
- * A 对话的流仍在后台推进）。因此不能再用 ChatViewModel 的全局缓冲/定时器，
- * 必须把"一个流"的全部状态收敛到独立对象中，互不串写。
- *
+ * 并发场景下多个对话的流同时推进，故将一个流的状态收敛到独立对象，互不串写。
  * 归属：streamTasks: Map<conversationId, StreamTask>（ChatViewModel 持有）
- * 生命周期：handleUserSend 创建并登记 → 跨对话切换存活 → onComplete/onError 注销
+ * 生命周期：handleUserSend 创建登记 → 跨对话切换存活 → onComplete/onError 注销
  */
 import { Message } from "../model/Message";
 import { Conversation } from "../model/Conversation";
@@ -27,9 +23,13 @@ export class StreamTask {
   abortHandler: AbortHandle | null = null; // 底层 HTTP 请求的中止句柄（「暂停生成」时调用 abort()）
   timestampUpdated: boolean = false; // 本次流是否已更新对话 updatedAt（首次输出正文时置顶一次，避免每个 chunk 反复写库）
   autoRetryCount: number = 0; // 空回复自动续试次数（completed 但无正文时 ChatViewModel 自动重试，超过上限才提示用户）
-  thinkingMs: number = 0; // 多阶段思考累计耗时（毫秒）：
-  // Agent 式模型会"思考→输出部分正文→再思考/搜索→再输出"，本字段跨阶段累加，
-  // 保证「已思考（用时 X 秒）」统计的是总思考时长，而非仅第一次正文前的时长
+  resetOnFirstChunk: boolean = false; // 「换个回答」覆盖模式：首个增量到达前保留旧内容，到达时清空再写入（失败时旧内容不丢）
+  /**
+   * 多阶段思考累计耗时（毫秒）。
+   * Agent 式模型会"思考→输出部分正文→再思考/搜索→再输出"，本字段跨阶段累加，
+   * 保证「已思考（用时 X 秒）」统计的是总思考时长，而非仅第一次正文前的时长
+   */
+  thinkingMs: number = 0;
 
   constructor(conversationId: string, aiMsg: Message, targetConv: Conversation) {
     this.conversationId = conversationId;

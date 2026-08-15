@@ -29,29 +29,31 @@ export class MessageDataSource implements IDataSource {
     }
   }
 
-  // 添加一条消息并通知 LazyForEach 创建对应 ListItem
+  /* 添加一条消息并通知 LazyForEach 创建对应 ListItem */
   push(msg: Message): void {
     this.messages.push(msg);
     this.listeners.forEach((l: DataChangeListener) => l.onDataAdd(this.messages.length - 1));
   }
 
-  // 整体替换消息列表（分支切换/激活链重建后调用，触发 LazyForEach 全量重载）
+  /* 整体替换消息列表（分支切换/激活链重建后调用，触发 LazyForEach 全量重载） */
   replaceAll(list: Message[]): void {
     this.messages = list;
     this.listeners.forEach((l: DataChangeListener) => l.onDataReloaded());
   }
 
-  // 增量替换 [start, start+deleteCount) 区间为新 items（切换分支等局部更新用）：
-  // 用 onDataDelete/onDataAdd 精准通知，避免 onDataReloaded 全量重建导致前缀消息 Markdown 重渲染
+  /**
+   * 增量替换 [start, start+deleteCount) 区间为新 items（切换分支等局部更新用）：
+   * 用 onDataDelete/onDataAdd 精准通知，避免全量重建导致前缀消息 Markdown 重渲染
+   */
   replaceRange(start: number, deleteCount: number, insertItems: Message[]): void {
-    // 1. 删除旧区间（数组从后往前，保持前面 item 的 index 不变）
+    /* 删除旧区间（从后往前，保持前面 item 的 index 不变） */
     for (let i = deleteCount - 1; i >= 0; i--) {
       this.messages.splice(start + i, 1);
     }
     for (let i = deleteCount - 1; i >= 0; i--) {
       this.listeners.forEach((l: DataChangeListener) => l.onDataDelete(start + i));
     }
-    // 2. 插入新 items（数组从前往后）
+    /* 插入新 items（从前往后） */
     for (let i = 0; i < insertItems.length; i++) {
       this.messages.splice(start + i, 0, insertItems[i]);
     }
@@ -60,12 +62,11 @@ export class MessageDataSource implements IDataSource {
     }
   }
 
-  // 获取内部数组引用（用于构造上下文等只读场景）
+  /* 获取内部数组引用（用于构造上下文等只读场景） */
   getAll(): Message[] {
     return this.messages;
   }
 
-  // 清空所有消息
   clear(): void {
     this.messages = [];
     this.listeners.forEach((l: DataChangeListener) => l.onDataReloaded());

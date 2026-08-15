@@ -1,12 +1,8 @@
 /**
  * 对话 + 消息 聚合仓库（Repository）
- *
- * 职责：
- *   1. 作为页面访问对话/消息数据的唯一入口（页面不直接触碰 DAO）
- *   2. 承载跨表操作并用事务保证原子性：
- *      - deleteConversations：先删消息、再删对话（事务，中断自动回滚）
- *      - move：批量移动对话（事务）
- *   3. 查询方法统一吞掉 DAO 异常并返回默认值（页面无需感知，与原 DatabaseHelper 行为一致）
+ * 1. 页面访问对话/消息数据的唯一入口（页面不直接触碰 DAO）
+ * 2. 跨表操作以事务保证原子性（deleteConversations / move）
+ * 3. 查询方法统一吞掉 DAO 异常并返回默认值
  */
 
 import { relationalStore } from "@kit.ArkData";
@@ -29,14 +25,14 @@ export class ConversationRepository {
     return ConversationRepository.instance;
   }
 
-  // 共享 RdbStore（init 完成前为 undefined）
+  /* 共享 RdbStore（init 完成前为 undefined） */
   private get store(): relationalStore.RdbStore | undefined {
     return DatabaseHelper.getInstance().getStore();
   }
 
-  // 对话表
+  /* 对话表 */
 
-  // 查询全部对话，按最后更新时间倒序
+  /* 全部对话按最后更新时间倒序 */
   async getAll(): Promise<Conversation[]> {
     try {
       return await ConversationDao.getInstance().getAll();
@@ -46,7 +42,7 @@ export class ConversationRepository {
     }
   }
 
-  // 按 id 查询单个对话；不存在时返回 undefined
+  /* 单个对话；不存在时返回 undefined */
   async getById(id: string): Promise<Conversation | undefined> {
     try {
       return await ConversationDao.getInstance().getById(id);
@@ -56,7 +52,7 @@ export class ConversationRepository {
     }
   }
 
-  // 按文件夹查询对话（仅已收藏）；categoryId 传空串 = 未分类
+  /* 按文件夹查询（仅已收藏）；categoryId 空串 = 未分类 */
   async getByCategory(categoryId: string): Promise<Conversation[]> {
     try {
       return await ConversationDao.getInstance().getByCategory(categoryId);
@@ -66,7 +62,7 @@ export class ConversationRepository {
     }
   }
 
-  // 查询全部已收藏对话，按更新时间倒序
+  /* 全部已收藏对话，按更新时间倒序 */
   async getFavorites(): Promise<Conversation[]> {
     try {
       return await ConversationDao.getInstance().getFavorites();
@@ -76,7 +72,6 @@ export class ConversationRepository {
     }
   }
 
-  // 新增对话（返回是否成功，失败由调用方提示用户）
   async insert(conv: Conversation): Promise<boolean> {
     try {
       await ConversationDao.getInstance().insert(conv);
@@ -87,7 +82,7 @@ export class ConversationRepository {
     }
   }
 
-  // 设置对话收藏状态（取消收藏自动清空分类）（返回是否成功）
+  /* 取消收藏时自动清空分类 */
   async setFavorite(conv: Conversation, isFavorite: boolean): Promise<boolean> {
     try {
       await ConversationDao.getInstance().setFavorite(conv, isFavorite);
@@ -98,7 +93,6 @@ export class ConversationRepository {
     }
   }
 
-  // 设置对话置顶状态（返回是否成功，失败由调用方提示）
   async setPinned(conv: Conversation, pinned: boolean): Promise<boolean> {
     try {
       await ConversationDao.getInstance().setPinned(conv, pinned);
@@ -109,7 +103,6 @@ export class ConversationRepository {
     }
   }
 
-  // 更新对话（标题、分类、更新时间）（返回是否成功）
   async update(conv: Conversation): Promise<boolean> {
     try {
       await ConversationDao.getInstance().update(conv);
@@ -120,7 +113,7 @@ export class ConversationRepository {
     }
   }
 
-  // 仅更新对话的 updated_at（流式结束后刷新排序，避免整体 update 覆盖流式期间的其他字段）
+  /* 仅更新 updated_at（流式结束后刷新排序，避免整体 update 覆盖其他字段） */
   async updateTimestampOnly(id: string, updatedAt: number): Promise<boolean> {
     try {
       await ConversationDao.getInstance().updateTimestampOnly(id, updatedAt);
@@ -138,6 +131,10 @@ export class ConversationRepository {
    */
   async moveTo(conv: Conversation, folderId: string): Promise<boolean> {
     conv.categoryId = folderId;
+    /* 防御：移入文件夹时同步置收藏，维持"文件夹内对话必然已收藏"的不变量 */
+    if (folderId.length > 0) {
+      conv.isFavorite = true;
+    }
     return this.update(conv);
   }
 
@@ -147,40 +144,48 @@ export class ConversationRepository {
    */
   async move(ids: string[], folderId: string): Promise<boolean> {
     const store = this.store;
-    if (!store || ids.length === 0) return true; // 无可操作项视为成功
-    store.beginTransaction(); // 开启事务
+    if (!store || ids.length === 0) return true;
     try {
+      store.beginTransaction(); // 移入 try：begin 失败不再裸抛
       await ConversationDao.getInstance().move(ids, folderId);
-      store.commit(); // 全部成功才提交
+      store.commit();
       return true;
     } catch (e) {
-      store.rollBack(); // 任一失败回滚，避免半完成状态
+      try {
+        store.rollBack(); // rollBack 自身异常单独兜住，避免二次抛错
+      } catch (rollbackError) {
+        Logger.error(`ConversationRepository.move rollback failed: ${JSON.stringify(rollbackError)}`);
+      }
       Logger.error(`ConversationRepository.move failed: ${JSON.stringify(e)}`);
       return false;
     }
   }
 
-  // 删除对话及其全部消息（跨表事务：消息先行，中断自动回滚，无孤儿数据）
+  /* 删除对话及其全部消息（跨表事务，中断自动回滚，无孤儿数据） */
   async deleteConversations(ids: string[]): Promise<boolean> {
     const store = this.store;
-    if (!store || ids.length === 0) return true; // 无可删除项视为成功
-    store.beginTransaction(); // 开启事务
+    if (!store || ids.length === 0) return true;
     try {
-      // 先删消息、再删对话，避免孤儿数据
+      store.beginTransaction(); // 移入 try：begin 失败不再裸抛
+      /* 先删消息、再删对话，避免孤儿数据 */
       await MessageDao.getInstance().deleteByConversationIds(ids);
       await ConversationDao.getInstance().deleteByIds(ids);
-      store.commit(); // 全部成功才提交
+      store.commit();
       return true;
     } catch (e) {
-      store.rollBack(); // 任一失败回滚，避免半删状态
+      try {
+        store.rollBack(); // rollBack 自身异常单独兜住，避免二次抛错
+      } catch (rollbackError) {
+        Logger.error(`ConversationRepository.deleteConversations rollback failed: ${JSON.stringify(rollbackError)}`);
+      }
       Logger.error(`ConversationRepository.deleteConversations failed: ${JSON.stringify(e)}`);
       return false;
     }
   }
 
-  // 消息表
+  /* 消息表 */
 
-  // 查询某对话下的全部消息，按发送时间升序
+  /* 某对话全部消息按发送时间升序 */
   async getMessages(conversationId: string): Promise<Message[]> {
     try {
       return await MessageDao.getInstance().getByConversation(conversationId);
@@ -190,7 +195,6 @@ export class ConversationRepository {
     }
   }
 
-  // 新增一条消息（返回是否成功）
   async insertMessage(msg: Message): Promise<boolean> {
     try {
       await MessageDao.getInstance().insert(msg);
@@ -201,7 +205,7 @@ export class ConversationRepository {
     }
   }
 
-  // 更新一条消息（流式结束后回写完整内容 / 错误信息）（返回是否成功）
+  /* 流式结束后回写完整内容 / 错误信息 */
   async updateMessage(msg: Message): Promise<boolean> {
     try {
       await MessageDao.getInstance().update(msg);
@@ -212,7 +216,6 @@ export class ConversationRepository {
     }
   }
 
-  // 更新单条消息的激活分支状态（返回是否成功）
   async updateMessageActive(id: string, active: boolean): Promise<boolean> {
     try {
       await MessageDao.getInstance().updateActive(id, active);
@@ -223,7 +226,7 @@ export class ConversationRepository {
     }
   }
 
-  // 按 id 批量删除消息（删除单条消息及其后续子树时使用）（返回是否成功）
+  /* 删除单条消息及其后续子树时使用 */
   async deleteMessages(ids: string[]): Promise<boolean> {
     try {
       await MessageDao.getInstance().deleteByIds(ids);
@@ -234,13 +237,47 @@ export class ConversationRepository {
     }
   }
 
-  // 将某对话下全部消息置为非激活（重建激活链：先熄灭全部消息）（返回是否成功）
+  /* 重建激活链：先将对话下全部消息置为非激活 */
   async setAllMessagesInactive(conversationId: string): Promise<boolean> {
     try {
       await MessageDao.getInstance().setAllInactive(conversationId);
       return true;
     } catch (e) {
       Logger.error(`ConversationRepository.setAllMessagesInactive failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
+  async updateMessageActiveBatch(ids: string[], active: boolean): Promise<boolean> {
+    try {
+      await MessageDao.getInstance().updateActiveBatch(ids, active);
+      return true;
+    } catch (e) {
+      Logger.error(`ConversationRepository.updateMessageActiveBatch failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
+  /* 删除消息子树；若该对话已无消息，连同对话一起删除（单事务原子） */
+  async deleteMessagesAndConversationIfEmpty(convId: string, messageIds: string[]): Promise<boolean> {
+    const store = this.store;
+    if (!store || messageIds.length === 0) return true;
+    try {
+      store.beginTransaction();
+      await MessageDao.getInstance().deleteByIds(messageIds);
+      const remaining = await MessageDao.getInstance().countByConversation(convId);
+      if (remaining === 0) {
+        await ConversationDao.getInstance().deleteByIds([convId]);
+      }
+      store.commit();
+      return true;
+    } catch (e) {
+      try {
+        store.rollBack();
+      } catch (rollbackError) {
+        Logger.error(`ConversationRepository.deleteMessagesAndConversationIfEmpty rollback failed: ${JSON.stringify(rollbackError)}`);
+      }
+      Logger.error(`ConversationRepository.deleteMessagesAndConversationIfEmpty failed: ${JSON.stringify(e)}`);
       return false;
     }
   }

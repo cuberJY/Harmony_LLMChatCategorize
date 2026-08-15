@@ -1,18 +1,9 @@
 /**
- * 数据库初始化与 RdbStore 持有者（阶段2瘦身版）
+ * 数据库初始化与 RdbStore 持有者
  *
- * 职责收敛为两点：
+ * 职责：
  *   1. 初始化 RdbStore 并建表（幂等，IF NOT EXISTS）
  *   2. 向各 DAO 提供共享的 RdbStore 实例（getStore）
- *
- * 具体表的 CRUD 已拆分到 database 目录下的三个 DAO：
- *   - ConversationDao / MessageDao / CategoryDao（平铺，单表数据访问，异常上抛）
- * 跨表聚合与事务操作由两个 Repository 承载：
- *   - ConversationRepository（对话 + 消息）
- *   - CategoryRepository（文件夹树 + 级联删除）
- *
- * 开发阶段说明（用户决策）：不需要数据库版本迁移，结构直接按最新建表语句创建。
- * 若设备残留旧结构 db，卸载 App 或清除数据后重新创建即可。
  */
 
 import { relationalStore } from "@kit.ArkData";
@@ -20,19 +11,17 @@ import { common } from "@kit.AbilityKit";
 import { Logger } from "../common/Logger";
 
 export class DatabaseHelper {
-  // 当前数据库结构版本号（开发阶段固定 1，暂不启用 onUpgrade 迁移）
+  /* 当前数据库结构版本号（开发阶段固定 1，暂不启用 onUpgrade 迁移） */
   private static readonly DB_VERSION: number = 1;
 
-  // 单例实例
   private static instance: DatabaseHelper;
 
-  // 数据库操作对象（init 成功后赋值）
+  /* 数据库操作对象（init 成功后赋值） */
   private store?: relationalStore.RdbStore;
 
-  // 私有构造函数，禁止外部直接 new
+  /* 私有构造函数，禁止外部直接 new */
   private constructor() {}
 
-  // 获取单例实例
   static getInstance(): DatabaseHelper {
     if (!DatabaseHelper.instance) {
       DatabaseHelper.instance = new DatabaseHelper();
@@ -46,19 +35,17 @@ export class DatabaseHelper {
    * @param context UIAbilityContext，用于获取数据库文件路径
    */
   async init(context: common.UIAbilityContext): Promise<void> {
-    // 已初始化则跳过
     if (this.store) {
       return;
     }
 
     try {
-      // 1. 获取 RdbStore 实例
       const store = await relationalStore.getRdbStore(context, {
-        name: "chatcategorize.db", // 数据库文件名
+        name: "chatcategorize.db",
         securityLevel: relationalStore.SecurityLevel.S1, // 一般数据安全级别
       });
 
-      // 2. 建表 + 建索引（IF NOT EXISTS，重复执行安全）
+      /* 建表 + 建索引（IF NOT EXISTS，重复执行安全） */
       await store.executeSql(
         `CREATE TABLE IF NOT EXISTS conversation (
       id TEXT PRIMARY KEY,              -- 对话 ID（UUID）
@@ -101,7 +88,7 @@ export class DatabaseHelper {
     )`,
       );
 
-      // 3. 高频查询索引
+      /* 高频查询索引 */
       await store.executeSql(
         `CREATE INDEX IF NOT EXISTS idx_message_conversation ON message(conversation_id)`,
       );
@@ -109,15 +96,14 @@ export class DatabaseHelper {
         `CREATE INDEX IF NOT EXISTS idx_conversation_updated ON conversation(updated_at DESC)`,
       );
 
-      // 4. 兼容旧库：message 表缺少分支字段时补列（开发阶段直接 ALTER，不引入版本迁移）
+      /* 兼容旧库：message 表缺少分支字段时补列（开发阶段直接 ALTER，不引入版本迁移） */
       await this.ensureMessageColumns(store);
 
-      // 5. 记录当前结构版本号（开发阶段固定 1，不启用迁移）
       store.version = DatabaseHelper.DB_VERSION;
 
       this.store = store;
     } catch (e) {
-      // 初始化失败：记录日志，store 保持空，后续调用自动降级
+      /* 初始化失败：记录日志，store 保持空，后续调用自动降级 */
       Logger.error(`Database init failed: ${JSON.stringify(e)}`);
     }
   }
@@ -136,15 +122,16 @@ export class DatabaseHelper {
    */
   private async ensureMessageColumns(store: relationalStore.RdbStore): Promise<void> {
     try {
-      // 读取表结构：LIMIT 0 不返回数据行，但 ResultSet 携带全部列名
+      /* 读取表结构：LIMIT 0 不返回数据行，但 ResultSet 携带全部列名 */
       const rs = await store.querySql('SELECT * FROM message LIMIT 0');
       const existingCols: string[] = [];
       for (let i = 0; i < rs.columnCount; i++) {
         existingCols.push(rs.getColumnName(i));
       }
       rs.close();
-      // 需要补齐的分支字段定义（名称 + SQL 片段）
+      /* 需要补齐的分支字段定义（名称 + SQL 片段） */
       const newCols: string[] = [
+        "reasoning TEXT NOT NULL DEFAULT ''",
         "parent_id TEXT NOT NULL DEFAULT ''",
         "branch_group_id TEXT NOT NULL DEFAULT ''",
         "variant_index INTEGER NOT NULL DEFAULT 0",
@@ -161,7 +148,7 @@ export class DatabaseHelper {
         }
       }
     } catch (e) {
-      // 迁移失败：不影响主流程（新库已含全字段），仅记录日志
+      /* 迁移失败：不影响主流程（新库已含全字段），仅记录日志 */
       Logger.error(`ensureMessageColumns failed: ${JSON.stringify(e)}`);
     }
   }

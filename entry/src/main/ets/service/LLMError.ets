@@ -1,22 +1,17 @@
 /**
  * 统一错误模型（服务层错误归一化）
- *
- * 设计意图：
- *  - 各 LLM 供应商（DeepSeek / Qwen / Moonshot / Ollama …）的错误格式各不相同
- *    （HTTP 状态码 + 各自的 error 结构），但业务层（ChatViewModel）与 UI 只依赖
- *    统一的 LLMError：code（稳定错误码）+ category（分类，驱动 UI 行为）+ 原始信息。
- *  - 错误码与文案分离：LLMError 只存 code；用户文案统一由 errorMessageResource()
- *    按 code 从 string.json 解析，组件内不出现任何硬编码文案。
- *  - 新增供应商时，只需在 Provider 内做「供应商错误 → 统一错误码」映射，
- *    LLMError / UI / 存储层零改动。
+ * 各供应商错误格式不同，统一收敛为 LLMError：code（稳定错误码）+ category（分类，驱动 UI 行为）+ 原始信息。
+ * 错误码与文案分离：文案统一由 errorMessageResource() 按 code 从 string.json 解析，组件内无硬编码。
+ * 新增供应商只需在 Provider 内做「供应商错误 → 统一错误码」映射，其余层零改动。
  */
 
-// 错误分类（驱动 UI 行为：标题措辞、是否保留「继续生成」按钮等）
+/* 错误分类（驱动 UI 行为：标题措辞、是否保留「继续生成」按钮等） */
 export type ErrorCategory =
   | "config"      // 配置问题（未填/失效 Key）
   | "auth"        // 鉴权失败（401）
   | "rate_limit"  // 限流（429）
   | "context"     // 上下文超限（400）
+  | "client"      // 请求非法（400 其他原因 / 403，不可重试）
   | "output"      // 输出被截断（response.incomplete）
   | "server"      // 服务端错误（5xx / response.failed）
   | "network"     // 网络错误（超时/断连/请求失败）
@@ -41,12 +36,13 @@ export interface LLMError {
   provider: string;
 }
 
-// 统一错误码枚举（新增错误码时同步维护 categoryOf / retryableOf / errorMessageResource 三张映射表）
+/* 统一错误码枚举（新增错误码时同步维护 categoryOf / retryableOf / errorMessageResource 三张映射表） */
 export enum ErrorCode {
   CFG_NOT_CONFIGURED = "CFG_NOT_CONFIGURED", // 未配置 API Key
   AUTH_INVALID_KEY = "AUTH_INVALID_KEY",     // 鉴权失败（401）
   RATE_LIMITED = "RATE_LIMITED",             // 限流（429）
   CTX_OVERFLOW = "CTX_OVERFLOW",             // 上下文超限（400）
+  REQ_INVALID = "REQ_INVALID",               // 请求参数非法（400/403，不可重试）
   SRV_ERROR = "SRV_ERROR",                   // 服务端错误（5xx / response.failed）
   OUT_TRUNCATED = "OUT_TRUNCATED",           // 输出截断（response.incomplete）
   NET_TIMEOUT = "NET_TIMEOUT",               // 连接/读超时
@@ -57,7 +53,7 @@ export enum ErrorCode {
   UNKNOWN = "UNKNOWN",                       // 兜底
 }
 
-// 错误码 → 分类（switch 穷举，新增错误码时编译器不强制，但应同步维护）
+/* 错误码 → 分类（switch 穷举，新增错误码时同步维护） */
 function categoryOf(code: ErrorCode): ErrorCategory {
   switch (code) {
     case ErrorCode.CFG_NOT_CONFIGURED:
@@ -68,6 +64,8 @@ function categoryOf(code: ErrorCode): ErrorCategory {
       return "rate_limit";
     case ErrorCode.CTX_OVERFLOW:
       return "context";
+    case ErrorCode.REQ_INVALID:
+      return "client";
     case ErrorCode.OUT_TRUNCATED:
     case ErrorCode.EMPTY_ANSWER:
       return "output";
@@ -82,7 +80,7 @@ function categoryOf(code: ErrorCode): ErrorCategory {
   }
 }
 
-// 错误码 → 是否可继续生成/重试
+/* 错误码 → 是否可继续生成/重试 */
 function retryableOf(code: ErrorCode): boolean {
   switch (code) {
     case ErrorCode.OUT_TRUNCATED:
@@ -94,6 +92,8 @@ function retryableOf(code: ErrorCode): boolean {
     case ErrorCode.EMPTY_ANSWER:
     case ErrorCode.UNKNOWN:
       return true;
+    case ErrorCode.REQ_INVALID:
+      return false;
     default:
       return false;
   }
@@ -122,9 +122,7 @@ export function buildError(
   };
 }
 
-// 错误码 → 用户文案资源（string.json）
-
-/** 
+/**
  * ArkTS 中 $r("app.string.xxx") 是编译期校验的字面量，不能运行时拼接 key，
  * 故用 switch 穷举返回 $r 字面量，保证所有资源引用可被编译器校验。
  * Toast 与气泡错误卡片共用这套文案（Toast 只显示文案；气泡叠加错误码与详情）。
@@ -139,6 +137,8 @@ export function errorMessageResource(code: string): Resource {
       return $r("app.string.error_rate_limited");
     case ErrorCode.CTX_OVERFLOW:
       return $r("app.string.error_ctx_overflow");
+    case ErrorCode.REQ_INVALID:
+      return $r("app.string.error_req_invalid");
     case ErrorCode.SRV_ERROR:
       return $r("app.string.error_srv_error");
     case ErrorCode.OUT_TRUNCATED:
@@ -158,7 +158,7 @@ export function errorMessageResource(code: string): Resource {
   }
 }
 
-// 分类 → 错误卡片标题（措辞暗示严重度：中断=可继续 / 失败=需处理 / 异常=可重试）
+/* 分类 → 错误卡片标题（措辞暗示严重度：中断=可继续 / 失败=需处理 / 异常=可重试） */
 export function errorTitleResource(category: ErrorCategory): Resource {
   switch (category) {
     case "output":
@@ -168,15 +168,13 @@ export function errorTitleResource(category: ErrorCategory): Resource {
     case "auth":
     case "rate_limit":
     case "context":
+    case "client":
       return $r("app.string.error_title_failed");
     default:
       return $r("app.string.error_title_abnormal");
   }
 }
 
-// 序列化（持久化到消息表 error_text 列）
-
-// 存储 code / category / httpStatus / rawMessage / provider，读取时完整还原
 export function errorToJson(err: LLMError | undefined): string {
   if (err === undefined) {
     return "";
@@ -190,13 +188,13 @@ export function jsonToError(json: string): LLMError | undefined {
   }
   try {
     const obj = JSON.parse(json) as LLMError;
-    // 缺少关键字段视为无效（旧数据或写入异常）
+    /* 缺少关键字段视为无效（旧数据或写入异常） */
     if (obj.code === undefined || obj.category === undefined || obj.rawMessage === undefined) {
       return undefined;
     }
     return obj;
   } catch (e) {
-    // 解析失败：降级为无错误，不影响消息展示
+    /* 解析失败：降级为无错误，不影响消息展示 */
     return undefined;
   }
 }

@@ -1,10 +1,10 @@
 import { generateId } from "../common/Utils";
 import { LLMError } from "../service/LLMError";
 
-// 消息角色类型
+/* 消息角色类型 */
 export type MessageRole = "user" | "assistant" | "system";
 
-// 思考过程中浏览过的网页（服务端 web_search 的 open_page 动作；结构化记录供「xx个网页」面板展示）
+/* 思考过程中浏览过的网页（服务端 web_search 的 open_page 动作；结构化记录供「xx个网页」面板展示） */
 export interface WebPage {
   url: string; // 网页完整 URL（点击可打开）
   domain: string; // 提取的域名（用于列表展示）
@@ -28,7 +28,7 @@ export class Message {
   @Trace reasoning: string = ""; // AI 思考内容（仅 assistant 有值）
   @Trace searchedWebs: WebPage[] = []; // 思考过程中浏览过的网页（open_page 动作；@Trace 驱动「xx个网页」按钮数量实时刷新）
   @Trace generationStatus: "complete" | "partial" = "complete"; // 生成状态（持久化）：complete 完整 / partial 未完成
-  //（进程终止/网络中断/暂停/生成中均为 partial；重启加载对话时据此恢复「继续生成」按钮）
+  /* （进程终止/网络中断/暂停/生成中均为 partial；重启加载对话时据此恢复「继续生成」按钮） */
   @Trace error: LLMError | undefined = undefined; // 生成终止时的统一错误信息（结构化存储，独立于正文；进程重启后从库恢复展示）
   @Trace isThinking: boolean = false; // 是否正在思考中（用于 UI 状态）
   @Trace isSearching: boolean = false; // 是否正在联网搜索（用于 UI 状态）
@@ -46,13 +46,15 @@ export class Message {
   @Trace thinkingDuration: number = 0; // 思考耗时（秒），思考完成时赋值
   @Trace createdAt: number = 0; // 发送时间戳（毫秒）
 
-  // ===== 对话分支字段（v2.0 新增）=====
-  // 分支链模型：
-  //   每条消息记录 parentId = 被回复的消息 id（根用户消息为空串）
-  //   branchGroupId = parentId，即"该位置的分支组锚点"（同组消息互为变体兄弟）
-  //   variantIndex = 变体序号（0 起；同一分支组内递增）
-  //   isActive = 是否位于当前激活分支链上（列表仅渲染激活链）
-  // 例如：U1(root) → A1(v0)/A1'(v1) 为变体；U2(parentId=A1) → U2'(parentId=A1) 亦为变体
+  /**
+   * ===== 对话分支字段（v2.0 新增）=====
+   * 分支链模型：
+   *   每条消息记录 parentId = 被回复的消息 id（根用户消息为空串）
+   *   branchGroupId = parentId，即"该位置的分支组锚点"（同组消息互为变体兄弟）
+   *   variantIndex = 变体序号（0 起；同一分支组内递增）
+   *   isActive = 是否位于当前激活分支链上（列表仅渲染激活链）
+   * 例如：U1(root) → A1(v0)/A1'(v1) 为变体；U2(parentId=A1) → U2'(parentId=A1) 亦为变体
+   */
   @Trace parentId: string = ""; // 父消息 ID（被回复的消息，根消息为 ""）
   @Trace branchGroupId: string = ""; // 分支组 ID（= parentId，同组消息互为变体）
   @Trace variantIndex: number = 0; // 变体序号（0 起，驱动 "< 当前 / 总数 >"）
@@ -66,7 +68,6 @@ export class Message {
     this.createdAt = Date.now();
   }
 
-  // 是否为用户消息
   isUser(): boolean {
     return this.role === "user";
   }
