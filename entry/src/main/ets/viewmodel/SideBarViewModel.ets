@@ -1,7 +1,7 @@
 /**
  * 侧边栏页 ViewModel（状态管理 V2）
  * 承载 SideBarPage 的数据与业务逻辑：
- *   - 历史对话加载 / 搜索过滤 / 时间分组
+ *   - 历史对话加载 / 时间分组（搜索已独立到 SearchPage / SearchViewModel）
  *   - 收藏 Tab 数据（顶级文件夹 + 未分类收藏对话）
  *   - 多选编辑模式（选中集合、全选、批量删除/移动）
  *   - 重命名 / 收藏 / 取消收藏 / 移动 / 删除
@@ -32,7 +32,6 @@ export class SideBarViewModel {
   @Trace groups: GroupItem[] = []; // 分组后的对话（渲染数据源）
   @Trace topFolders: Category[] = []; // 顶级文件夹列表（收藏 Tab）
   @Trace uncategorizedConvs: Conversation[] = []; // 未分类对话列表（收藏 Tab）
-  @Trace searchText: string = ""; // 搜索关键字
   @Trace isEditMode: boolean = false; // 多选编辑模式
   @Trace selectedIds: string[] = []; // 已选中对话 ID
   @Trace listVersion: number = 0; // 列表刷新版本号：重命名/改色等键不变的内容变更后自增，强制 ForEach 重建
@@ -47,23 +46,21 @@ export class SideBarViewModel {
   }
 
   /**
-   * 根据搜索关键字重新构建分组
+   * 重新构建历史对话分组（搜索独立到 SearchPage，此处为全量分组）
    * 规则：对话先按 updatedAt 倒序，再归入 今天/昨天/7天内/30天内/年月 各组
    */
   rebuildGroups(): void {
-    const keyword = this.searchText.trim().toLowerCase();
-    /* 1. 过滤（有关键字时按标题匹配） */
-    const filtered =
-      keyword.length === 0
-        ? this.conversations
-        : this.conversations.filter((c: Conversation) => c.title.toLowerCase().includes(keyword));
+    this.groups = this.buildGroups(this.conversations);
+  }
 
-    /* 2. 按更新时间倒序 */
-    const sorted = filtered
+  /* 公共分组逻辑：按更新时间倒序后归入 今天/昨天/7天内/30天内/年月 各组 */
+  private buildGroups(list: Conversation[]): GroupItem[] {
+    /* 1. 按更新时间倒序 */
+    const sorted = list
       .slice()
       .sort((a: Conversation, b: Conversation) => b.updatedAt - a.updatedAt);
 
-    /* 3. 遍历分组（保持各组出现顺序：今天 → 昨天 → 7天内 → 30天内 → 年月） */
+    /* 2. 遍历分组（保持各组出现顺序：今天 → 昨天 → 7天内 → 30天内 → 年月） */
     const result: GroupItem[] = [];
     const groupIndexMap: Map<string, number> = new Map(); // 组名 → 在 result 中的下标
     sorted.forEach((conv: Conversation) => {
@@ -76,7 +73,7 @@ export class SideBarViewModel {
         result[idx].conversations.push(conv);
       }
     });
-    this.groups = result;
+    return result;
   }
 
   /* 加载收藏 Tab 数据：顶级文件夹 + 已收藏但未放入文件夹的对话 */

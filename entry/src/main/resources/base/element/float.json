@@ -10,7 +10,7 @@
     },
     {
       "name": "font_name",
-      "value": "16fp"
+      "value": "17fp"
     },
     {
       "name": "font_time",
@@ -30,27 +30,27 @@
     },
     {
       "name": "font_h1",
-      "value": "28fp"
-    },
-    {
-      "name": "font_h2",
       "value": "24fp"
     },
     {
-      "name": "font_h3",
+      "name": "font_h2",
       "value": "20fp"
     },
     {
-      "name": "font_h4",
+      "name": "font_h3",
       "value": "16fp"
+    },
+    {
+      "name": "font_h4",
+      "value": "15fp"
     },
     {
       "name": "font_h5",
-      "value": "16fp"
+      "value": "15fp"
     },
     {
       "name": "font_h6",
-      "value": "16fp"
+      "value": "15fp"
     },
     {
       "name": "font_model_name",

@@ -1,7 +1,7 @@
 /**
  * 历史对话列表项组件
  * 用于 SideBarPage 历史列表中展示单条对话
- * 显示：对话标题 + 最后更新时间
+ * 显示：对话标题
  */
 
 import { Conversation } from "../../model/Conversation";
@@ -57,18 +57,18 @@ export struct ConversationItem {
           if (this.isSelected) {
             SymbolGlyph($r("sys.symbol.checkmark")) // 对勾
             .fontSize($r('app.float.font_icon_lg'))
-            .fontWeight(600)
+            .fontWeight(900)
             .fontColor([Color.White])
-            .margin({
-              left: $r('app.float.space_sm'),
-            })
           }
         }
-        .width(24)
-        .height(24)
-        .borderRadius(12)
+        .width(20)
+        .height(20)
+        .borderRadius(10)
         .border({ width: 1.5, color: this.isSelected ? $r('app.color.primary') : $r('app.color.send_btn_disabled') })
         .backgroundColor(this.isSelected ? $r('app.color.primary') : Color.Transparent)
+        .margin({
+            left: $r('app.float.space_sm'),
+        })
       }
     }
     .width("100%")

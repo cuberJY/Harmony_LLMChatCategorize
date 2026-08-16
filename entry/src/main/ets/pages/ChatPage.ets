@@ -1,11 +1,11 @@
 import { common } from "@kit.AbilityKit";
 import { window } from "@kit.ArkUI";
 import { Message } from "../model/Message";
-import { Conversation } from "../model/Conversation";
+import { Conversation, ConversationSelection } from "../model/Conversation";
 import { SideBarParams } from "../model/SideBarParams";
 import { MessageBubble } from "../components/chat/MessageBubble";
 import { ChatInput } from "../components/chat/ChatInput";
-import { WebSheetPanel } from "../components/chat/WebSheetPanel";
+import { WebSheetPanel } from "../components/panel/WebSheetPanel";
 import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { showToast } from "../common/Utils";
@@ -213,6 +213,9 @@ export struct ChatPage {
                   /* 编辑：回填输入框（发送时创建新分支） */
                   onEdit: (m: Message) => {
                     this.vm.startEdit(m);
+                    /* 编辑态进入后键盘必然弹出，但 keyboardHeightChange 事件在键盘弹出动画完成后才回调、
+                       存在延迟；此处同步标记，消除"键盘弹出动画期间按返回键误判为键盘未弹出"的时序窗口 */
+                    this.isKeyboardShowing = true;
                   },
                   /* 切换分支：在变体间 ±1 循环 */
                   onSwitchBranch: (m: Message, delta: number) => {
@@ -531,10 +534,21 @@ export struct ChatPage {
       "SideBarPage",
       new SideBarParams(this.vm.getCurrentConversationId()),
       (popInfo: PopInfo) => {
-        /* 选中对话返回：pop(conv) 携带结果，加载该对话。
+        /* 选中对话返回：
+           老路径 pop(Conversation) → 仅加载对话；
+           搜索面板 pop(ConversationSelection) → 加载对话并定位到命中消息（focusMessageId）。
            标题/模型名刷新与防重入复位由 NavDestination.onShown 统一负责 */
-        const conv = popInfo.result as Conversation | undefined;
-        if (conv && conv.id.length > 0) {
+        const result = popInfo.result;
+        if (result === undefined || result === null) {
+          return;
+        }
+        const selection = result as ConversationSelection;
+        if (selection.conv !== undefined && selection.focusMessageId !== undefined) {
+          this.vm.loadConversation(selection.conv, selection.focusMessageId);
+          return;
+        }
+        const conv = result as Conversation;
+        if (conv.id.length > 0) {
           this.vm.loadConversation(conv);
         }
       },

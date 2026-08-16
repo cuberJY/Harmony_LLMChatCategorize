@@ -7,7 +7,7 @@
 
 import { relationalStore } from "@kit.ArkData";
 import { Conversation } from "../model/Conversation";
-import { Message } from "../model/Message";
+import { Message, ContentSnippet } from "../model/Message";
 import { DatabaseHelper } from "./DatabaseHelper";
 import { ConversationDao } from "./ConversationDao";
 import { MessageDao } from "./MessageDao";
@@ -184,6 +184,16 @@ export class ConversationRepository {
   }
 
   /* 消息表 */
+
+  /* 内容搜索（带命中片段）：返回每对话一条命中片段（供搜索结果列表展示） */
+  async getContentMatchSnippets(keyword: string, activeOnly: boolean): Promise<ContentSnippet[]> {
+    try {
+      return await MessageDao.getInstance().getContentMatchSnippets(keyword, activeOnly);
+    } catch (e) {
+      Logger.error(`ConversationRepository.getContentMatchSnippets failed: ${JSON.stringify(e)}`);
+      return [];
+    }
+  }
 
   /* 某对话全部消息按发送时间升序 */
   async getMessages(conversationId: string): Promise<Message[]> {

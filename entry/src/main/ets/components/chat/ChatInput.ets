@@ -131,6 +131,12 @@ export struct ChatInput {
         placeholder: "输入消息...",
       })
         .id('chat_input') // 供自动弹出输入法时请求焦点
+        /**
+         * TextArea 默认 stopBackPress(true)，会拦截返回键、不触发 NavDestination.onBackPressed，
+         * 导致键盘收起后第二次返回键被 TextArea 消费并冒泡到 UIAbility 直接退出应用。
+         * 置 false 让返回键正常传到 onBackPressed，由页面按「收键盘 > 取消编辑 > 退出」优先级处理。
+         */
+        .stopBackPress(false)
         .fontSize($r('app.float.font_input'))
         .fontColor($r('app.color.text_primary'))
         .width("100%")
@@ -162,7 +168,9 @@ export struct ChatInput {
           /* 深度思考 */
           Text("深度思考")
             .fontSize($r('app.float.font_toggle'))
-            .fontColor(this.deepThinking ? $r('app.color.toggle_text_active') : $r('app.color.toggle_text_inactive'))
+            .fontColor(
+              this.deepThinking ? $r('app.color.toggle_text_active') : $r('app.color.toggle_text_inactive')
+            )
             .padding({
               left: $r('app.float.space_sm'),
               right: $r('app.float.space_sm'),
@@ -172,7 +180,7 @@ export struct ChatInput {
             .height(32)
             .borderRadius(16)
             .backgroundColor(
-              this.deepThinking ? $r('app.color.toggle_bg_active') : $r('app.color.toggle_bg_inactive'),
+              this.deepThinking ? $r('app.color.toggle_bg_active') : $r('app.color.toggle_bg_inactive')
             )
             .margin({ right: $r('app.float.space_sm') })
             .onClick(() => {

@@ -21,3 +21,13 @@ export class Conversation {
     this.updatedAt = Date.now();
   }
 }
+
+/**
+ * 对话选中结果（搜索面板回传）：打开对话的同时定位到命中的那条消息
+ * 侧边栏搜索面板选中结果时 pop 此对象；ChatPage 的 onPop 据此区分
+ * 老路径（pop(Conversation)，仅打开对话）与新路径（pop(ConversationSelection)，打开并定位）
+ */
+export interface ConversationSelection {
+  conv: Conversation; // 选中的对话
+  focusMessageId: string; // 定位的消息 ID（标题命中/无定位目标时为空串，回退正常打开）
+}

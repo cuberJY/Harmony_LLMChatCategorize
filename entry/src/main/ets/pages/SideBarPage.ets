@@ -9,13 +9,13 @@
  * - 返回刷新：NavDestination.onShown 替代原 onPageShow
  *
  * 结构（从上到下）：
- *  顶部栏  [收藏] [历史]        ← 返回
+ *  顶部栏  [收藏] [历史]              ← 返回
  *  内容区  收藏Tab → 文件夹列表（先空态占位）
- *         历史Tab → 搜索框 + 按时间分组的历史对话列表
+ *         历史Tab → 搜索框入口（点击弹出搜索面板）+ 按时间分组的历史对话列表
  *  底部    设置按钮
  */
 
-import { ComponentContent, KeyboardAvoidMode } from "@kit.ArkUI";
+import { ComponentContent, KeyboardAvoidMode, window } from "@kit.ArkUI";
 import { BusinessError } from "@kit.BasicServicesKit";
 import { common } from "@kit.AbilityKit";
 import { Category } from "../model/Category";
@@ -24,14 +24,16 @@ import { EditFolderDialogParams, buildEditFolderContent } from "../components/di
 import { FolderPickerDialogParams, buildFolderPickerContent } from "../components/dialog/FolderPickerDialog";
 import { DatabaseHelper } from "../database/DatabaseHelper";
 import { CategoryRepository } from "../database/CategoryRepository";
-import { Conversation } from "../model/Conversation";
 import { ConversationItem } from "../components/item/ConversationItem";
 import { RenameDialogParams, buildRenameDialog } from "../components/dialog/RenameInputDialog";
 import { showDeleteConfirm } from "../common/Utils";
 import { DIALOG_DELAY_AFTER_MENU, DIALOG_OFFSET_SLIGHT, DIALOG_OFFSET_TALL, DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { FolderParams } from "../model/FolderParams";
+import { Conversation, ConversationSelection } from "../model/Conversation";
 import { SideBarViewModel, GroupItem } from "../viewmodel/SideBarViewModel";
+import { SearchSheetPanel } from "../components/panel/SearchSheetPanel";
+import { SearchViewModel } from "../viewmodel/SearchViewModel";
 
 @ComponentV2
 export struct SideBarPage {
@@ -45,6 +47,9 @@ export struct SideBarPage {
   private transitionIndex: number = -1;
   /* 数据与业务逻辑（@Trace 状态 + 分组 + 编辑模式）全部收敛到 ViewModel，页面只保留 build / 路由 / 弹窗 */
   private vm: SideBarViewModel = new SideBarViewModel();
+  /* 搜索面板状态：sheetShow 控制 bindSheet 显隐（$$ 双向绑定，下滑/点遮罩关闭自动复位）；searchVm 常驻，面板关闭再打开状态保留 */
+  @Local searchSheetShow: boolean = false;
+  private searchVm: SearchViewModel = new SearchViewModel();
 
   /* 重命名弹窗的内容节点（ComponentContent 方式）：非空表示已打开或残留待清理 */
   private renameDialogNode: ComponentContent<RenameDialogParams> | null = null;
@@ -89,6 +94,46 @@ export struct SideBarPage {
     }
   }
 
+  /* 搜索面板内容：SearchSheetPanel 组件（vm 常驻共享，选中对话回传并关闭面板） */
+  @Builder
+  searchSheetContent() {
+    SearchSheetPanel({
+      vm: this.searchVm,
+      onSelectConversation: (selected: Conversation, messageId: string) => {
+        /* 选中搜索结果：关闭面板 + 携带对话与定位消息返回 ChatPage（本页即由 ChatPage push 而来） */
+        this.searchSheetShow = false;
+        const selection: ConversationSelection = { conv: selected, focusMessageId: messageId };
+        this.pathStack.pop(selection);
+      },
+    })
+  }
+
+  /**
+   * 搜索面板高度：撑满窗口（窗口高度 - 状态栏 - 标题栏），形式与 ChatPage 的半模态面板一致
+   * 窗口/状态栏为 px，统一转 vp
+   */
+  private searchSheetHeight(): number {
+    try {
+      const host = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
+      if (host === undefined || host.windowStage === undefined) {
+        return 500; // 兜底高度
+      }
+      /* 标题栏高度（float 资源带 'vp' 单位，getNumber 返回 px，需转回 vp） */
+      const titleBarHeightPx = host.resourceManager.getNumber($r('app.float.title_bar_height').id);
+      const titleBarHeight = this.getUIContext().px2vp(titleBarHeightPx);
+      const win = host.windowStage.getMainWindowSync();
+      /* 窗口总高度（px） */
+      const windowHeightPx = win.getWindowProperties().windowRect.height;
+      /* 状态栏（顶部安全区）高度（px），非沉浸式窗口时为 0 */
+      const safeTopPx = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect.height;
+      const windowHeight = this.getUIContext().px2vp(windowHeightPx);
+      const safeTop = this.getUIContext().px2vp(safeTopPx);
+      return Math.max(200, windowHeight - safeTop - titleBarHeight);
+    } catch (e) {
+      return 500; // 异常兜底，保证面板可显示
+    }
+  }
+
   build() {
     NavDestination() {
       Column() {
@@ -96,14 +141,17 @@ export struct SideBarPage {
         if (this.vm.isEditMode) {
           Row() {
             Text("已选择 ")
-              .fontSize($r('app.float.font_body'))
+              .fontSize($r('app.float.font_title'))
+              .fontWeight(600)
               .fontColor($r('app.color.text_primary'))
             Text(this.vm.selectedIds.length.toString())
-              .fontSize($r('app.float.font_body'))
+              .fontSize($r('app.float.font_title'))
+              .fontWeight(600)
               .fontColor($r('app.color.text_important'))
               .textAlign(TextAlign.Center)
             Text(" 项")
-              .fontSize($r('app.float.font_body'))
+              .fontSize($r('app.float.font_title'))
+              .fontWeight(600)
               .fontColor($r('app.color.text_primary'))
           }
           .width("100%")
@@ -160,16 +208,41 @@ export struct SideBarPage {
             .alignItems(VerticalAlign.Center)
 
             Row() {
-              SymbolGlyph($r("sys.symbol.ellipsis_message "))
+              SymbolGlyph($r("sys.symbol.magnifyingglass"))
                 .fontSize($r('app.float.font_icon_xxl'))
                 .fontWeight(700)
                 .fontColor([$r('app.color.text_primary')])
+                .margin({
+                  left: $r('app.float.space_md'),
+                  right: $r('app.float.space_md'),
+                })
+                .onClick(() => {
+                  /* 打开搜索面板（从下方弹出）：每次弹出刷新数据源，搜索状态由常驻 searchVm 保留 */
+                  this.searchSheetShow = true;
+                  this.searchVm.loadConversations();
+                })
+                /* 半模态搜索面板：从下方弹出，无标题栏（形式同 ChatPage 的网页/文本面板） */
+                .bindSheet($$this.searchSheetShow, this.searchSheetContent(), {
+                  height: this.searchSheetHeight(),
+                  dragBar: false,
+                  showClose: false,
+                  backgroundColor: $r('app.color.dialog_bg'),
+                  onDisappear: () => {
+                    this.searchSheetShow = false;
+                  },
+                });
+              SymbolGlyph($r("sys.symbol.ellipsis_message"))
+                .fontSize($r('app.float.font_icon_xxl'))
+                .fontWeight(700)
+                .fontColor([$r('app.color.text_primary')])
+                .margin({
+                  left: $r('app.float.space_md'),
+                })
+                .onClick(() => {
+                  this.pathStack.pop();
+                })
             }
-            .width(40)
             .justifyContent(FlexAlign.End)
-            .onClick(() => {
-              this.pathStack.pop();
-            })
           }
           .width("100%")
           .height($r('app.float.title_bar_height'))
@@ -185,25 +258,6 @@ export struct SideBarPage {
         Swiper(this.swiperController) {
           /* 历史 Tab */
           Column() {
-            if (this.vm.conversations.length > 0) {
-              TextInput({ placeholder: "搜索对话...", text: this.vm.searchText })
-                .height(40)
-                .fontSize($r('app.float.font_input'))
-                .fontColor($r('app.color.text_primary'))
-                .placeholderColor($r('app.color.text_secondary'))
-                .backgroundColor($r('app.color.input_search_bg'))
-                .borderRadius(20)
-                .borderWidth(1)
-                .borderColor($r('app.color.input_border'))
-                .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
-                .margin({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_md'), bottom: $r('app.float.space_md') })
-                .onChange((value: string) => {
-                  /* 实时过滤：重新分组 */
-                  this.vm.searchText = value;
-                  this.vm.rebuildGroups();
-                });
-            }
-
             if (this.vm.groups.length === 0) {
               Column() {
                 Text("暂无历史对话")
@@ -219,7 +273,7 @@ export struct SideBarPage {
                 ForEach(
                   this.vm.groups,
                   (group: GroupItem) => {
-                    /* 组标题（左对齐） */
+                    /* 时间组标题（左对齐） */
                     ListItem() {
                       Text(group.name)
                         .fontSize($r('app.float.font_time'))
@@ -227,7 +281,7 @@ export struct SideBarPage {
                         .width("100%")
                         .textAlign(TextAlign.Start)
                         .padding({
-                          left: $r('app.float.space_xl'),
+                          left: $r('app.float.space_lg'),
                           right: $r('app.float.space_xl'),
                           top: $r('app.float.space_md'),
                           bottom: $r('app.float.space_xs'),
@@ -279,10 +333,6 @@ export struct SideBarPage {
               .width("100%")
               .layoutWeight(1)
               .backgroundColor($r('app.color.page_bg'))
-              .divider({
-                strokeWidth: 0.5,
-                color: $r('app.color.divider'),
-              });
             }
           }
           .width("100%")
@@ -423,6 +473,7 @@ export struct SideBarPage {
         .curve(Curve.EaseOut)
         .loop(false)
         .disableSwipe(this.vm.isEditMode) // 多选编辑模式下禁止滑动，避免误操作
+        .indicator(false) // 隐藏底部圆点指示器
         .onChange((index: number) => {
           if (index === 0 && this.vm.currentTab !== 0) {
             this.vm.listVersion++;

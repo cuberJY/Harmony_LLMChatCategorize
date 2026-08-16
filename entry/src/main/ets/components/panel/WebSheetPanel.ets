@@ -20,7 +20,7 @@ export struct WebSheetPanel {
       /* 标题行：左右等宽占位保证标题居中 */
       Row() {
         Row().width($r('app.float.space_xxl')) // 左侧占位（与右侧关闭按钮等宽，保证标题视觉居中）
-        Text(`${this.webs.length}个网页`)
+        Text(`${this.webs.length} 个网页`)
           .fontSize($r('app.float.font_title'))
           .fontWeight(FontWeight.Bold)
           .fontColor($r('app.color.text_primary'))

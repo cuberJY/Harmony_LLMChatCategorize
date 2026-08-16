@@ -10,6 +10,15 @@ export interface WebPage {
   domain: string; // 提取的域名（用于列表展示）
 }
 
+/* 内容搜索命中消息：某对话命中一条消息的摘要（供搜索结果分组内展示 + 跳转定位）
+   一个对话可能命中多条消息，按时间升序逐条返回 */
+export interface ContentSnippet {
+  conversationId: string; // 所属对话 ID
+  messageId: string; // 命中的消息 ID（用于打开对话后滚动定位到该消息）
+  snippet: string; // 命中片段（关键字居中截取的纯文本摘要，单行展示）
+  createdAt: number; // 消息发送时间戳（组内按此时间展示）
+}
+
 /**
  * 单条消息数据模型（状态管理 V2）
  * 一条消息属于一个对话

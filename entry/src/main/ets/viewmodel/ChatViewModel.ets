@@ -97,6 +97,7 @@ export class ChatViewModel {
   private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isListLayoutReady: boolean = false; // List 是否已完成首帧布局（onAreaChange 首次回调置位）
   private pendingPinToBottom: boolean = false; // 布局就绪前挂起的钉底请求
+  private pendingFocusIndex: number = -1; // 布局就绪前挂起的搜索定位消息下标（-1=无挂起）
   private isRestoringAnchor: boolean = false; // 切换分支锚点恢复期间置位：抑制 onListItemHeightChanged 的自动钉底干扰
   private anchorSuppressUntil: number = 0; // 切换分支后抑制自动钉底的截止时间戳（ms）：覆盖 Markdown 异步渲染增高窗口
   private isDestroyed: boolean = false; // 页面销毁标记（销毁后流回调跳过 UI 更新）
@@ -189,8 +190,10 @@ export class ChatViewModel {
    *   - await 后校验"仍是该对话"，丢弃过期结果（快速连续切换不会显示错乱）
    *   - 若该对话有进行中的流任务，用内存中的实时 aiMsg 替换 DB 里的空占位，恢复流式显示
    * @param conv 要加载的对话
+   * @param focusMessageId 可选的定位消息 ID（搜索面板跳转）：加载后滚动到该消息（屏幕中间）；
+   *                       空/未命中激活链时回退滚动到底部
    */
-  async loadConversation(conv: Conversation): Promise<void> {
+  async loadConversation(conv: Conversation, focusMessageId?: string): Promise<void> {
     /* 1. 更新当前对话状态 */
     this.currentConversation = conv;
     this.currentConversationId = conv.id;
@@ -199,6 +202,7 @@ export class ChatViewModel {
     this.editingPrefill = "";
     this.pendingActiveChainPersist = false; // 切换对话丢弃上个对话的脏标记
     this.pendingAutoFold = []; // 清空上个对话挂起的折叠请求
+    this.pendingFocusIndex = -1; // 切换对话放弃上次未执行的搜索定位
     this.title = conv.title.length > 0 ? conv.title : "新聊天";
 
     /* 2. 从数据库查询该对话的全部消息（含非激活分支变体） */
@@ -237,10 +241,20 @@ export class ChatViewModel {
     }
     this.messageDataSource.replaceAll(chain);
 
-    /* 4. 渲染完成后滚动到底部 */
+    /* 4. 渲染完成后：搜索定位到命中消息（屏幕中间）或滚动到底部 */
     this.isAtBottom = true;
     this.resetScrollFollow(); // 切换对话 → 恢复自动跟随
-    this.pinToBottomAfterLoad();
+    if (focusMessageId !== undefined && focusMessageId.length > 0) {
+      const focusIdx = chain.findIndex((m: Message) => m.id === focusMessageId);
+      if (focusIdx >= 0) {
+        this.isAtBottom = false; // 定位到消息中间：不在底部，避免 item 增高时被钉底逻辑拉回
+        this.pinToMessageIndex(focusIdx);
+      } else {
+        this.pinToBottomAfterLoad(); // 命中消息不在激活链（开关打开命中的非激活变体）→ 回退钉底
+      }
+    } else {
+      this.pinToBottomAfterLoad();
+    }
     /* 5. 依据该对话的进行中任务刷新 UI 状态（有流任务→暂停键；暂停任务→继续生成按钮） */
     this.refreshStreamState();
   }
@@ -1745,6 +1759,36 @@ export class ChatViewModel {
   }
 
   /**
+   * 搜索跳转定位：滚动到指定消息（屏幕中间）
+   * 与 pinToBottomAfterLoad 相同的挂起/重试机制：懒加载 + Markdown 异步渲染导致 item 高度
+   * 在渲染完成后才确定，单次 scrollToIndex 定位不稳，需间隔重试直至位置稳定。
+   * 定位不依赖 shouldAutoScroll 守卫（用户可能本就不在底部），直接操作 listScroller；
+   * 定位后 isAtBottom 保持 false（不在底部），item 增高不会触发钉底拉回。
+   * @param idx 消息在激活链中的下标
+   * @param remain 剩余重试次数（120ms × N，默认约 720ms 兜底）
+   */
+  private pinToMessageIndex(idx: number, remain: number = 6): void {
+    if (this.isDestroyed || remain <= 0) {
+      this.pendingFocusIndex = -1;
+      return;
+    }
+    /* List 未完成首帧布局 → 挂起，等 onListFirstLayout() 触发后再执行 */
+    if (!this.isListLayoutReady) {
+      this.pendingFocusIndex = idx;
+      return;
+    }
+    this.pendingFocusIndex = -1;
+    try {
+      this.listScroller.scrollToIndex(idx, false, ScrollAlign.CENTER);
+    } catch (e) {
+      /* 个别版本可能抛异常，交给重试兜底 */
+    }
+    setTimeout(() => {
+      this.pinToMessageIndex(idx, remain - 1);
+    }, 120);
+  }
+
+  /**
    * 加载/重建列表后的多次钉底重试（入口 + 重试循环一体）：
    * 解决"首次打开分支多、Markdown 渲染重的对话滚不到最后一条"的问题——
    * 懒加载 + Markdown 异步渲染导致 item 高度在渲染完成后才确定，单次 scrollToIndex
@@ -1786,6 +1830,13 @@ export class ChatViewModel {
       return;
     }
     this.isListLayoutReady = true;
+    /* 此前有挂起的搜索定位请求（定位发生在布局就绪前）→ 优先执行定位 */
+    if (this.pendingFocusIndex >= 0) {
+      const idx = this.pendingFocusIndex;
+      this.pendingFocusIndex = -1;
+      this.pinToMessageIndex(idx);
+      return;
+    }
     /* 此前有挂起的钉底请求（加载对话发生在布局就绪前）→ 立即执行 */
     if (this.pendingPinToBottom) {
       this.pendingPinToBottom = false;

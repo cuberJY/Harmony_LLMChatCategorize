@@ -50,6 +50,11 @@ export struct MessageBubble {
    * 故改为通过 onOpenSheet 回调通知页面打开（弹层生命周期与页面绑定，关闭状态由页面统一复位）
    */
   @Local reasoningBlocks: ReasoningBlock[] = []; // 思考过程块列表（流式增量原地复用更新，见 rebuildReasoningBlocks）
+  /**
+   * 状态点号动画阶段（0/1/2 对应 "思考中."/"思考中.."/"思考中..."）：
+   * @Local 变化自动触发标题/状态提示 Text 重绘，驱动周期切换
+   */
+  @Local dotPhase: number = 0;
 
   /**
    * 监听折叠请求：ViewModel 在流式结束后延迟 500ms 复查"用户在底部且未操作"再放行（自增 foldVersion）。
@@ -86,6 +91,15 @@ export struct MessageBubble {
     this.rebuildReasoningBlocks();
   }
 
+  /**
+   * 监听思考/搜索状态切换：消息处于任一状态时启动点号动画定时器，全部结束时停止。
+   * （isThinking/isSearching 互斥，任一为 true 即说明仍在思考或搜索过程中）
+   */
+  @Monitor('message.isThinking', 'message.isSearching')
+  onStatusChanged(): void {
+    this.syncStatusDotTimer();
+  }
+
   /* 对话分支：变体信息与操作回调（父组件注入） */
   /**
    * 注意：不通过 @Param 传入"流式生成中"标志——@Param 在渲染时冻结，流式结束后不会刷新，
@@ -114,6 +128,7 @@ export struct MessageBubble {
   /* 非响应式成员（普通成员即可，无需观察） */
   private mdController: MarkdownController = new MarkdownController(); // lv-markdown-in 样式/拦截控制器
   private envCallbackId: number = -1; // 系统环境监听回调 ID（aboutToDisappear 注销用）
+  private statusDotTimer: number = -1; // 状态点号动画定时器 ID（-1 表示未运行）
   /* 增量解析状态（流式 O(n) 优化）：已解析过的 reasoning 快照与未闭合段落块引用 */
   private parsedReasoning: string = ""; // 已解析快照（非追加变化时触发全量重建）
   private lastParagraph: ReasoningBlock | null = null; // 未闭合段落块（增量续写目标）
@@ -153,10 +168,13 @@ export struct MessageBubble {
           });
       });
     this.registerEnvironmentListener();
+    /* 初始若已处于思考/搜索中（如创建即置 isThinking 的消息），立即启动点号动画 */
+    this.syncStatusDotTimer();
   }
 
   aboutToDisappear(): void {
     this.unregisterEnvironmentListener();
+    this.stopStatusDotTimer();
   }
 
   /**
@@ -306,9 +324,9 @@ export struct MessageBubble {
       Row() {
         Text(
           this.message.isSearching
-            ? "搜索中…"
+            ? `搜索中${this.statusDots()}`
             : this.message.isThinking
-              ? "思考中…"
+              ? `思考中${this.statusDots()}`
               : `已思考（用时 ${this.message.thinkingDuration} 秒）`,
         )
           .fontSize($r('app.float.font_body'))
@@ -358,6 +376,43 @@ export struct MessageBubble {
     .backgroundColor($r('app.color.bubble_bg_thinking'))
     .borderRadius($r('app.float.bubble_radius'))
     .margin({ bottom: $r('app.float.space_sm') });
+  }
+
+  /**
+   * 状态点号动画（"思考中." → "思考中.." → "思考中..." 周期循环，300ms/拍）：
+   *  - dotPhase 为 @Local，setInterval 定时递增触发标题/状态提示 Text 属性级重绘
+   *  - 定时器仅在思考/搜索期间运行（@Monitor 与 aboutToAppear/Disappear 同步启停），避免空转
+   */
+  private syncStatusDotTimer(): void {
+    if (this.message.isSearching || this.message.isThinking) {
+      this.startStatusDotTimer();
+    } else {
+      this.stopStatusDotTimer();
+    }
+  }
+
+  /* 启动点号循环：每 300ms dotPhase 在 0/1/2 间递进（1/2/3 个点） */
+  private startStatusDotTimer(): void {
+    if (this.statusDotTimer !== -1) {
+      return; // 已在运行
+    }
+    this.statusDotTimer = setInterval(() => {
+      this.dotPhase = (this.dotPhase + 1) % 3;
+    }, 500);
+  }
+
+  /* 停止点号循环并复位，下次从 1 个点重新开始 */
+  private stopStatusDotTimer(): void {
+    if (this.statusDotTimer !== -1) {
+      clearInterval(this.statusDotTimer);
+      this.statusDotTimer = -1;
+    }
+    this.dotPhase = 0;
+  }
+
+  /* 按 dotPhase 生成点号：0/1/2 → "." / ".." / "..." */
+  private statusDots(): string {
+    return this.dotPhase === 0 ? " ." : (this.dotPhase === 1 ? " . ." : " . . .");
   }
 
   /**
@@ -595,19 +650,19 @@ export struct MessageBubble {
        * 搜索细节（正在搜索/正在浏览）已写入 reasoning 时由过程块展示，这里仅在过程为空时显示扫描线提示，避免重复
        */
       if (this.message.isSearching && this.message.reasoning.length === 0) {
-        this.statusHint("正在搜索…");
+        this.statusHint("正在搜索", true);
       } else if (this.message.searchFailed) {
         this.statusHint("联网搜索失败，使用普通模式回答");
       } else if (this.message.isThinking && this.message.reasoning.length === 0) {
-        this.statusHint("思考中…");
+        this.statusHint("思考中", true);
       }
       /* 若 reasoning 非空（有推理内容），推理块标题本身会显示"思考中…"，这里留空避免重复 */
     }
   }
 
   @Builder
-  statusHint(text: string) {
-    Text(text)
+  statusHint(text: string, animated: boolean = false) {
+    Text(animated ? `${text}${this.statusDots()}` : text)
       .fontSize($r('app.float.font_body'))
       .fontColor($r('app.color.text_secondary'))
       .padding({
@@ -852,7 +907,7 @@ export struct MessageBubble {
         .fontWeight(600)
         .fontColor([$r('app.color.search_icon')])
         .margin({ right: $r('app.float.space_xs') })
-      Text(` ${this.message.searchedWebs.length} 个网页`)
+      Text(`${this.message.searchedWebs.length} 个网页`)
         .fontSize($r('app.float.font_toggle'))
         .fontColor($r('app.color.text_ai'))
     }
