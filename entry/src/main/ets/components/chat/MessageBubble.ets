@@ -52,32 +52,28 @@ export struct MessageBubble {
   @Local reasoningBlocks: ReasoningBlock[] = []; // 思考过程块列表（流式增量原地复用更新，见 rebuildReasoningBlocks）
 
   /**
-   * 监听折叠请求：ViewModel 在流式结束时按"用户是否在底部"决策后自增 foldVersion 版本号，
-   * 收到信号延迟 500ms 折叠，让用户短暂瞥见停止瞬间的最后内容；组件销毁时取消定时器。
-   * 不直接监听 message.isStreaming——折叠时机交由 ViewModel 统一决策（不在底部时挂起、滚动停止且回到底部后放行），
-   * 避免思考块在用户阅读位置以外收缩导致页面跳动
+   * 监听折叠请求：ViewModel 在流式结束后延迟 500ms 复查"用户在底部且未操作"再放行（自增 foldVersion）。
+   * 气泡收到信号立即动画收起——500ms 缓冲与条件复查全部在 ViewModel 完成，
+   * 避免"放行时刻与执行时刻分离"留下窗口：用户滑离底部后仍在阅读位置外收缩，造成页面跳动
    */
   @Monitor('message.foldVersion')
   onFoldRequested(): void {
     if (this.message.reasoning.length === 0) {
       return; // 无思考内容（如仅搜索/正文场景）无需折叠
     }
-    if (this.foldTimerId !== -1) {
-      clearTimeout(this.foldTimerId);
+    if (this.message.isStreaming) {
+      return; // 正在重新生成（继续生成/换个回答）：保持展开，不打断新流
     }
-    this.foldTimerId = setTimeout(() => {
-      this.foldTimerId = -1;
-      if (!this.isReasoningExpanded) {
-        return; // 已被用户手动折叠，无需再动
-      }
-      /**
-       * 用 200ms EaseOut 动画平滑收起：高度收缩由过渡动画吸收，
-       * 避免钉底态下视口内容突兀位移（"弹一下"），与页面正文跟随动画时长风格一致
-       */
-      this.getUIContext().animateTo({ duration: 200, curve: 'easeOut' }, () => {
-        this.isReasoningExpanded = false;
-      });
-    }, 500);
+    if (!this.isReasoningExpanded) {
+      return; // 已被用户手动折叠，无需再动
+    }
+    /**
+     * 用 200ms EaseOut 动画平滑收起：高度收缩由过渡动画吸收，
+     * 避免钉底态下视口内容突兀位移（"弹一下"），与页面正文跟随动画时长风格一致
+     */
+    this.getUIContext().animateTo({ duration: 200, curve: 'easeOut' }, () => {
+      this.isReasoningExpanded = false;
+    });
   }
 
   /**
@@ -118,7 +114,6 @@ export struct MessageBubble {
   /* 非响应式成员（普通成员即可，无需观察） */
   private mdController: MarkdownController = new MarkdownController(); // lv-markdown-in 样式/拦截控制器
   private envCallbackId: number = -1; // 系统环境监听回调 ID（aboutToDisappear 注销用）
-  private foldTimerId: number = -1; // 停止输出后自动折叠思考的定时器 ID（组件销毁时取消）
   /* 增量解析状态（流式 O(n) 优化）：已解析过的 reasoning 快照与未闭合段落块引用 */
   private parsedReasoning: string = ""; // 已解析快照（非追加变化时触发全量重建）
   private lastParagraph: ReasoningBlock | null = null; // 未闭合段落块（增量续写目标）
@@ -162,11 +157,6 @@ export struct MessageBubble {
 
   aboutToDisappear(): void {
     this.unregisterEnvironmentListener();
-    /* 取消自动折叠定时器（组件销毁后回调不再有意义） */
-    if (this.foldTimerId !== -1) {
-      clearTimeout(this.foldTimerId);
-      this.foldTimerId = -1;
-    }
   }
 
   /**

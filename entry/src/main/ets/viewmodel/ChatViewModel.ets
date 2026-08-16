@@ -90,8 +90,9 @@ export class ChatViewModel {
   private isFirstUserMsg: boolean = true; // 是否第一条用户消息（决定是否生成标题）
   private isUserOperating: boolean = false; // 用户是否正在操作屏幕（操作中停止自动滚底）
   private lastScrollIsUserGesture: boolean = false; // 最近一次滚动是否来自用户手势（onWillScroll 更新，供 onReachEnd 区分用户滚回 vs 代码滚动）
-  private isUserScrolling: boolean = false; // 是否正在滚动手势中（DRAG/FLING/滚动条等）；期间暂停流式 UI 写入，避免底部高度变化与滚动竞争抖动
-  private pendingAutoFold: Message[] = []; // 流式结束时用户不在底部 → 思考块折叠请求挂起，回到底部后统一放行
+  private isUserScrolling: boolean = false; // 用户是否正在滚动手势中（DRAG/FLING/滚动条等）；期间暂停流式 UI 写入，避免底部高度变化与滚动竞争抖动
+  private pendingAutoFold: Message[] = []; // 流式结束时思考块折叠请求挂起（含 500ms 延迟窗口），条件满足时统一放行
+  private autoFoldFlushTimerId: number = -1; // 折叠延迟放行的调度定时器（500ms 窗口内用户滑离底部则保留挂起）
   private followAnimationTimerId: number = -1; // 流式正文跟随动画的防抖定时器（-1 表示无挂起）
   private scrollAnimator?: (action: () => void) => void; // 页面注入的滚动动画执行器（getUIContext().animateTo）
   private isListLayoutReady: boolean = false; // List 是否已完成首帧布局（onAreaChange 首次回调置位）
@@ -1617,35 +1618,54 @@ export class ChatViewModel {
 
   /**
    * 滚动完全停止（ChatPage onScrollStop 回调）：
-   * 恢复流式 UI 写入；同时放行挂起的思考块折叠请求。
+   * 恢复流式 UI 写入；并尝试放行挂起的思考块折叠请求（放行前会在 flush 内复查"在底部且未操作"）。
    * 放行时机放在滚动停止而非触底瞬间：折叠收缩发生在用户手离开屏幕、回弹结束之后，
    * 再配合气泡侧 200ms 收起动画，位移被过渡吸收，不再与"刚停稳"的动作重叠成突兀跳动
    */
   handleScrollStop(): void {
     this.setUserScrolling(false);
-    /* 仅在确实停在列表底部时放行：中途停下（未触底）放行折叠仍会造成阅读位置外收缩 */
-    if (this.isAtBottom) {
-      this.flushPendingAutoFold();
+    this.flushPendingAutoFold();
+  }
+
+  /**
+   * 手指抬起（ChatPage onTouch Up/Cancel 回调）：
+   * 结束滚动状态、清除"操作中"标记，并尝试放行挂起的思考块折叠请求。
+   * onTouch Up 可能被 Markdown 文本选择等手势拦截而未触发 onScrollStop，此处兜底恢复状态
+   */
+  onTouchReleased(): void {
+    this.setUserScrolling(false);
+    this.markUserOperating(false);
+    this.flushPendingAutoFold();
+  }
+
+  /**
+   * 流式结束 → 请求自动折叠思考块（MessageBubble 收到 foldVersion 信号后动画收起）：
+   * 统一挂起 + 延迟 500ms 再复查放行——延迟窗口给用户短暂"看到生成结束"的缓冲，
+   * 窗口内用户若滑离底部/开始操作，复查不通过则保留挂起（不折叠、不跳动），
+   * 等回到底部并停稳（handleScrollStop / onTouchReleased）再放行。
+   * 不按"当前是否在底部"立即放行：放行与执行分离（气泡侧不再有延迟）会留下
+   * "放行时在底部、500ms 后折叠时已滑离"的窗口，正是"滑到底部后再滑一下会跳"的根因
+   */
+  private requestAutoFold(msg: Message): void {
+    this.pendingAutoFold.push(msg);
+    if (this.autoFoldFlushTimerId === -1) {
+      this.autoFoldFlushTimerId = setTimeout(() => {
+        this.autoFoldFlushTimerId = -1;
+        this.flushPendingAutoFold();
+      }, 500);
     }
   }
 
   /**
-   * 流式结束 → 请求自动折叠思考块（MessageBubble 收到 foldVersion 信号后延迟折叠）：
-   * 用户在底部 → 立即放行：钉底态下高度收缩由滚动偏移补偿，不引起视口跳动；
-   * 用户已上滑离开底部 → 挂起，等回到底部（handleReachEnd / jumpToBottom）再统一放行，
-   * 避免思考块在用户阅读位置以外收缩导致页面跳动
+   * 放行所有待折叠请求（此刻折叠由气泡 200ms 动画平滑收起，钉底态下不产生跳动）。
+   * 前置条件：用户停在底部且手指未触摸；不满足（500ms 窗口内已滑离/触摸）→ 保留挂起，
+   * 等下次触发（handleScrollStop / onTouchReleased / jumpToBottom）再复查
    */
-  private requestAutoFold(msg: Message): void {
-    if (this.isAtBottom) {
-      msg.foldVersion++;
-    } else {
-      this.pendingAutoFold.push(msg);
-    }
-  }
-
-  /* 用户回到列表底部 → 放行所有挂起的折叠请求（此刻高度收缩发生在钉底态，不产生跳动） */
   private flushPendingAutoFold(): void {
     if (this.pendingAutoFold.length === 0) {
+      return;
+    }
+    if (!this.isAtBottom || this.isUserOperating) {
       return;
     }
     this.pendingAutoFold.forEach((msg: Message) => {

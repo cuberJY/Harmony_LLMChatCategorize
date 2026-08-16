@@ -259,9 +259,8 @@ export struct ChatPage {
           /* 生成期间用户触摸屏幕操作内容 → 标记"操作中"，完成生成时不自动滚到底 */
           this.vm.markUserOperating(true);
         } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-          /* 手指抬起 → 拖动结束，恢复流式 UI 写入与自动跟随 */
-          this.vm.setUserScrolling(false);
-          this.vm.markUserOperating(false);
+          /* 手指抬起 → 拖动结束，恢复流式 UI 写入与自动跟随，并尝试放行挂起的思考块折叠 */
+          this.vm.onTouchReleased();
         }
       })
       /* 用户主动滚动取消自动跟随；排除代码滚动（SCROLLER/SCROLLER_ANIM）与边缘回弹，避免打断自动钉底 */
@@ -293,8 +292,8 @@ export struct ChatPage {
       .width("100%")
       .backgroundColor($r('app.color.page_bg'))
       .edgeEffect(EdgeEffect.Spring)
-      /* 预加载上下各 5 条：缓解 Markdown 异步渲染的 item 高度突变与白块（气泡渲染较重，默认 1 不够） */
-      .cachedCount(5)
+      /* 预加载上下各 10 条：缓解 Markdown 异步渲染的 item 高度突变与白块（气泡渲染较重，默认 1 不够） */
+      .cachedCount(10)
       /* 保持可见内容位置不变：避免流式输出底部 item 长高时向上翻历史被顶跳 */
       .maintainVisibleContentPosition(true)
 
