@@ -41,7 +41,7 @@ export struct FolderPickerDialog {
         this.onRequestClose();
       })
       Divider()
-        .strokeWidth(0.5)
+        .strokeWidth(2)
         .color($r('app.color.divider'))
 
       /* 全部文件夹列表（可滚动） */

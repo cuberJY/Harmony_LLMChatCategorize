@@ -46,7 +46,9 @@ export struct ConversationItem {
         SymbolGlyph($r("sys.symbol.star_fill"))
           .fontSize($r('app.float.font_icon_lg'))
           .fontColor([$r('app.color.star_gold')]) // 金色星标
-          .margin({ left: $r('app.float.space_sm') })
+          .margin({
+            left: $r('app.float.space_sm'),
+          })
       }
 
       /* 编辑模式：右侧勾选圆圈 */
@@ -57,6 +59,9 @@ export struct ConversationItem {
             .fontSize($r('app.float.font_icon_lg'))
             .fontWeight(600)
             .fontColor([Color.White])
+            .margin({
+              left: $r('app.float.space_sm'),
+            })
           }
         }
         .width(24)

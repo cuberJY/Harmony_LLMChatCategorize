@@ -472,7 +472,7 @@ export struct MessageBubble {
   @Builder
   processBlock(block: ReasoningBlock) {
     if (block.kind === "search") {
-      /* 搜索活动行 */
+      /* 【搜索】 活动行 */
       Row() {
         SymbolGlyph($r("sys.symbol.AI_search"))
           .fontSize($r('app.float.font_icon_sm'))
@@ -485,6 +485,7 @@ export struct MessageBubble {
         Text(block.text)
           .fontSize($r('app.float.font_thinking'))
           .fontColor($r('app.color.text_secondary'))
+          .lineHeight($r('app.float.line_height_thinking'))
           .layoutWeight(1)
       }
       .alignItems(VerticalAlign.Top)
@@ -494,7 +495,7 @@ export struct MessageBubble {
         top: $r('app.float.space_sm')
       })
     } else if (block.kind === "browse") {
-      /* 浏览活动行 */
+      /* 【浏览】 活动行 */
       Row() {
         SymbolGlyph($r("sys.symbol.link"))
           .fontSize($r('app.float.font_icon_sm'))
@@ -507,6 +508,7 @@ export struct MessageBubble {
         Text(block.text)
           .fontSize($r('app.float.font_thinking'))
           .fontColor($r('app.color.text_secondary'))
+          .lineHeight($r('app.float.line_height_thinking'))
           .layoutWeight(1)
       }
       .alignItems(VerticalAlign.Top)
@@ -524,12 +526,12 @@ export struct MessageBubble {
           .fontColor([$r('app.color.text_secondary')])
           .margin({
             right: $r('app.float.space_sm'),
-            top: $r('app.float.space_xs')
+            top: $r('app.float.space_xxs')
           })
         Text(block.text)
           .fontSize($r('app.float.font_thinking'))
           .fontColor($r('app.color.text_secondary'))
-          .lineHeight(20)
+          .lineHeight($r('app.float.line_height_thinking'))
           .layoutWeight(1)
       }
       .alignItems(VerticalAlign.Top)

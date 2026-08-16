@@ -247,7 +247,7 @@ export struct ChatInput {
     })
     .backgroundColor($r('app.color.title_bar_bg'))
     .border({
-      width: { top: 1 },
+      width: { top: 2 },
       color: { top: $r('app.color.divider') },
     });
   }

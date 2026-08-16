@@ -98,7 +98,7 @@ export struct SettingsPage {
         .padding({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
         .backgroundColor($r('app.color.title_bar_bg'))
         .border({
-          width: { bottom: 1 },
+          width: { bottom: 2 },
           color: { bottom: $r('app.color.divider') },
         })
         /* 上抬避让时让标题栏保持原位，不被键盘顶出屏幕 */

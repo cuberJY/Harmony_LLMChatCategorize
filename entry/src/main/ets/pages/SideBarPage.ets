@@ -111,7 +111,7 @@ export struct SideBarPage {
           .height($r('app.float.title_bar_height'))
           .padding({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
           .backgroundColor($r('app.color.title_bar_bg'))
-          .border({ width: { bottom: 1 }, color: { bottom: $r('app.color.divider') } });
+          .border({ width: { bottom: 2 }, color: { bottom: $r('app.color.divider') } });
         } else {
           Row() {
             /* Tab 容器（左对齐） */
@@ -176,7 +176,7 @@ export struct SideBarPage {
           .padding({ left: $r('app.float.space_lg'), right: $r('app.float.space_xl') })
           .backgroundColor($r('app.color.title_bar_bg'))
           .border({
-            width: { bottom: 1 },
+            width: { bottom: 2 },
             color: { bottom: $r('app.color.divider') },
           });
         }
@@ -270,10 +270,10 @@ export struct SideBarPage {
                           })
                         }.width("100%");
                       },
-                      (conv: Conversation) => conv.id,
+                      (conv: Conversation) => conv.id + "_" + this.vm.listVersion.toString(),
                     );
                   },
-                  (group: GroupItem) => group.name,
+                  (group: GroupItem) => group.name + "_" + this.vm.listVersion.toString(),
                 )
               }
               .width("100%")
@@ -337,7 +337,7 @@ export struct SideBarPage {
                       })
                     }.width("100%");
                   },
-                  (cat: Category) => cat.id,
+                  (cat: Category) => cat.id + "_" + this.vm.listVersion.toString(),
                 )
 
                 /* 未分类对话（category_id 为空） */
@@ -381,7 +381,7 @@ export struct SideBarPage {
                       })
                     }.width("100%");
                   },
-                  (conv: Conversation) => conv.id,
+                  (conv: Conversation) => conv.id + "_" + this.vm.listVersion.toString(),
                 )
               }
               .width("100%")
@@ -478,7 +478,7 @@ export struct SideBarPage {
           .justifyContent(FlexAlign.SpaceBetween)
           .backgroundColor($r('app.color.title_bar_bg'))
           .border({
-            width: { top: 1 },
+            width: { top: 2 },
             color: { top: $r('app.color.divider') },
           });
         } else {
@@ -494,7 +494,7 @@ export struct SideBarPage {
           .justifyContent(FlexAlign.Center)
           .backgroundColor($r('app.color.title_bar_bg'))
           .border({
-            width: { top: 1 },
+            width: { top: 2 },
             color: { top: $r('app.color.divider') },
           })
           .onClick(() => {

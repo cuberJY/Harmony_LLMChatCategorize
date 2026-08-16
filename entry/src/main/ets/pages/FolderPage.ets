@@ -96,7 +96,7 @@ export struct FolderPage {
         .height($r('app.float.title_bar_height'))
         .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
         .backgroundColor($r('app.color.title_bar_bg'))
-        .border({ width: { bottom: 1 }, color: { bottom: $r('app.color.divider') } })
+        .border({ width: { bottom: 2 }, color: { bottom: $r('app.color.divider') } })
 
         if (this.vm.subFolders.length === 0 && this.vm.convs.length === 0) {
           Column() {
@@ -138,7 +138,7 @@ export struct FolderPage {
                   })
                 }.width("100%");
               },
-              (cat: Category) => cat.id,
+              (cat: Category) => cat.id + "_" + this.vm.listVersion.toString(),
             )
 
             /* 该文件夹下的对话 */
@@ -172,7 +172,7 @@ export struct FolderPage {
                   })
                 }.width("100%");
               },
-              (conv: Conversation) => conv.id,
+              (conv: Conversation) => conv.id + "_" + this.vm.listVersion.toString(),
             )
           }
           .width("100%")

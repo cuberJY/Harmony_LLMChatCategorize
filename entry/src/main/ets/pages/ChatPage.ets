@@ -171,7 +171,7 @@ export struct ChatPage {
       .padding({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
       .backgroundColor($r('app.color.title_bar_bg'))
       .border({
-        width: { bottom: 1 },
+        width: { bottom: 2 },
         color: { bottom: $r('app.color.divider') },
       })
 
@@ -457,7 +457,7 @@ export struct ChatPage {
       })
       /* 标题行底部分割线 */
       .border({
-        width: { bottom: 1 },
+        width: { bottom: 2 },
         color: { bottom: $r('app.color.divider') },
       })
 

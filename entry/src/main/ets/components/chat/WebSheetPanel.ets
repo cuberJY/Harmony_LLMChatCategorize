@@ -47,7 +47,7 @@ export struct WebSheetPanel {
       })
       /* 标题行底部分割线 */
       .border({
-        width: { bottom: 1 },
+        width: { bottom: 2 },
         color: { bottom: $r('app.color.divider') },
       })
 
