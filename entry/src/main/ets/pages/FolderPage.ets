@@ -176,7 +176,8 @@ export struct FolderPage {
             )
           }
           .width("100%")
-          .layoutWeight(1)
+          .height("100%")
+          .padding({ top: $r('app.float.space_md') })
           .backgroundColor($r('app.color.page_bg'))
           /* 项间自动分割线（与收藏 Tab 一致：文件夹/对话之间都有全宽分割线） */
           .divider({

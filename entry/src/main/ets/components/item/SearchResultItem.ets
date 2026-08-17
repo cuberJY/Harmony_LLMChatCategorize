@@ -29,13 +29,15 @@ export struct SearchResultItem {
       /* 组头：标题 + 命中条数 + 更新时间 */
       Row() {
         Column() {
-          Text(this.conversation.title.length > 0 ? this.conversation.title : "新对话")
-            .fontSize($r('app.float.font_name'))
-            .fontColor($r('app.color.text_primary'))
-            .fontWeight(500)
-            .maxLines(2)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width("100%")
+          Row() {
+            Text(this.conversation.title.length > 0 ? this.conversation.title : "新对话")
+              .fontSize($r('app.float.font_name'))
+              .fontColor($r('app.color.text_primary'))
+              .fontWeight(400)
+              .maxLines(2)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width("100%")
+          }
           /* 命中信息行：标题命中标记 + 内容命中条数（均为空时整行不显示） */
           if (this.titleHit || this.hits.length > 0) {
             Row() {
@@ -62,7 +64,11 @@ export struct SearchResultItem {
         Text(formatSmartTime(this.conversation.updatedAt))
           .fontSize($r('app.float.font_time'))
           .fontColor($r('app.color.text_secondary'))
-          .margin({ left: $r('app.float.space_md') })
+          .alignSelf(ItemAlign.Start)
+          .margin({
+            left: $r('app.float.space_md'),
+            top: $r('app.float.space_xxs')
+        })
       }
       .width("100%")
       .padding({
@@ -89,8 +95,13 @@ export struct SearchResultItem {
           Text(formatSmartTime(hit.createdAt))
             .fontSize($r('app.float.font_time'))
             .fontColor($r('app.color.text_secondary'))
-            .margin({ left: $r('app.float.space_md') })
+            .alignSelf(ItemAlign.Start)
+            .margin({
+              left: $r('app.float.space_md'),
+              top: $r('app.float.space_xxs')
+            })
         }
+
         .width("100%")
         .padding({
           left: $r('app.float.space_xxl'),
