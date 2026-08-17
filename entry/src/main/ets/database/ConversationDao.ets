@@ -283,6 +283,27 @@ export class ConversationDao {
   }
 
   /**
+   * 批量取消收藏：置 is_favorite=0 并清空 category_id（事务由 Repository 负责）
+   * 与单选 setFavorite(false) 语义一致：取消收藏后对话不参与任何文件夹分类
+   */
+  async unfavoriteByIds(ids: string[]): Promise<void> {
+    const store = this.store;
+    if (!store || ids.length === 0) return;
+    try {
+      const values: relationalStore.ValuesBucket = {
+        is_favorite: 0,
+        category_id: "",
+      };
+      const predicates = new relationalStore.RdbPredicates("conversation");
+      predicates.in("id", ids);
+      await store.update(values, predicates);
+    } catch (e) {
+      Logger.error(`ConversationDao.unfavoriteByIds failed: ${JSON.stringify(e)}`);
+      throw new Error(`ConversationDao error: ${JSON.stringify(e)}`);
+    }
+  }
+
+  /**
    * 清空一批文件夹下对话的分类（category_id 置空，不删对话）
    * 供 CategoryRepository 级联删除文件夹时调用
    */

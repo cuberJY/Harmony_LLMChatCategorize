@@ -282,6 +282,22 @@ export class SideBarViewModel {
     showToast(folderId.length > 0 ? `已移动 ${ids.length} 个对话` : $r('app.string.moved_out'));
   }
 
+  /* 执行批量取消收藏：选中对话置 is_favorite=0 并清空分类，退出编辑模式后重载 */
+  async doBatchUnfavorite(): Promise<void> {
+    const ids = this.selectedIds.slice(); // 先拷贝，避免退出编辑模式时被清空
+    this.exitEditMode();
+    const ok = await ConversationRepository.getInstance().unfavoriteByIds(ids);
+    if (!ok) {
+      showToast("操作失败，请重试");
+      return;
+    }
+    /* DB 重载：历史列表与收藏列表统一以数据库为准 */
+    await this.loadConversations();
+    await this.loadFavorites();
+    this.listVersion++;
+    showToast(`已取消收藏 ${ids.length} 个对话`);
+  }
+
   /* 执行删除：先拷贝 id，再删除 → 退出编辑模式 → DB 重载 */
   async doDelete(ids: string[]): Promise<void> {
     this.exitEditMode();

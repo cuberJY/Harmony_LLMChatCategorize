@@ -502,6 +502,18 @@ export struct SideBarPage {
                 .onClick(() => {
                   if (this.vm.selectedIds.length > 0) this.confirmBatchDelete();
                 })
+              /* 批量取消收藏：仅收藏 Tab 显示（该 Tab 可见对话均为已收藏） */
+              if (this.vm.currentTab === 1) {
+                Text("取消收藏")
+                  .fontSize($r('app.float.font_button'))
+                  .fontWeight(500)
+                  .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
+                  .layoutWeight(1)
+                  .textAlign(TextAlign.Center)
+                  .onClick(() => {
+                    if (this.vm.selectedIds.length > 0) this.vm.doBatchUnfavorite();
+                  })
+              }
               /* 批量移动到文件夹：仅收藏 Tab 显示（收藏对话才参与文件夹分类） */
               if (this.vm.currentTab === 1) {
                 Text("移动")

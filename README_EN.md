@@ -27,7 +27,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Structured errors** — error card shows category + copy + expandable detail, keeping the body clean
 - **Conversation branches** — change answer / generate new reply / switch branch; old branches kept in the DB
 - **Edit / delete messages** — editing creates a new branch in place; deletion cascades
-- **Folder categorization** — unlimited depth; create / rename / move / delete; archive conversations
+- **Folder categorization** — unlimited depth; create / rename / move / delete; archive conversations; multi-select batch operations inside a folder (unfavorite / delete / move to another folder)
 - **History** — auto-persisted, time-grouped sidebar, global search / multi-select / batch delete
 - **Global search** — a search sheet opens from the sidebar's magnifier icon; matches conversation titles and message content, groups hits by conversation with snippets, and jumps precisely to the matching message; scope can be limited to active branches or include all historical branches
 - **Secure key storage** — API Key encrypted via Asset Store Kit (TEE); legacy plaintext auto-migrated
@@ -123,7 +123,7 @@ Based on `relationalStore`, three tables:
 ### 5. State Management — MVVM
 
 - `ChatViewModel`: message flow, streaming callbacks, smart scroll, branching
-- `FolderViewModel`: folder tree, multi-level navigation, CRUD
+- `FolderViewModel`: folder tree, multi-level navigation, CRUD, multi-select batch ops (delete / unfavorite / move)
 - `SideBarViewModel`: history grouping, favorites, batch selection
 - `SearchViewModel`: global search (in-memory title match + debounced DB content query, branch scope toggle, hit positioning)
 - Pages decouple from data; ViewModels bridge DAO/Repository and ArkUI state

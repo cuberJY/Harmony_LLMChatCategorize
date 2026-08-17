@@ -27,6 +27,9 @@ import { FolderParams } from "../model/FolderParams";
 import { SideBarParams } from "../model/SideBarParams";
 /* 页面转场动画回调管理（配合 customNavContentTransition 驱动各页面自身的位移动画） */
 import { NavTransitionManager } from "../common/NavTransitionManager";
+/* 键盘返回键辅助器（解决键盘弹出时按返回键被系统直接执行根页面返回的缺陷） */
+import { KeyboardBackHelper } from "../common/Utils";
+import { inputMethod } from '@kit.IMEKit';
 
 @Entry
 @ComponentV2
@@ -40,6 +43,24 @@ struct HomePage {
      * 首页参与 customNavContentTransition 的 from/to 转场，使双向抽屉动画能覆盖聊天页本身
      */
     this.pathStack.pushPath({ name: "ChatPage", isEntry: true }, false);
+  }
+
+  /**
+   * @Entry 页面返回键拦截（关键修复）：
+   * 实测证实：冷启动首次弹键盘时按返回键，事件绕过 NavDestination.onBackPressed 直接到达本回调，
+   * 且此刻键盘仍处于弹出状态（onBlur / keyboardHeightChange=0 在 onBackPress 之后才到达）。
+   * 若返回 false（默认返回），ChatPage 是栈底 isEntry 页无处可弹 → 系统终止应用退桌面。
+   * 因此：键盘弹出时 → 消费返回(true)+主动 stopInput，仅收键盘不退出；
+   * 键盘已收起 → 放行默认返回(false)，正常退出应用。
+   * 注：栈上有 SideBarPage/FolderPage 等页面时，返回由 Navigation 弹栈处理，不会走到本回调。
+   */
+  onBackPress(): boolean {
+    if (KeyboardBackHelper.consumeKeyboardBack()) {
+      /* 兜底：主动收起键盘（键盘收起事件由系统在返回处理后触发，无需等待） */
+      inputMethod.getController().stopInput();
+      return true;
+    }
+    return false;
   }
 
   /**

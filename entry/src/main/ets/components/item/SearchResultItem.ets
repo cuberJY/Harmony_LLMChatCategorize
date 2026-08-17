@@ -33,7 +33,6 @@ export struct SearchResultItem {
             Text(this.conversation.title.length > 0 ? this.conversation.title : "新对话")
               .fontSize($r('app.float.font_name'))
               .fontColor($r('app.color.text_primary'))
-              .fontWeight(400)
               .maxLines(2)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .width("100%")

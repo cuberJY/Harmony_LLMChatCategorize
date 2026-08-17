@@ -780,7 +780,7 @@ export struct MessageBubble {
       top: $r('app.float.space_xs'),
       bottom: $r('app.float.space_xs')
     })
-    .backgroundColor($r('app.color.bubble_bg_ai'))
+    .backgroundColor($r('app.color.page_bg'))
     /* 点击展开菜单：复制 / 选择文本 / 生成新回复 / 换个回答 / 删除（默认出现在按钮下方，空间不足自动调整） */
     .bindMenu(this.moreMenu())
   }
@@ -870,7 +870,7 @@ export struct MessageBubble {
       top: $r('app.float.space_xs'),
       bottom: $r('app.float.space_xs')
     })
-    .backgroundColor($r('app.color.bubble_bg_ai'))
+    .backgroundColor($r('app.color.page_bg'))
     .onClick(() => {
       action();
     })
@@ -890,7 +890,7 @@ export struct MessageBubble {
       })
       .height(30)
       .borderRadius(15)
-      .backgroundColor($r('app.color.bubble_bg_ai'))
+      .backgroundColor($r('app.color.page_bg'))
       .border({ width: 1, color: $r('app.color.operation_icon') })
       .onClick(() => {
         this.isReasoningExpanded = true; // 继续生成时自动展开思考过程
@@ -919,7 +919,7 @@ export struct MessageBubble {
     })
     .height(30)
     .borderRadius(15)
-    .backgroundColor($r('app.color.bubble_bg_ai'))
+    .backgroundColor($r('app.color.page_bg'))
     .border({ width: 1, color: $r('app.color.operation_icon') })
     .onClick(() => {
       /* 打开「xx个网页」半模态面板（页面级统一管理） */
@@ -967,7 +967,7 @@ export struct MessageBubble {
       top: $r('app.float.space_xs'),
       bottom: $r('app.float.space_xs')
     })
-    .backgroundColor($r('app.color.bubble_bg_ai'))
+    .backgroundColor($r('app.color.page_bg'))
   }
 
   private copyMessage(): void {

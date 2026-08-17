@@ -1,6 +1,6 @@
 /**
  * 通用工具模块
- * 集中管理跨页面复用的轻量公共能力：ID 生成、Toast 提示、删除二次确认弹窗；
+ * 集中管理跨页面复用的轻量公共能力：ID 生成、Toast 提示、删除二次确认弹窗、键盘返回键辅助；
  * 不依赖业务模块（模型/数据库），避免循环依赖
  */
 
@@ -74,4 +74,58 @@ export function showDeleteConfirm(
       },
     },
   });
+}
+
+/**
+ * 键盘返回键辅助器（解决「键盘弹出时按返回键被系统直接执行根页面返回」缺陷）
+ *
+ * 现象（经 hilog 实测证实）：
+ * 冷启动首次弹键盘时按返回键，返回键绕过 NavDestination.onBackPressed（该回调不会触发），
+ * 而是直接走到 @Entry HomePage.onBackPress——此时键盘仍处于弹出状态，onBlur /
+ * keyboardHeightChange=0 在 onBackPress 之后才到达（实测 47.322 onBackPress → 47.323 onBlur
+ * → 47.327 height=0）。若 onBackPress 返回 false（默认返回），ChatPage 是栈底 isEntry 页
+ * 无处可弹 → 系统终止应用退桌面。
+ *
+ * 方案：维护全局「键盘当前是否弹出」标志，由 onFocus + keyboardHeightChange 双源驱动：
+ * - @Entry onBackPress 中调用 consumeKeyboardBack()：键盘弹出 → 消费返回(true)+主动 stopInput，
+ *   仅收键盘不退出；键盘已收起 → 返回 false，放行默认返回（正常退出应用）。
+ *
+ * 注意：键盘状态不能在 onBlur 时清零——失焦不一定收键盘（如点到空白处），
+ * 收起以 keyboardHeightChange<=0 为权威信号。
+ */
+export class KeyboardBackHelper {
+  /** 键盘当前是否弹出 */
+  private static isKeyboardUp: boolean = false;
+
+  /** 输入框聚焦（onFocus）时调用：聚焦必弹键盘，置 true（弥补 keyboardHeightChange>0 丢失的兜底） */
+  static onInputFocus(): void {
+    KeyboardBackHelper.isKeyboardUp = true;
+  }
+
+  /** 键盘弹出（keyboardHeightChange>0）时调用 */
+  static onKeyboardShown(): void {
+    KeyboardBackHelper.isKeyboardUp = true;
+  }
+
+  /** 键盘收起（keyboardHeightChange<=0）时调用：置 false（权威信号） */
+  static onKeyboardCollapsed(): void {
+    KeyboardBackHelper.isKeyboardUp = false;
+  }
+
+  /** 键盘当前是否弹出（供 ChatPage 等同步查询，避免重复维护状态） */
+  static isKeyboardUpNow(): boolean {
+    return KeyboardBackHelper.isKeyboardUp;
+  }
+
+  /**
+   * @Entry onBackPress 中调用：键盘弹出时按返回 → 消费该返回（仅收键盘不退出）。
+   * 消费后置 false，保证键盘收起后下一次返回正常退出。
+   */
+  static consumeKeyboardBack(): boolean {
+    if (KeyboardBackHelper.isKeyboardUp) {
+      KeyboardBackHelper.isKeyboardUp = false;
+      return true;
+    }
+    return false;
+  }
 }

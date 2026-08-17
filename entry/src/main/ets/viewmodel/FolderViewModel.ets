@@ -24,6 +24,8 @@ export class FolderViewModel {
   @Trace subFolders: Category[] = []; // 子文件夹列表
   @Trace convs: Conversation[] = []; // 该文件夹下的对话列表
   @Trace listVersion: number = 0; // 列表刷新版本号：重命名/改色等键不变的内容变更后自增，强制 ForEach 重建
+  @Trace isEditMode: boolean = false; // 多选编辑模式
+  @Trace selectedIds: string[] = []; // 已选中对话 ID
 
   /* 路由参数与数据加载 */
 
@@ -37,6 +39,49 @@ export class FolderViewModel {
   async loadData(): Promise<void> {
     this.subFolders = await CategoryRepository.getInstance().getByParent(this.folderId);
     this.convs = await ConversationRepository.getInstance().getByCategory(this.folderId);
+  }
+
+  /* 多选编辑模式（与 SideBarPage 收藏 Tab 行为对齐） */
+
+  /* 进入多选模式（可预选长按的那一项） */
+  enterEditMode(preSelectId: string): void {
+    this.isEditMode = true;
+    this.selectedIds = preSelectId.length > 0 ? [preSelectId] : [];
+  }
+
+  exitEditMode(): void {
+    this.isEditMode = false;
+    this.selectedIds = [];
+  }
+
+  toggleSelect(id: string, checked: boolean): void {
+    /* @Trace 数组：用新数组赋值确保 UI 刷新（避免依赖 push/splice 的观察行为） */
+    if (checked && this.selectedIds.indexOf(id) < 0) {
+      this.selectedIds = this.selectedIds.concat(id);
+    } else if (!checked && this.selectedIds.indexOf(id) >= 0) {
+      this.selectedIds = this.selectedIds.filter((x: string) => x !== id);
+    }
+  }
+
+  /* 全选可见集合 = 当前文件夹下的对话（文件夹本身不可多选/取消收藏） */
+  private getAllVisible(): Conversation[] {
+    return this.convs.slice();
+  }
+
+  isAllSelected(): boolean {
+    const visible = this.getAllVisible();
+    if (visible.length === 0) return false;
+    return visible.every((c: Conversation) => this.selectedIds.indexOf(c.id) >= 0)
+      && this.selectedIds.length === visible.length;
+  }
+
+  toggleSelectAll(): void {
+    const visible = this.getAllVisible();
+    if (visible.length > 0 && visible.every((c: Conversation) => this.selectedIds.indexOf(c.id) >= 0)) {
+      this.selectedIds = [];
+    } else {
+      this.selectedIds = visible.map((c: Conversation) => c.id);
+    }
   }
 
   /* 文件夹操作 */
@@ -190,5 +235,53 @@ export class FolderViewModel {
     this.convs = this.convs.filter((c: Conversation) => c.id !== conv.id);
     this.listVersion++;
     showToast($r('app.string.unfavorited'));
+  }
+
+  /* 批量操作（多选编辑模式） */
+
+  /* 执行批量取消收藏：退出编辑模式后重载列表，选中对话不再属于当前文件夹 */
+  async doBatchUnfavorite(): Promise<void> {
+    const ids = this.selectedIds.slice(); // 先拷贝，避免退出编辑模式时被清空
+    this.exitEditMode();
+    const ok = await ConversationRepository.getInstance().unfavoriteByIds(ids);
+    if (!ok) {
+      showToast("操作失败，请重试");
+      return;
+    }
+    await this.loadData();
+    this.listVersion++;
+    showToast(`已取消收藏 ${ids.length} 个对话`);
+  }
+
+  /* 执行批量删除：退出编辑模式后重载列表，并同步中止删除对话的流任务 */
+  async doBatchDelete(): Promise<void> {
+    const ids = this.selectedIds.slice(); // 先拷贝，避免退出编辑模式时被清空
+    this.exitEditMode();
+    const ok = await ConversationRepository.getInstance().deleteConversations(ids);
+    if (!ok) {
+      showToast("操作失败，请重试");
+      return;
+    }
+    const chatVm = ChatViewModel.getInstance();
+    if (chatVm !== null) {
+      chatVm.abortTasksOfConversations(ids);
+    }
+    await this.loadData();
+    this.listVersion++;
+    showToast(`已删除 ${ids.length} 个对话`);
+  }
+
+  /* 执行批量移动：选中对话统一移入目标文件夹，退出编辑模式后重载 */
+  async doBatchMove(folderId: string): Promise<void> {
+    const ids = this.selectedIds.slice(); // 先拷贝，避免退出编辑模式时被清空
+    this.exitEditMode();
+    const ok = await ConversationRepository.getInstance().move(ids, folderId);
+    if (!ok) {
+      showToast("操作失败，请重试");
+      return;
+    }
+    await this.loadData();
+    this.listVersion++;
+    showToast(folderId.length > 0 ? `已移动 ${ids.length} 个对话` : $r('app.string.moved_out'));
   }
 }

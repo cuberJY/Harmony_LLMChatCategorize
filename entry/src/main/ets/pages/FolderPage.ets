@@ -47,6 +47,7 @@ export struct FolderPage {
   private moveFolderNode: ComponentContent<FolderPickerDialogParams> | null = null; // 移动文件夹
   private convPickerNode: ComponentContent<FolderPickerDialogParams> | null = null; // 移动对话
   private renameConvNode: ComponentContent<RenameDialogParams> | null = null; // 重命名对话
+  private batchMoveNode: ComponentContent<FolderPickerDialogParams> | null = null; // 批量移动对话
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE; // 记录全局避让模式
 
   aboutToAppear(): void {
@@ -78,17 +79,43 @@ export struct FolderPage {
           .width(40)
           .justifyContent(FlexAlign.Start)
           .onClick(() => {
-            this.pathStack.pop();
+            /* 编辑模式下返回键先退出多选，再次点击才返回上一级 */
+            if (this.vm.isEditMode) {
+              this.vm.exitEditMode();
+            } else {
+              this.pathStack.pop();
+            }
           })
 
-          Text(this.vm.folderName.length > 0 ? this.vm.folderName : "文件夹")
-            .fontSize($r('app.float.font_title'))
-            .fontWeight(700)
-            .fontColor($r('app.color.text_primary'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          /* 多选编辑模式：标题区改为"已选择 X 项"（与收藏 Tab 一致） */
+          if (this.vm.isEditMode) {
+            Row() {
+              Text("已选择 ")
+                .fontSize($r('app.float.font_title'))
+                .fontWeight(600)
+                .fontColor($r('app.color.text_primary'))
+              Text(this.vm.selectedIds.length.toString())
+                .fontSize($r('app.float.font_title'))
+                .fontWeight(600)
+                .fontColor($r('app.color.text_important'))
+                .textAlign(TextAlign.Center)
+              Text(" 项")
+                .fontSize($r('app.float.font_title'))
+                .fontWeight(600)
+                .fontColor($r('app.color.text_primary'))
+            }
             .layoutWeight(1)
-            .textAlign(TextAlign.Center)
+            .justifyContent(FlexAlign.Center)
+          } else {
+            Text(this.vm.folderName.length > 0 ? this.vm.folderName : "文件夹")
+              .fontSize($r('app.float.font_title'))
+              .fontWeight(700)
+              .fontColor($r('app.color.text_primary'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+          }
 
           Row().width(40)
         }
@@ -150,9 +177,17 @@ export struct FolderPage {
                     conversation: conv,
                     /* 文件夹页：不显示星标（该页全是已收藏对话）；保留"移动"菜单调整位置 */
                     showFavoriteIcon: false,
+                    isEditMode: this.vm.isEditMode,
+                    isSelected: this.vm.selectedIds.indexOf(conv.id) >= 0,
                     onClickItem: (selected: Conversation) => {
                       /* 选中对话 → pop 携带结果，逐层转发给 ChatPage 加载（SideBarPage 的 onPop 负责转发） */
                       this.pathStack.pop(selected);
+                    },
+                    onSelectChange: (selected: Conversation, checked: boolean) => {
+                      this.vm.toggleSelect(selected.id, checked);
+                    },
+                    onMenuSelect: (selected: Conversation) => {
+                      this.vm.enterEditMode(selected.id);
                     },
                     onMenuMove: (selected: Conversation) => {
                       this.openPicker(selected);
@@ -176,7 +211,7 @@ export struct FolderPage {
             )
           }
           .width("100%")
-          .height("100%")
+          .layoutWeight(1)
           .padding({ top: $r('app.float.space_md') })
           .backgroundColor($r('app.color.page_bg'))
           /* 项间自动分割线（与收藏 Tab 一致：文件夹/对话之间都有全宽分割线） */
@@ -185,6 +220,67 @@ export struct FolderPage {
             color: $r('app.color.divider'),
           })
           .edgeEffect(EdgeEffect.Spring);
+        }
+
+        /* 多选编辑模式：底部操作栏（与收藏 Tab 一致：取消/取消收藏/删除/移动/全选） */
+        if (this.vm.isEditMode) {
+          Row() {
+            Row() {
+              Text("取消")
+                .fontSize($r('app.float.font_button'))
+                .fontColor($r('app.color.toggle_text_active'))
+                .layoutWeight(1)
+                .textAlign(TextAlign.Center)
+                .onClick(() => {
+                  this.vm.exitEditMode();
+                })
+              Text("删除")
+                .fontSize($r('app.float.font_button'))
+                .fontWeight(500)
+                .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
+                .layoutWeight(1)
+                .textAlign(TextAlign.Center)
+                .onClick(() => {
+                  if (this.vm.selectedIds.length > 0) this.confirmBatchDelete();
+                })
+              /* 批量取消收藏：本页对话均为已收藏，选中后取消即从当前文件夹移除 */
+              Text("取消收藏")
+                .fontSize($r('app.float.font_button'))
+                .fontWeight(500)
+                .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
+                .layoutWeight(1)
+                .textAlign(TextAlign.Center)
+                .onClick(() => {
+                  if (this.vm.selectedIds.length > 0) this.vm.doBatchUnfavorite();
+                })
+              /* 批量移动：弹出文件夹选择器（对话可移入当前页内其他文件夹） */
+              Text("移动")
+                .fontSize($r('app.float.font_button'))
+                .fontWeight(500)
+                .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.toggle_text_active') : $r('app.color.text_secondary'))
+                .layoutWeight(1)
+                .textAlign(TextAlign.Center)
+                .onClick(() => {
+                  if (this.vm.selectedIds.length > 0) this.openBatchMovePicker();
+                })
+              Text(this.vm.isAllSelected() ? "取消全选" : "全选")
+                .fontSize($r('app.float.font_button'))
+                .fontColor($r('app.color.toggle_text_active'))
+                .layoutWeight(1)
+                .textAlign(TextAlign.Center)
+                .onClick(() => {
+                  this.vm.toggleSelectAll();
+                })
+            }
+          }
+          .width("100%")
+          .height($r('app.float.title_bar_height'))
+          .justifyContent(FlexAlign.SpaceBetween)
+          .backgroundColor($r('app.color.title_bar_bg'))
+          .border({
+            width: { top: 2 },
+            color: { top: $r('app.color.divider') },
+          });
         }
       }
       .width("100%")
@@ -202,6 +298,14 @@ export struct FolderPage {
     .onShown(() => {
       /* 首次进入与从子文件夹页面返回时刷新（子页可能移动/删除/重命名内容，返回需同步） */
       this.vm.loadData();
+    })
+    .onBackPressed(() => {
+      /* 多选编辑模式：系统返回键优先退出编辑模式（拦截本次返回），再按一次才真正返回上级 */
+      if (this.vm.isEditMode) {
+        this.vm.exitEditMode();
+        return true; // true = 本页自行处理返回键，框架不再执行默认弹栈
+      }
+      return false; // 非编辑模式：交还默认弹栈逻辑返回上一级
     })
   }
 
@@ -257,6 +361,8 @@ export struct FolderPage {
       .backgroundColor($r('app.color.primary'))
       .shadow({ radius: 8, color: $r('app.color.fab_shadow'), offsetY: 2 })
       .margin({ right: $r('app.float.space_xl'), bottom: $r('app.float.space_xl') })
+      /* 多选编辑模式下隐藏悬浮按钮，避免与底部操作栏重叠（visibility 不影响外层 Stack 的命中透传） */
+      .visibility(this.vm.isEditMode ? Visibility.None : Visibility.Visible)
       .onClick(() => {
         this.openNewFolderDialog();
       })
@@ -306,6 +412,11 @@ export struct FolderPage {
     if (n5) {
       this.renameConvNode = null;
       this.closeContentNode(n5);
+    }
+    const n6 = this.batchMoveNode;
+    if (n6) {
+      this.batchMoveNode = null;
+      this.closeContentNode(n6);
     }
   }
 
@@ -457,6 +568,49 @@ export struct FolderPage {
       `确定删除对话“${conv.title.length > 0 ? conv.title : "新对话"}”吗？删除后不可恢复。`,
       () => {
         this.vm.deleteConv(conv.id);
+      },
+    );
+  }
+
+  /* 批量移动对话：弹出文件夹选择器（ComponentContent 方式，复用 FolderPickerDialog，多选编辑模式） */
+  private async openBatchMovePicker(): Promise<void> {
+    /* 先释放上次点遮罩关闭后残留的节点，防止内存泄漏 */
+    if (this.batchMoveNode) {
+      this.batchMoveNode.dispose();
+      this.batchMoveNode = null;
+    }
+    const allFolders = await CategoryRepository.getInstance().getAll();
+    const params = new FolderPickerDialogParams();
+    params.title = "批量移动到文件夹";
+    params.folders = allFolders;
+    params.onSelect = (folderId: string) => {
+      this.vm.doBatchMove(folderId);
+    };
+    params.onRequestClose = () => {
+      this.closeDialog();
+    };
+    const node = new ComponentContent<FolderPickerDialogParams>(this.getUIContext(),
+      wrapBuilder(buildFolderPickerContent), params);
+    this.batchMoveNode = node;
+    /* 该弹窗由底部编辑栏"移动"按钮触发（非菜单），无需延迟，直接打开 */
+    this.getUIContext().getPromptAction().openCustomDialog(node, {
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+    }).catch((err: BusinessError) => {
+      console.error(`openCustomDialog(批量移动) 失败 code=${err.code} msg=${err.message}`);
+      this.batchMoveNode = null;
+    });
+  }
+
+  /* 批量删除对话（二次确认） */
+  private confirmBatchDelete(): void {
+    if (this.vm.selectedIds.length === 0) return;
+    showDeleteConfirm(
+      this.getUIContext(),
+      "删除对话",
+      `确定删除选中的 ${this.vm.selectedIds.length} 个对话吗？删除后不可恢复。`,
+      () => {
+        this.vm.doBatchDelete();
       },
     );
   }

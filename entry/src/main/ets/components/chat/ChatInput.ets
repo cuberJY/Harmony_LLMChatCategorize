@@ -16,6 +16,7 @@
 
 import { LengthMetrics } from "@kit.ArkUI";
 import { inputMethod } from "@kit.IMEKit";
+
 @ComponentV2
 export struct ChatInput {
   @Local inputText: string = "";
@@ -79,6 +80,8 @@ export struct ChatInput {
   @Event onPause: () => void = () => {};
   /* 取消编辑回调（编辑态点击顶部右侧 xmark 时触发，由 VM 退出编辑态并清空输入框） */
   @Event onCancelEdit: () => void = () => {};
+  /* 输入框焦点变化回调（@Event：聚焦=键盘将弹出，失焦=可能收起；父级据此驱动全局键盘标志） */
+  @Event onInputFocusChange: (hasFocus: boolean) => void = (hasFocus: boolean) => {};
 
   build() {
     Column() {
@@ -159,6 +162,17 @@ export struct ChatInput {
         /* 高度由 constraintSize(maxHeight) 约束，超出时滚动 */
         .onChange((value: string) => {
           this.inputText = value;
+        })
+        /**
+         * 聚焦 → 键盘必然弹出（TextArea 默认 enableKeyboardOnFocus(true)）；失焦 → 可能收起。
+         * 上报父级驱动全局键盘标志：该信号是同步可靠的，弥补 keyboardHeightChange
+         * 「冷启动首次弹键盘事件丢失 / 键盘避让 NONE 模式下不派发」的被动事件缺陷
+         */
+        .onFocus(() => {
+          this.onInputFocusChange(true);
+        })
+        .onBlur(() => {
+          this.onInputFocusChange(false);
         })
 
       /* 3. 底部操作栏 */
@@ -253,7 +267,7 @@ export struct ChatInput {
       top: $r('app.float.space_sm'),
       bottom: $r('app.float.space_sm'),
     })
-    .backgroundColor($r('app.color.title_bar_bg'))
+    .backgroundColor($r('app.color.input_bg'))
     .border({
       width: { top: 2 },
       color: { top: $r('app.color.divider') },

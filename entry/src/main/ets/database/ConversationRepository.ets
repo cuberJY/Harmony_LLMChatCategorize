@@ -161,6 +161,26 @@ export class ConversationRepository {
     }
   }
 
+  /* 批量取消收藏（事务保证原子性）：置 is_favorite=0 并清空 category_id */
+  async unfavoriteByIds(ids: string[]): Promise<boolean> {
+    const store = this.store;
+    if (!store || ids.length === 0) return true;
+    try {
+      store.beginTransaction(); // 移入 try：begin 失败不再裸抛
+      await ConversationDao.getInstance().unfavoriteByIds(ids);
+      store.commit();
+      return true;
+    } catch (e) {
+      try {
+        store.rollBack(); // rollBack 自身异常单独兜住，避免二次抛错
+      } catch (rollbackError) {
+        Logger.error(`ConversationRepository.unfavoriteByIds rollback failed: ${JSON.stringify(rollbackError)}`);
+      }
+      Logger.error(`ConversationRepository.unfavoriteByIds failed: ${JSON.stringify(e)}`);
+      return false;
+    }
+  }
+
   /* 删除对话及其全部消息（跨表事务，中断自动回滚，无孤儿数据） */
   async deleteConversations(ids: string[]): Promise<boolean> {
     const store = this.store;

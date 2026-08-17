@@ -1,5 +1,6 @@
 import { common } from "@kit.AbilityKit";
 import { window } from "@kit.ArkUI";
+import { inputMethod } from "@kit.IMEKit";
 import { Message } from "../model/Message";
 import { Conversation, ConversationSelection } from "../model/Conversation";
 import { SideBarParams } from "../model/SideBarParams";
@@ -8,7 +9,7 @@ import { ChatInput } from "../components/chat/ChatInput";
 import { WebSheetPanel } from "../components/panel/WebSheetPanel";
 import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
-import { showToast } from "../common/Utils";
+import { showToast, KeyboardBackHelper } from "../common/Utils";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 
@@ -28,8 +29,6 @@ export struct ChatPage {
   private vm: ChatViewModel = new ChatViewModel();
   /* Markdown 库预热控制器（仅用于触发库初始化，不参与实际渲染） */
   private mdPreloadController: MarkdownController = new MarkdownController();
-  /* 键盘是否弹出（keyboardHeightChange 监听维护）：返回键拦截用——键盘弹出时返回键只收键盘 */
-  private isKeyboardShowing: boolean = false;
   /* 主窗口引用（注销键盘监听用） */
   private mainWindow?: window.Window;
   /**
@@ -64,19 +63,24 @@ export struct ChatPage {
     window.getLastWindow(context).then((win: window.Window) => {
       this.mainWindow = win;
       win.on('keyboardHeightChange', (height: number) => {
-        this.isKeyboardShowing = height > 0;
-        /**
-         * 编辑态 + 键盘弹出：RESIZE 会把 List 视口压缩、ChatInput 顶起，
-         * startEdit 时（键盘未弹）的对齐基于旧视口尺寸，需等键盘动画停稳后重新对齐
-         */
-        if (height > 0 && this.vm.editingMessageId.length > 0) {
-          if (this.editAlignTimerId !== -1) {
-            clearTimeout(this.editAlignTimerId);
+        /* 键盘高度变化驱动全局键盘标志，供 @Entry HomePage.onBackPress 判断"本次返回是否刚收起键盘" */
+        if (height > 0) {
+          KeyboardBackHelper.onKeyboardShown();
+          /**
+           * 编辑态 + 键盘弹出：RESIZE 会把 List 视口压缩、ChatInput 顶起，
+           * startEdit 时（键盘未弹）的对齐基于旧视口尺寸，需等键盘动画停稳后重新对齐
+           */
+          if (this.vm.editingMessageId.length > 0) {
+            if (this.editAlignTimerId !== -1) {
+              clearTimeout(this.editAlignTimerId);
+            }
+            this.editAlignTimerId = setTimeout(() => {
+              this.editAlignTimerId = -1;
+              this.vm.scrollToEditTarget();
+            }, 100);
           }
-          this.editAlignTimerId = setTimeout(() => {
-            this.editAlignTimerId = -1;
-            this.vm.scrollToEditTarget();
-          }, 100);
+        } else {
+          KeyboardBackHelper.onKeyboardCollapsed();
         }
       });
     });
@@ -213,9 +217,6 @@ export struct ChatPage {
                   /* 编辑：回填输入框（发送时创建新分支） */
                   onEdit: (m: Message) => {
                     this.vm.startEdit(m);
-                    /* 编辑态进入后键盘必然弹出，但 keyboardHeightChange 事件在键盘弹出动画完成后才回调、
-                       存在延迟；此处同步标记，消除"键盘弹出动画期间按返回键误判为键盘未弹出"的时序窗口 */
-                    this.isKeyboardShowing = true;
                   },
                   /* 切换分支：在变体间 ±1 循环 */
                   onSwitchBranch: (m: Message, delta: number) => {
@@ -334,6 +335,13 @@ export struct ChatPage {
         onCancelEdit: () => {
           this.vm.exitEditMode();
         },
+        /* 输入框焦点变化：聚焦必弹键盘 → 同步驱动全局键盘标志（同步可靠信号，
+           弥补 keyboardHeightChange 冷启动首次弹键盘事件丢失的被动缺陷） */
+        onInputFocusChange: (hasFocus: boolean) => {
+          if (hasFocus) {
+            KeyboardBackHelper.onInputFocus();
+          }
+        },
       })
 
       /* Markdown 库预热：提前触发 lv-markdown-in worker 初始化，消除首次打开正文卡顿（Hidden 零尺寸不占布局） */
@@ -394,12 +402,15 @@ export struct ChatPage {
       this.isSideBarPushing = false;
     })
     .onBackPressed(() => {
+      const backUp = this.isKeyboardUp();
       /** 
        * ChatPage 是栈底主页面（isEntry 入栈）：系统返回键 = 退出应用，
        * 拦截后不弹栈，避免 NavDestination 被弹出、回到空白的 Navigation 首页内容（NavBar）
        * 返回键优先级：键盘弹出（只收键盘） > 编辑态（取消编辑） > 退出应用
        */
-      if (this.isKeyboardShowing) {
+      if (backUp) {
+        /* 键盘弹出：主动收起输入法并消费返回（键盘状态由全局标志同步判定，已消除事件时序误判） */
+        inputMethod.getController().stopInput();
         return true;
       }
       if (this.vm.editingMessageId.length > 0) {
@@ -513,6 +524,15 @@ export struct ChatPage {
     } catch (e) {
       return 500; // 异常兜底，保证面板可显示
     }
+  }
+
+  /**
+   * 同步判断键盘是否弹出（返回键拦截用）：
+   * 复用全局键盘标志（onFocus + keyboardHeightChange 双源驱动），避免重复维护状态。
+   * 注：实测 RESIZE 模式下 getWindowAvoidArea(TYPE_KEYBOARD) 恒为 0，不能用于判断键盘状态。
+   */
+  private isKeyboardUp(): boolean {
+    return KeyboardBackHelper.isKeyboardUpNow();
   }
 
   /**
