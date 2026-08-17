@@ -5,9 +5,11 @@
  *   2. TextArea 输入框（最多 4 行，透明背景融入卡片）
  *   3. 底部操作栏：左侧切换按钮 + 右侧发送按钮
  *
- * 切换按钮（深度思考 / 联网搜索）：
- *   - 状态由父级 ViewModel 持有（@Param 单向传入），点击后经 onToggleChange 上报，
- *     由 VM 更新唯一真源并回流刷新 → 发送 / 重新生成 / 新建分支使用同一份当前开关
+ * 切换按钮（思考强度 / 联网搜索）：
+ *   - 状态由父级 ViewModel 持有（@Param 单向传入），点击后经 onThinkingChange / onWebSearchChange 上报，
+ *     由 VM 更新唯一真源并回流刷新 → 发送 / 重新生成 / 新建分支使用同一份当前设置
+ *   - 思考强度为多档位选择（关闭/轻量/深度/极限），点击按钮弹出下拉菜单（bindMenu，样式同设置页模型选择）；
+ *     联网搜索为开/关切换
  *   - 发送时通过 onChange 上报文本（开关值由 VM 直接读取，不再重复传递）
  *
  * V2 说明：@Local 为组件内部状态（输入文本/最大高度），
@@ -16,6 +18,7 @@
 
 import { LengthMetrics } from "@kit.ArkUI";
 import { inputMethod } from "@kit.IMEKit";
+import { ThinkingEffort, ThinkingLevel, THINKING_LEVELS, thinkingLevelLabel, DEFAULT_THINKING_EFFORT } from "../../config/ModelPresets";
 
 @ComponentV2
 export struct ChatInput {
@@ -45,8 +48,8 @@ export struct ChatInput {
   @Param prefillText: string = "";
   /* 是否处于编辑态（编辑消息中，显示提示文案） */
   @Param isEditing: boolean = false;
-  /* 深度思考开关（由 ViewModel 传入，唯一真源） */
-  @Param deepThinking: boolean = true;
+  /* 思考强度（由 ViewModel 传入，唯一真源；none 关闭 / low 轻量 / high 深度 / max 极限） */
+  @Param thinkingEffort: ThinkingEffort = DEFAULT_THINKING_EFFORT;
   /* 联网搜索开关（由 ViewModel 传入，唯一真源） */
   @Param webSearch: boolean = true;
   /**
@@ -72,8 +75,10 @@ export struct ChatInput {
     }
   }
 
-  /* 开关切换回调（@Event：点击切换按钮时上报新状态，由父级更新 VM 唯一真源） */
-  @Event onToggleChange: (webSearch: boolean, deepThinking: boolean) => void = (webSearch: boolean, deepThinking: boolean) => {};
+  /* 联网搜索开关切换回调（@Event：点击切换按钮时上报新状态，由父级更新 VM 唯一真源） */
+  @Event onWebSearchChange: (webSearch: boolean) => void = (webSearch: boolean) => {};
+  /* 思考强度档位选择回调（@Event：底部面板点选时上报新档位，由父级更新 VM 唯一真源） */
+  @Event onThinkingChange: (effort: ThinkingEffort) => void = (effort: ThinkingEffort) => {};
   /* 发送回调（@Event：仅上报文本，开关状态由父级 VM 读取） */
   @Event onChange: (text: string) => void = (text: string) => {};
   /* 暂停生成回调（生成中点击暂停键时触发，由 VM 中止流式请求） */
@@ -179,46 +184,93 @@ export struct ChatInput {
       Row() {
         /* 左侧：切换按钮组 */
         Row() {
-          /* 深度思考 */
-          Text("深度思考")
-            .fontSize($r('app.float.font_toggle'))
-            .fontColor(
-              this.deepThinking ? $r('app.color.toggle_text_active') : $r('app.color.toggle_text_inactive')
-            )
-            .padding({
-              left: $r('app.float.space_sm'),
-              right: $r('app.float.space_sm'),
-              top: $r('app.float.space_xs'),
-              bottom: $r('app.float.space_xs'),
-            })
-            .height(32)
-            .borderRadius(16)
-            .backgroundColor(
-              this.deepThinking ? $r('app.color.toggle_bg_active') : $r('app.color.toggle_bg_inactive')
-            )
-            .margin({ right: $r('app.float.space_sm') })
-            .onClick(() => {
-              /* 上报新状态给父级（VM 更新唯一真源后回流刷新本组件） */
-              this.onToggleChange(this.webSearch, !this.deepThinking);
-            })
+          /* 思考强度：按钮文字显示当前档位；点击弹出下拉菜单选择（非 none 时高亮，表示思考已开启） */
+          Row() {
+            SymbolGlyph($r("sys.symbol.AI_deep_thinking"))
+              .fontSize($r('app.float.font_icon_lg'))
+              .fontWeight(600)
+              .fontColor(
+                this.thinkingEffort !== "none"
+                  ? [$r('app.color.toggle_text_active')]
+                  : [$r('app.color.toggle_text_inactive')]
+              )
+              .margin({
+                left: $r('app.float.space_xxs'),
+                right: $r('app.float.space_xs')
+              })
+            Text(thinkingLevelLabel(this.thinkingEffort))
+              .width(35)
+              .fontSize($r('app.float.font_toggle'))
+              .fontColor(
+                this.thinkingEffort !== "none"
+                  ? $r('app.color.toggle_text_active')
+                  : $r('app.color.toggle_text_inactive')
+              )
+            SymbolGlyph($r("sys.symbol.chevron_down"))
+              .fontSize($r('app.float.font_icon_md'))
+              .fontWeight(600)
+              .fontColor(
+                this.thinkingEffort !== "none"
+                  ? [$r('app.color.toggle_text_active')]
+                  : [$r('app.color.toggle_text_inactive')]
+              )
+          }
+          .padding({
+            left: $r('app.float.space_sm'),
+            right: $r('app.float.space_sm'),
+            top: $r('app.float.space_xs'),
+            bottom: $r('app.float.space_xs'),
+          })
+          .height(32)
+          .borderRadius(16)
+          .backgroundColor(
+            this.thinkingEffort !== "none"
+              ? $r('app.color.toggle_bg_active')
+              : $r('app.color.toggle_bg_inactive')
+          )
+          .margin({ right: $r('app.float.space_sm') })
+          /* 下拉菜单选择（bindMenu） */
+          .bindMenu(this.thinkingMenuBuilder())
 
           /* 联网搜索 */
-          Text("联网搜索")
-            .fontSize($r('app.float.font_toggle'))
-            .fontColor(this.webSearch ? $r('app.color.toggle_text_active') : $r('app.color.toggle_text_inactive'))
-            .padding({
-              left: $r('app.float.space_sm'),
-              right: $r('app.float.space_sm'),
-              top: $r('app.float.space_xs'),
-              bottom: $r('app.float.space_xs'),
-            })
-            .height(32)
-            .borderRadius(16)
-            .backgroundColor(this.webSearch ? $r('app.color.toggle_bg_active') : $r('app.color.toggle_bg_inactive'))
-            .onClick(() => {
-              /* 上报新状态给父级（VM 更新唯一真源后回流刷新本组件） */
-              this.onToggleChange(!this.webSearch, this.deepThinking);
-            })
+          Row() {
+            SymbolGlyph($r("sys.symbol.pc_ic_tab_index"))
+              .fontSize($r('app.float.font_icon_lg'))
+              .fontWeight(600)
+              .fontColor(
+                this.webSearch
+                  ? [$r('app.color.toggle_text_active')]
+                  : [$r('app.color.toggle_text_inactive')]
+              )
+              .margin({
+                left: $r('app.float.space_xxs'),
+                right: $r('app.float.space_xs')
+              })
+            Text("联网搜索")
+              .fontSize($r('app.float.font_toggle'))
+              .fontColor(
+                this.webSearch
+                  ? $r('app.color.toggle_text_active')
+                  : $r('app.color.toggle_text_inactive')
+              )
+          }
+          .padding({
+                left: $r('app.float.space_sm'),
+                right: $r('app.float.space_sm'),
+                top: $r('app.float.space_xs'),
+                bottom: $r('app.float.space_xs'),
+              })
+          .height(32)
+          .borderRadius(16)
+          .backgroundColor(
+            this.webSearch
+              ? $r('app.color.toggle_bg_active')
+              : $r('app.color.toggle_bg_inactive')
+            )
+          .onClick(() => {
+            /* 上报新状态给父级（VM 更新唯一真源后回流刷新本组件） */
+            this.onWebSearchChange(!this.webSearch);
+          })
         }
         .layoutWeight(1) // 占据左侧空间，把发送按钮推到最右
 
@@ -272,5 +324,39 @@ export struct ChatInput {
       width: { top: 2 },
       color: { top: $r('app.color.divider') },
     });
+  }
+
+  /**
+   * 思考强度下拉菜单（bindMenu 内容，样式同设置页 Select 模型选择）
+   * 列出全部档位（关闭/轻量/深度/极限）
+   * 选中某一项 → 上报父级 VM 更新唯一真源，菜单自动关闭。
+   * 选中态由 @Param thinkingEffort（父级回流）驱动，菜单收起后按钮文字同步更新
+   */
+  @Builder
+  thinkingMenuBuilder() {
+    Menu() {
+      ForEach(
+        THINKING_LEVELS,
+        (level: ThinkingLevel) => {
+          MenuItem({ content: level.label })
+            /* 选中档位背景高亮（与思考强度按钮高亮同色），未选中保持透明露出菜单底色 */
+            .backgroundColor(
+              this.thinkingEffort === level.value
+                ? $r('app.color.toggle_bg_active')
+                : Color.Transparent
+            )
+            .contentFontColor(
+              this.thinkingEffort === level.value
+                ? $r('app.color.toggle_text_active')
+                : $r('app.color.text_primary')
+            )
+            .onChange(() => {
+              /* 点选档位 → 上报父级（VM 更新唯一真源后回流刷新按钮文字与菜单选中态） */
+              this.onThinkingChange(level.value);
+            })
+        },
+        (level: ThinkingLevel) => level.value,
+      )
+    }
   }
 }

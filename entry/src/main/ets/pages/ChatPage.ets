@@ -11,6 +11,7 @@ import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { showToast, KeyboardBackHelper } from "../common/Utils";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";
+import { ThinkingEffort } from "../config/ModelPresets";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 
 /**
@@ -316,12 +317,15 @@ export struct ChatPage {
         isEditing: this.vm.editingMessageId.length > 0,
         /* 开关状态由 VM 持有（唯一真源）：发送/重新生成/新建分支读取当前值 */
         webSearch: this.vm.webSearch,
-        deepThinking: this.vm.deepThinking,
+        thinkingEffort: this.vm.thinkingEffort,
         /* 流式生成状态（驱动发送/暂停键与「继续生成」按钮） */
         streamState: this.vm.streamState,
         /* 开关切换 → 同步 VM 唯一真源（@Trace 回流刷新输入区 UI） */
-        onToggleChange: (webSearch: boolean, deepThinking: boolean) => {
-          this.vm.updateSearchOptions(webSearch, deepThinking);
+        onWebSearchChange: (webSearch: boolean) => {
+          this.vm.updateSearchOptions(webSearch, this.vm.thinkingEffort);
+        },
+        onThinkingChange: (effort: ThinkingEffort) => {
+          this.vm.updateSearchOptions(this.vm.webSearch, effort);
         },
         onChange: (text: string) => {
           /* 编辑态由 ViewModel 内部识别：非编辑态 = 普通发送；编辑态 = 创建新分支并重新生成 */

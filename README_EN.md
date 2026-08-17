@@ -21,7 +21,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 ## Features
 
 - **Streaming chat** — SSE token-by-token output; thinking and main text in separate channels
-- **Deep thinking** — toggleable via Responses API `reasoning.effort`
+- **Thinking effort** — four-level dropdown (Off / Low / High / Max) in the input bar, via Responses API `reasoning.effort`
 - **Web search** — server-side `web_search` tool; search terms and browsed pages visualized in real time, with an "x pages" list
 - **Pause / resume** — abort mid-generation while keeping content; auto-pause on network errors; resume unfinished generation after restart
 - **Structured errors** — error card shows category + copy + expandable detail, keeping the body clean
@@ -94,7 +94,7 @@ ChatCategorize/
 
 - `LLMProvider` abstract interface + `DeepSeekProvider` implementation (Responses API, HTTP SSE streaming)
 - `LLMProviderFactory` dispatches by `providerId`; adding a provider only needs a ModelPresets preset
-- Request body: `input` message list + `reasoning.effort` (intensity) + `tools.web_search`
+- Request body: `input` message list + `reasoning.effort` (thinking strength, four levels Off / Low / High / Max chosen from the input-bar dropdown; `none` is sent explicitly to disable thinking) + `tools.web_search`
 - **Unified error model** (`LLMError`): vendor errors normalized into a unified `ErrorCode` + category; `retryable` decides whether resume is kept; copy resolved by code and persisted, so error cards survive restarts
 - **Output truncation**: `response.incomplete` (hit `max_output_tokens`) keeps content and enters the resumable state
 

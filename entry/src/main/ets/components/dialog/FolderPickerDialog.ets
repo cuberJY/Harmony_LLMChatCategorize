@@ -35,7 +35,10 @@ export struct FolderPickerDialog {
       }
       .width("100%")
       .height(40)
-      .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
+      .padding({
+        left: $r('app.float.space_md'),
+        right: $r('app.float.space_md')
+      })
       .onClick(() => {
         this.onSelect("");
         this.onRequestClose();

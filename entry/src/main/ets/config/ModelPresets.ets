@@ -3,7 +3,55 @@
  * 将「供应商 → API 地址 / 模型名 / 能力开关」收敛为一份注册表：
  * 设置页按 id 展示供应商下拉，Provider 工厂按 id 返回实现，业务层不感知供应商细节
  * 扩展新供应商：数组追加一条 ModelPreset；新协议（apiStyle 非 responses）在 LLMProviderFactory 按 providerId 分支
+ *
+ * 思考强度（ThinkingEffort）：面向 Responses API 的 reasoning.effort，
+ * 档位「关闭/轻量/深度/极限」由供应商能力统一收敛，业务层（VM / UI / Provider）共同引用
  */
+
+/**
+ * 思考强度档位（对应 Responses API reasoning.effort）
+ * DeepSeek 官方取值 none/low/high/max（medium/xhigh 会映射为 high，故不单独列出）：
+ * - none：关闭思考模式（不输出思维链，响应最快）
+ * - low ：轻量思考（快速推理）
+ * - high：深度思考（模型默认 effort，适合多数任务）
+ * - max ：极限思考（最强推理，耗时与 token 消耗更高）
+ */
+export type ThinkingEffort = "none" | "low" | "high" | "max";
+
+/**
+ * 思考强度档位条目
+ * @param value 传给 API 的 effort 值
+ * @param label 按钮 / 下拉菜单展示文案
+ */
+export interface ThinkingLevel {
+  value: ThinkingEffort;
+  label: string;
+}
+
+/* 全部可选的思考强度档位（下拉菜单按此顺序展示） */
+export const THINKING_LEVELS: ThinkingLevel[] = [
+  { value: "none", label: "关闭" },
+  { value: "low", label: "Low" },
+  { value: "high", label: "High" },
+  { value: "max", label: "Max" },
+];
+
+/* 默认思考强度（保持旧版 deepThinking=true 的行为：深度思考） */
+export const DEFAULT_THINKING_EFFORT: ThinkingEffort = "high";
+
+/**
+ * 按 effort 值查找档位条目（用于按钮展示与弹窗选中态）
+ * 非法 / 未知值时回退默认档位（深度思考），保证永远返回有效条目
+ */
+export function getThinkingLevel(effort: string): ThinkingLevel {
+  const found = THINKING_LEVELS.find((l: ThinkingLevel) => l.value === effort);
+  return found !== undefined ? found : THINKING_LEVELS[2];
+}
+
+/* 取档位展示文案（按钮显示用） */
+export function thinkingLevelLabel(effort: string): string {
+  return getThinkingLevel(effort).label;
+}
 
 /**
  * 供应商预设

@@ -21,7 +21,7 @@
 ## 功能特性
 
 - **流式对话** — SSE 逐字输出，思考内容与正文分通道展示，增量自动重绘
-- **深度思考** — 可开关，走 Responses API `reasoning.effort`
+- **思考强度** — 关闭 / Low / High / Max 四档下拉（输入区按钮，样式同设置页），走 Responses API `reasoning.effort`
 - **联网搜索** — 服务端 `web_search` 工具；搜索词与浏览网页实时可视化，支持「x 个网页」列表跳转
 - **暂停 / 继续生成** — 生成中可中止并保留内容，网络异常自动暂停，一键续写；重启后可恢复未完成生成
 - **结构化错误提示** — 错误卡片展示分类 + 文案 + 可展开详情，不污染正文
@@ -94,7 +94,7 @@ ChatCategorize/
 
 - `LLMProvider` 抽象接口 + `DeepSeekProvider` 实现（Responses API，HTTP SSE 流式）
 - `LLMProviderFactory` 按 `providerId` 分发，新增供应商只需在 ModelPresets 追加预设
-- 请求体：`input` 消息列表 + `reasoning.effort`（思考强度）+ `tools.web_search`（联网搜索）
+- 请求体：`input` 消息列表 + `reasoning.effort`（思考强度，关闭 / Low / High / Max 四档由输入区下拉选择，关闭时显式传 `none`）+ `tools.web_search`（联网搜索）
 - **统一错误模型**（`LLMError`）：各供应商错误归一化为统一 `ErrorCode` + 分类，`retryable` 决定是否保留续写；文案按码解析，序列化入库，重启后错误卡片可复现
 - **输出截断**：`response.incomplete`（达 `max_output_tokens`）保留内容进入可续写态
 

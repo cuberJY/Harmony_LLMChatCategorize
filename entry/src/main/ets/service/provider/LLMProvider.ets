@@ -8,6 +8,7 @@
 
 import { Message } from "../../model/Message";
 import { LLMError } from "../LLMError";
+import { ThinkingEffort } from "../../config/ModelPresets";
 
 /**
  * 流式回调接口
@@ -69,14 +70,14 @@ export interface LLMProvider {
    * 发送流式对话请求
    * @param messages 历史消息列表（包含用户和 AI 的完整对话）
    * @param callbacks 流式回调
-   * @param deepThinking 是否开启深度思考
+   * @param thinkingEffort 思考强度（reasoning.effort：none 关闭 / low / high / max）
    * @param webSearch 是否开启联网搜索（服务端 web_search 工具）
    * @returns 中止句柄：调用方可在生成过程中调用 abort() 暂停（保留已接收内容）
    */
   sendMessage(
     messages: Message[],
     callbacks: StreamCallbacks,
-    deepThinking: boolean,
+    thinkingEffort: ThinkingEffort,
     webSearch: boolean,
   ): AbortHandle;
 }

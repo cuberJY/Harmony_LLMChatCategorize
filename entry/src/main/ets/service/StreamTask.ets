@@ -7,6 +7,7 @@
 import { Message } from "../model/Message";
 import { Conversation } from "../model/Conversation";
 import { AbortHandle } from "./provider/LLMProvider";
+import { ThinkingEffort } from "../config/ModelPresets";
 
 export class StreamTask {
   conversationId: string; // 归属对话 id（也是 map 的 key）
@@ -19,7 +20,7 @@ export class StreamTask {
   isPaused: boolean = false; // 是否已暂停（用户点暂停键或网络异常中断；暂停后可「继续生成」）
   webSearchEnabled: boolean = false; // 本次流是否请求了服务端联网搜索（onComplete 判断搜索是否发生过用）
   searchEventSeen: boolean = false; // 是否收到过服务端搜索事件（web_search_call.*）
-  deepThinkingEnabled: boolean = false; // 本次流使用的深度思考开关（「继续生成」时复用，保持风格一致）
+  thinkingEffort: ThinkingEffort = "high"; // 本次流使用的思考强度（「继续生成」时复用，保持风格一致）
   abortHandler: AbortHandle | null = null; // 底层 HTTP 请求的中止句柄（「暂停生成」时调用 abort()）
   timestampUpdated: boolean = false; // 本次流是否已更新对话 updatedAt（首次输出正文时置顶一次，避免每个 chunk 反复写库）
   autoRetryCount: number = 0; // 空回复自动续试次数（completed 但无正文时 ChatViewModel 自动重试，超过上限才提示用户）

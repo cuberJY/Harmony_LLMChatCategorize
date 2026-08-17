@@ -19,6 +19,7 @@ import { StreamCallbacks } from "../service/provider/LLMProvider";
 import { StreamTask } from "../service/StreamTask";
 import { LLMProviderFactory } from "../service/LLMProviderFactory";
 import { AppConfig } from "../config/AppConfig";
+import { ThinkingEffort, DEFAULT_THINKING_EFFORT } from "../config/ModelPresets";
 import { showToast } from "../common/Utils";
 import { LLMError, ErrorCode, errorMessageResource } from "../service/LLMError";
 import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
@@ -67,7 +68,7 @@ export class ChatViewModel {
    * 保证「重新生成/新建分支」使用当前开关，而非上次发送时的值
    */
   @Trace webSearch: boolean = true;
-  @Trace deepThinking: boolean = true;
+  @Trace thinkingEffort: ThinkingEffort = DEFAULT_THINKING_EFFORT;
   /**
    * 当前对话的流式生成状态（唯一真源，驱动 ChatInput 的发送/暂停键与「继续生成」按钮）
    * - idle：无进行中的任务 → 显示发送键
@@ -284,7 +285,7 @@ export class ChatViewModel {
    *   - 每个对话一个 StreamTask，缓冲/节流/占位消息全部按任务隔离
    *   - onComplete 只更新 updated_at（避免覆盖流式期间的重命名等字段）
    *
-   * 开关状态：联网搜索 / 深度思考由 this.webSearch / this.deepThinking 读取
+   * 开关状态：联网搜索 / 思考强度由 this.webSearch / this.thinkingEffort 读取
    * （ChatInput 切换时已通过 updateSearchOptions 同步到本 VM，唯一真源）
    *
    * @param text 用户输入文本
@@ -306,7 +307,7 @@ export class ChatViewModel {
     if (this.editingMessageId.length > 0) {
       const editTargetId = this.editingMessageId;
       this.exitEditMode();
-      await this.editUserMessage(editTargetId, text, this.webSearch, this.deepThinking);
+      await this.editUserMessage(editTargetId, text, this.webSearch, this.thinkingEffort);
       return;
     }
 
@@ -327,7 +328,7 @@ export class ChatViewModel {
     const context: Message[] = this.messageDataSource.getAll().slice(0, -1);
 
     /* 4. 发起流式回复（任务登记 + 可选搜索 + 回调 + 调用 LLM） */
-    this.startStreamReply(sendConvId, targetConv, aiMsg, context, this.webSearch, this.deepThinking, text);
+    this.startStreamReply(sendConvId, targetConv, aiMsg, context, this.webSearch, this.thinkingEffort, text);
   }
 
   /**
@@ -335,11 +336,11 @@ export class ChatViewModel {
    * 唯一真源：发送 / 重新生成 / 新建分支 / 编辑均读取此处的当前值，
    * 避免「重新生成/新建分支」误用上一次发送时的开关
    * @param webSearch 联网搜索开关
-   * @param deepThinking 深度思考开关
+   * @param thinkingEffort 思考强度（reasoning.effort：none 关闭 / low 轻量 / high 深度 / max 极限）
    */
-  updateSearchOptions(webSearch: boolean, deepThinking: boolean): void {
+  updateSearchOptions(webSearch: boolean, thinkingEffort: ThinkingEffort): void {
     this.webSearch = webSearch;
-    this.deepThinking = deepThinking;
+    this.thinkingEffort = thinkingEffort;
   }
 
   /**
@@ -349,7 +350,7 @@ export class ChatViewModel {
    * @param aiMsg AI 占位消息（流式填充目标；重新生成时复用旧消息对象实现覆盖）
    * @param context 历史上下文（不含 aiMsg 本身）
    * @param webSearch 是否开启联网搜索（服务端 web_search 工具）
-   * @param deepThinking 是否开启深度思考
+   * @param thinkingEffort 思考强度（reasoning.effort：none 关闭 / low 轻量 / high 深度 / max 极限）
    * @param searchQuery 保留参数（历史版本为本地搜索取词；服务端搜索后不再使用）
    */
   private async startStreamReply(
@@ -358,7 +359,7 @@ export class ChatViewModel {
     aiMsg: Message,
     context: Message[],
     webSearch: boolean,
-    deepThinking: boolean,
+    thinkingEffort: ThinkingEffort,
     searchQuery: string,
     resetOnFirstChunk: boolean = false, // 「换个回答」覆盖模式：首增量前保留旧内容
   ): Promise<void> {
@@ -379,7 +380,7 @@ export class ChatViewModel {
     const task = new StreamTask(sendConvId, aiMsg, targetConv);
     task.webSearchEnabled = webSearch; // 记录本次是否请求联网搜索（onComplete 据此判断搜索是否发生过）
     task.resetOnFirstChunk = resetOnFirstChunk;
-    task.deepThinkingEnabled = deepThinking; // 记录本次深度思考开关（「继续生成」时复用）
+    task.thinkingEffort = thinkingEffort; // 记录本次思考强度（「继续生成」时复用）
     /* 流式进行中 → 生成状态标记为未完成（进程终止时重启可识别并恢复「继续生成」） */
     aiMsg.generationStatus = "partial";
     this.streamTasks.set(task.aiMsg.id, task);
@@ -391,7 +392,7 @@ export class ChatViewModel {
     }
 
     /* 2. 构造回调并调用 LLM Provider（回调统一操作 task，实现按对话隔离） */
-    this.startProviderStream(task, context, deepThinking, webSearch, "");
+    this.startProviderStream(task, context, thinkingEffort, webSearch, "");
   }
 
   /**
@@ -411,7 +412,7 @@ export class ChatViewModel {
    * 构造流式回调并调用 LLM Provider（普通发送 / 重新生成 / 新建分支 / 编辑 / 继续生成 共用）
    * @param task 已登记的任务对象（「继续生成」时复用原任务，保持 aiMsg / 归属一致）
    * @param context 本次请求的上下文（「继续生成」时末尾含已生成部分内容的 AI 消息）
-   * @param deepThinking 深度思考开关
+   * @param thinkingEffort 思考强度（reasoning.effort：none 关闭 / low 轻量 / high 深度 / max 极限）
    * @param webSearch 联网搜索开关
    * @param baseContent 本次请求前 aiMsg 已含的正文（onComplete 用 baseContent+fullText 写回，
    *   避免"继续生成"时仅剩本次增量而覆盖掉暂停前已生成的内容）
@@ -419,7 +420,7 @@ export class ChatViewModel {
   private startProviderStream(
     task: StreamTask,
     context: Message[],
-    deepThinking: boolean,
+    thinkingEffort: ThinkingEffort,
     webSearch: boolean,
     baseContent: string,
   ): void {
@@ -632,7 +633,7 @@ export class ChatViewModel {
      * 调用 LLM（通过工厂获取 Provider，业务层不依赖具体供应商）
      * 返回值 = 中止句柄，暂停生成时调用（ChatViewModel.pauseStreaming）
      */
-    task.abortHandler = LLMProviderFactory.create().sendMessage(context, callbacks, deepThinking, webSearch);
+    task.abortHandler = LLMProviderFactory.create().sendMessage(context, callbacks, thinkingEffort, webSearch);
   }
 
   /**
@@ -666,7 +667,7 @@ export class ChatViewModel {
     this.syncBackgroundGuardCount(); // 任务仍在表中，保活计数保持不变
     /* 上下文不含这条空回复消息本身 */
     const context = this.buildContextBefore(aiMsg.id);
-    this.startProviderStream(task, context, task.deepThinkingEnabled, task.webSearchEnabled, "");
+    this.startProviderStream(task, context, task.thinkingEffort, task.webSearchEnabled, "");
   }
 
   /**
@@ -763,7 +764,7 @@ export class ChatViewModel {
       task = this.tailTask();
     }
     let aiMsg: Message;
-    let deepThinking: boolean;
+    let thinkingEffort: ThinkingEffort;
     let webSearch: boolean;
     let baseContent: string;
     if (task !== undefined && task.isPaused) {
@@ -771,7 +772,7 @@ export class ChatViewModel {
       task.timestampUpdated = false; // 重置置顶标记：继续生成后首次输出正文再次把对话排到最前
       task.autoRetryCount = 0; // 修复：重置空回复自动续试计数，避免历史计数耗尽导致本次无法续试
       aiMsg = task.aiMsg;
-      deepThinking = task.deepThinkingEnabled;
+      thinkingEffort = task.thinkingEffort;
       webSearch = task.webSearchEnabled;
       /**
        * 修复：覆盖模式（换个回答）在首个增量前被中断时，旧内容尚未清除；
@@ -791,11 +792,11 @@ export class ChatViewModel {
       if (restored === undefined) return;
       if (target !== undefined && target.id !== restored.id) return;
       aiMsg = restored;
-      deepThinking = this.deepThinking;
+      thinkingEffort = this.thinkingEffort;
       webSearch = this.webSearch;
       baseContent = aiMsg.content;
       task = new StreamTask(convId, aiMsg, this.currentConversation);
-      task.deepThinkingEnabled = deepThinking;
+      task.thinkingEffort = thinkingEffort;
       task.webSearchEnabled = webSearch;
       this.streamTasks.set(task.aiMsg.id, task);
     }
@@ -824,7 +825,7 @@ export class ChatViewModel {
     }
     /* 3. 重新发起请求：baseContent = 暂停前已生成的内容（onComplete 写回时叠加本次增量） */
     this.jumpToBottom();
-    this.startProviderStream(task, context, deepThinking, webSearch, baseContent);
+    this.startProviderStream(task, context, thinkingEffort, webSearch, baseContent);
   }
 
   /* 依据当前激活链尾的任务状态刷新 UI 状态（任务结束 / 对话切换等场景） */
@@ -1033,7 +1034,7 @@ export class ChatViewModel {
     const targetConv = this.currentConversation;
     /* 使用当前输入区开关状态（而非上次发送时的值） */
     await this.startStreamReply(sendConvId, targetConv, aiMsg, context,
-      this.webSearch, this.deepThinking, prompt, true);
+      this.webSearch, this.thinkingEffort, prompt, true);
   }
 
   /* AI 消息「生成新回复」：保留旧回复，创建新变体并重新生成（旧分支整条熄灭，可切回） */
@@ -1063,7 +1064,7 @@ export class ChatViewModel {
     const targetConv = this.currentConversation;
     /* 使用当前输入区开关状态（而非上次发送时的值） */
     await this.startStreamReply(sendConvId, targetConv, newVariant, context,
-      this.webSearch, this.deepThinking, prompt);
+      this.webSearch, this.thinkingEffort, prompt);
   }
 
   /**
@@ -1074,7 +1075,7 @@ export class ChatViewModel {
     editTargetId: string,
     newText: string,
     webSearch: boolean,
-    deepThinking: boolean,
+    thinkingEffort: ThinkingEffort,
   ): Promise<void> {
     const sendConvId = this.currentConversationId;
     const target = this.branchManager.getById(editTargetId);
@@ -1098,7 +1099,7 @@ export class ChatViewModel {
     /* 5. 构造上下文并发起流式回复 */
     const context = this.buildContextBefore(aiMsg.id);
     const targetConv = this.currentConversation;
-    await this.startStreamReply(sendConvId, targetConv, aiMsg, context, webSearch, deepThinking, newText);
+    await this.startStreamReply(sendConvId, targetConv, aiMsg, context, webSearch, thinkingEffort, newText);
   }
 
   /* 用户消息「编辑」：进入编辑态（内容回填输入框），发送时创建新分支 */

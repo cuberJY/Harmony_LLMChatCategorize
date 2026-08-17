@@ -9,6 +9,7 @@ import buffer from "@ohos.buffer";
 import { http } from "@kit.NetworkKit";
 import { Message } from "../../model/Message";
 import { AppConfig } from "../../config/AppConfig";
+import { ThinkingEffort } from "../../config/ModelPresets";
 import { AbortHandle, LLMProvider, StreamCallbacks } from "./LLMProvider";
 import { LLMError, ErrorCode, buildError } from "../LLMError";
 
@@ -41,9 +42,9 @@ interface ToolChoiceConfig {
   type: string; // "web_search" | "web_search_2025_08_26" | "function"
 }
 
-/* 思考模式配置（Responses API 通过 reasoning.effort 控制强度） */
+/* 思考模式配置（Responses API 通过 reasoning.effort 控制强度：none 关闭 / low 轻量 / high 深度 / max 极限） */
 interface ReasoningConfig {
-  effort: string; // "high"（深度思考）| "low"（轻量思考）
+  effort: ThinkingEffort;
 }
 
 /* Responses API 请求体结构 */
@@ -143,7 +144,7 @@ export class DeepSeekProvider implements LLMProvider {
    * 发送流式对话请求（Responses API）
    * @param messages 历史消息列表（包含用户和 AI 的完整对话）
    * @param callbacks 流式回调（含服务端搜索状态回调与网络中断回调）
-   * @param deepThinking 是否开启深度思考（reasoning.effort: high / low）
+   * @param thinkingEffort 思考强度（reasoning.effort：none 关闭 / low 轻量 / high 深度 / max 极限）
    * @param webSearch 是否开启联网搜索（服务端 web_search 工具）
    * @returns 中止句柄：调用方在「暂停生成」时调用 abort()，
    *   中止后销毁底层 HTTP 连接且不再触发任何回调（已接收内容由调用方自行保留）
@@ -151,7 +152,7 @@ export class DeepSeekProvider implements LLMProvider {
   sendMessage(
     messages: Message[],
     callbacks: StreamCallbacks,
-    deepThinking: boolean,
+    thinkingEffort: ThinkingEffort,
     webSearch: boolean,
   ): AbortHandle {
     /* 未配置时提前拦截，提示用户前往设置 */
@@ -412,12 +413,16 @@ export class DeepSeekProvider implements LLMProvider {
     };
 
     /**
-     * 思考模式（Responses API：reasoning.effort 控制强度）
-     * - 开启深度思考：high（深度推理）
-     * - 关闭深度思考：low（Responses API 无"完全关闭"开关，low 最接近轻量思考）
+     * 思考强度（Responses API：reasoning.effort 控制强度）
+     * - none：关闭思考模式（不输出思维链）
+     * - low：轻量思考
+     * - high：深度思考（默认）
+     * - max：极限思考
+     * 供应商支持思考模式（supportsReasoning）时始终携带该字段；
+     * 关闭思考（none）也显式传给服务端，等价于旧版「不开启深度思考」
      */
     if (preset.supportsReasoning) {
-      requestBodyObj.reasoning = { effort: deepThinking ? "high" : "low" };
+      requestBodyObj.reasoning = { effort: thinkingEffort };
     }
 
     /**
