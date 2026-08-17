@@ -20,7 +20,7 @@ import { KeyboardAvoidMode } from "@kit.ArkUI";
 import { common } from "@kit.AbilityKit";
 import { AppConfig } from "../config/AppConfig";
 import { MODEL_PRESETS, getModelPreset } from "../config/ModelPresets";
-import { showToast } from "../common/Utils";
+import { showToast, SafeAreaHelper } from "../common/Utils";
 
 @ComponentV2
 export struct SettingsPage {
@@ -32,11 +32,17 @@ export struct SettingsPage {
   @Local selectedModel: string = ""; // 模型下拉当前选中的模型名
   @Local modelIndex: number = 0; // 模型下拉当前选中项索引
   @Local apiKey: string = "";
+  /* 沉浸式系统栏高度（vp，EntryAbility 注入）：aboutToAppear 一次性读取（V2 无 @StorageProp，用 @Local + 手动读取） */
+  @Local statusBarHeightVp: number = 0;
+  @Local navBarHeightVp: number = 0;
   private saveTimerId: number = -1; // 保存后返回的定时器，离开页面时清理
   private isSaving: boolean = false; // 保存中标记（防连点重复保存与双 pop）
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE;
 
   aboutToAppear(): void {
+    /* 读取系统栏高度（标题栏/内容区避让用） */
+    this.statusBarHeightVp = SafeAreaHelper.getStatusBarHeight();
+    this.navBarHeightVp = SafeAreaHelper.getNavBarHeight();
     /* 输入法避让：本页是表单页，切到"上抬"模式（键盘弹出时页面整体上抬，保证当前输入框不被遮挡） */
     this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode(); // 记录进入前的模式
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
@@ -94,15 +100,19 @@ export struct SettingsPage {
           Row().width(40)
         }
         .width("100%")
-        .height($r('app.float.title_bar_height'))
-        .padding({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
+        .height(SafeAreaHelper.getTitleBarHeight(this.getUIContext()) + this.statusBarHeightVp)
+        .padding({
+          top: this.statusBarHeightVp,
+          left: $r('app.float.space_xl'),
+          right: $r('app.float.space_xl'),
+        })
         .backgroundColor($r('app.color.title_bar_bg'))
         .border({
           width: { bottom: 2 },
           color: { bottom: $r('app.color.divider') },
         })
-        /* 上抬避让时让标题栏保持原位，不被键盘顶出屏幕 */
-        .expandSafeArea([SafeAreaType.KEYBOARD])
+        /* 沉浸式：SYSTEM 背景延伸 + 显式 padding 内容避让；KEYBOARD 保留键盘避让（标题栏不被键盘顶出） */
+        .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.KEYBOARD])
 
         Scroll() {
           Column() {
@@ -208,6 +218,8 @@ export struct SettingsPage {
         }
         .layoutWeight(1)
         .width("100%")
+        /* 沉浸式：内容区底部避让导航条 */
+        .padding({ bottom: this.navBarHeightVp })
         .backgroundColor($r('app.color.page_bg'))
       }
       .width("100%")

@@ -70,7 +70,7 @@ ChatCategorize/
 │   │   ├── service/          # 服务层（Provider 工厂模式 + StreamTask）
 │   │   ├── viewmodel/        # 状态管理层（MVVM 的 VM）
 │   │   ├── model/            # 数据模型（@Observed 可观察对象）
-│   │   ├── components/       # UI 组件（chat / item / dialog）
+│   │   ├── components/       # UI 组件（chat / common / dialog / item / panel；common 为多选编辑标题栏/操作栏等跨页复用组件）
 │   │   ├── pages/            # 页面（Home / Chat / SideBar / Folder / Settings）
 │   │   ├── entryability/     # Ability 入口
 │   │   └── entrybackupability/ # 备份恢复能力
@@ -162,6 +162,11 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← 激活链（高�
 - 后台有流式任务时申请 `dataTransfer` 长时任务（`backgroundTaskManager.startBackgroundRunning`），防止 SSE 连接被系统冻结
 - 仅统计 `isStreaming=true` 的任务；全部结束或回前台立即释放
 - 前置：`KEEP_BACKGROUND_RUNNING` 权限 + `backgroundModes: ["dataTransfer"]`
+
+### 10. 沉浸式系统栏适配
+
+- `EntryAbility` 开启全屏布局（`setWindowLayoutFullScreen`），系统栏背景透明、内容色随深浅色动态切换（`onConfigurationUpdate`）
+- 状态栏 / 导航条高度经 `getWindowAvoidArea` 注入 `AppStorage`，页面用 `SafeAreaHelper` + 显式 padding 避让（固定高度组件上 `safeAreaPadding` 会失效），多选编辑标题栏 / 操作栏已内置沉浸式适配
 
 ## 数据模型
 

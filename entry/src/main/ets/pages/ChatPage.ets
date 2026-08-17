@@ -9,7 +9,7 @@ import { ChatInput } from "../components/chat/ChatInput";
 import { WebSheetPanel } from "../components/panel/WebSheetPanel";
 import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
-import { showToast, KeyboardBackHelper } from "../common/Utils";
+import { showToast, KeyboardBackHelper, SafeAreaHelper } from "../common/Utils";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";
 import { ThinkingEffort } from "../config/ModelPresets";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
@@ -46,8 +46,14 @@ export struct ChatPage {
   @Local sheetShow: boolean = false; // 面板显示状态（$$ 双向绑定，拖拽/点遮罩关闭时自动置回 false）
   @Local sheetKind: "none" | "text" | "web" = "none"; // 当前面板类型：「选择文本」/「xx个网页」
   @Local sheetMsg: Message = new Message("", "user", ""); // 当前面板对应的消息（面板内容数据源）
+  /* 沉浸式系统栏高度（vp，EntryAbility 注入）：aboutToAppear 一次性读取（V2 无 @StorageProp，用 @Local + 手动读取） */
+  @Local statusBarHeightVp: number = 0;
+  @Local navBarHeightVp: number = 0;
 
   aboutToAppear(): void {
+    /* 读取系统栏高度（标题栏/输入区内容避让用） */
+    this.statusBarHeightVp = SafeAreaHelper.getStatusBarHeight();
+    this.navBarHeightVp = SafeAreaHelper.getNavBarHeight();
     /* 初始化数据库（页面级 UIAbilityContext） */
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.vm.aboutToAppear(context);
@@ -172,9 +178,18 @@ export struct ChatPage {
         })
       }
       .width("100%")
-      .height($r('app.float.title_bar_height'))
-      .padding({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
+      .height(SafeAreaHelper.getTitleBarHeight(this.getUIContext()) + this.statusBarHeightVp)
+      .padding({
+        top: this.statusBarHeightVp,
+        left: $r('app.float.space_xl'),
+        right: $r('app.float.space_xl'),
+      })
       .backgroundColor($r('app.color.title_bar_bg'))
+      /**
+       * 沉浸式：expandSafeArea 让标题栏背景向上延伸到状态栏背后（与系统栏同色融为一体）；
+       * 内容改用显式 padding（真实状态栏高度）避让——safeAreaPadding 在固定高度组件上会失效导致重叠
+       */
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
       .border({
         width: { bottom: 2 },
         color: { bottom: $r('app.color.divider') },
@@ -312,6 +327,8 @@ export struct ChatPage {
 
       ChatInput({
         modelName: this.vm.modelName,
+        /* 底部导航条高度（vp）：输入区内容用其手动避让，避免被导航条遮挡 */
+        navBarHeightVp: this.navBarHeightVp,
         /* 编辑态：回填原内容到输入框（vm.startEdit 后 @Trace 变化驱动刷新） */
         prefillText: this.vm.editingPrefill,
         isEditing: this.vm.editingMessageId.length > 0,

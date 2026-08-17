@@ -125,6 +125,10 @@
       "value": "60vp"
     },
     {
+      "name": "middle_button_height",
+      "value": "48vp"
+    },
+    {
       "name": "bubble_radius",
       "value": "12vp"
     },

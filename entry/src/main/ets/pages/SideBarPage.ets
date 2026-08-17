@@ -25,8 +25,11 @@ import { FolderPickerDialogParams, buildFolderPickerContent } from "../component
 import { DatabaseHelper } from "../database/DatabaseHelper";
 import { CategoryRepository } from "../database/CategoryRepository";
 import { ConversationItem } from "../components/item/ConversationItem";
+import { EditModeTitleBar } from "../components/common/EditModeTitleBar";
+import { EditModeActionBar } from "../components/common/EditModeActionBar";
+import { NewFolderFab } from "../components/common/NewFolderFab";
 import { RenameDialogParams, buildRenameDialog } from "../components/dialog/RenameInputDialog";
-import { showDeleteConfirm } from "../common/Utils";
+import { showDeleteConfirm, SafeAreaHelper } from "../common/Utils";
 import { DIALOG_DELAY_AFTER_MENU, DIALOG_OFFSET_SLIGHT, DIALOG_OFFSET_TALL, DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { FolderParams } from "../model/FolderParams";
@@ -50,6 +53,9 @@ export struct SideBarPage {
   /* 搜索面板状态：sheetShow 控制 bindSheet 显隐（$$ 双向绑定，下滑/点遮罩关闭自动复位）；searchVm 常驻，面板关闭再打开状态保留 */
   @Local searchSheetShow: boolean = false;
   private searchVm: SearchViewModel = new SearchViewModel();
+  /* 沉浸式系统栏高度（vp，EntryAbility 注入）：aboutToAppear 一次性读取（V2 无 @StorageProp，用 @Local + 手动读取） */
+  @Local statusBarHeightVp: number = 0;
+  @Local navBarHeightVp: number = 0;
 
   /* 重命名弹窗的内容节点（ComponentContent 方式）：非空表示已打开或残留待清理 */
   private renameDialogNode: ComponentContent<RenameDialogParams> | null = null;
@@ -69,6 +75,9 @@ export struct SideBarPage {
   private swiperController: SwiperController = new SwiperController(); // Swiper 控制器：程序化带动画切换
 
   aboutToAppear(): void {
+    /* 读取系统栏高度（标题栏/底部栏/内容区避让用） */
+    this.statusBarHeightVp = SafeAreaHelper.getStatusBarHeight();
+    this.navBarHeightVp = SafeAreaHelper.getNavBarHeight();
     /* 记住全局模式（EntryAbility 里设的 RESIZE），本页切换为 NONE：键盘不顶起底部"设置" */
     this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode();
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
@@ -139,29 +148,30 @@ export struct SideBarPage {
       Column() {
         /* 顶部栏：Tab 切换 + 返回 */
         if (this.vm.isEditMode) {
-          Row() {
-            Text("已选择 ")
-              .fontSize($r('app.float.font_title'))
-              .fontWeight(600)
-              .fontColor($r('app.color.text_primary'))
-            Text(this.vm.selectedIds.length.toString())
-              .fontSize($r('app.float.font_title'))
-              .fontWeight(600)
-              .fontColor($r('app.color.text_important'))
-              .textAlign(TextAlign.Center)
-            Text(" 项")
-              .fontSize($r('app.float.font_title'))
-              .fontWeight(600)
-              .fontColor($r('app.color.text_primary'))
-          }
-          .width("100%")
-          .justifyContent(FlexAlign.Center)
-          .height($r('app.float.title_bar_height'))
-          .padding({ left: $r('app.float.space_xl'), right: $r('app.float.space_xl') })
-          .backgroundColor($r('app.color.title_bar_bg'))
-          .border({ width: { bottom: 2 }, color: { bottom: $r('app.color.divider') } });
+          EditModeTitleBar({
+            selectedCount: this.vm.selectedIds.length,
+            isAllSelected: this.vm.isAllSelected(),
+            onExit: () => {
+              this.vm.exitEditMode();
+            },
+            onToggleSelectAll: () => {
+              this.vm.toggleSelectAll();
+            },
+          })
         } else {
           Row() {
+            Row() {
+              SymbolGlyph($r("sys.symbol.gearshape"))
+                .fontSize($r('app.float.font_icon_xxl'))
+                .fontWeight(700)
+                .fontColor([$r('app.color.text_primary')])
+            }
+            .width(40)
+            .layoutWeight(1)
+            .onClick(() => {
+              this.pathStack.pushPathByName("SettingsPage", undefined);
+            });
+            
             /* Tab 容器（左对齐） */
             Row() {
               /* 「历史」Tab（index 0，默认页） */
@@ -204,7 +214,7 @@ export struct SideBarPage {
                   this.switchTab(1);
                 })
             }
-            .layoutWeight(1)
+
             .alignItems(VerticalAlign.Center)
 
             Row() {
@@ -242,12 +252,19 @@ export struct SideBarPage {
                   this.pathStack.pop();
                 })
             }
+            .layoutWeight(1)
             .justifyContent(FlexAlign.End)
           }
           .width("100%")
-          .height($r('app.float.title_bar_height'))
-          .padding({ left: $r('app.float.space_lg'), right: $r('app.float.space_xl') })
+          .height(SafeAreaHelper.getTitleBarHeight(this.getUIContext()) + this.statusBarHeightVp)
+          .padding({
+            top: this.statusBarHeightVp,
+            left: $r('app.float.space_lg'),
+            right: $r('app.float.space_xl')
+          })
           .backgroundColor($r('app.color.title_bar_bg'))
+          /* 沉浸式：expandSafeArea 背景向上延伸 + 显式 padding 内容避让（safeAreaPadding 在固定高度组件上失效） */
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
           .border({
             width: { bottom: 2 },
             color: { bottom: $r('app.color.divider') },
@@ -446,29 +463,23 @@ export struct SideBarPage {
               .edgeEffect(EdgeEffect.Spring);
             }
 
-            /* 悬浮新建按钮（右下角） */
-            Button() {
-              SymbolGlyph($r("sys.symbol.plus"))
-                .fontSize($r('app.float.font_icon_xxl'))
-                .fontColor([Color.White])
-                .fontWeight(900)
-            }
-            .width(48)
-            .height(48)
-            .type(ButtonType.Circle)
-            .backgroundColor($r('app.color.primary'))
-            .shadow({ radius: 8, color: $r('app.color.fab_shadow'), offsetY: 2 })
-            .margin({ right: $r('app.float.space_xl'), bottom: $r('app.float.space_xl') })
-            .onClick(() => {
-              this.openNewFolderDialog();
+            /* 悬浮新建按钮（右下角，多选编辑模式隐藏避免遮挡底部操作栏） */
+            NewFolderFab({
+              visible: !this.vm.isEditMode,
+              onAddClick: () => {
+                this.openNewFolderDialog();
+              },
             })
           }
           .width("100%")
           .height("100%")
           .align(Alignment.BottomEnd)
+          .hitTestBehavior(HitTestMode.None);
         }
         .layoutWeight(1)
         .width("100%")
+        /* 沉浸式：非编辑态无底部栏，内容区底部避让导航条（编辑态由底部操作栏避让，这里不再留白） */
+        .padding({ bottom: this.vm.isEditMode ? 0 : this.navBarHeightVp })
         .duration(150) // 动画时长 150ms（对 changeIndex 与手势滑动都生效）
         .curve(Curve.EaseOut)
         .loop(false)
@@ -481,88 +492,21 @@ export struct SideBarPage {
           this.vm.setCurrentTab(index); // 滑动后同步状态，Tab 栏高亮跟随变化
         })
 
-        /* 底部：设置按钮 */
+        /* 底部 */
         if (this.vm.isEditMode) {
-          Row() {
-            Row() {
-              Text("取消")
-                .fontSize($r('app.float.font_button'))
-                .fontColor($r('app.color.toggle_text_active'))
-                .layoutWeight(1)
-                .textAlign(TextAlign.Center)
-                .onClick(() => {
-                  this.vm.exitEditMode();
-                })
-              Text(`删除`)
-                .fontSize($r('app.float.font_button'))
-                .fontWeight(500)
-                .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
-                .layoutWeight(1)
-                .textAlign(TextAlign.Center)
-                .onClick(() => {
-                  if (this.vm.selectedIds.length > 0) this.confirmBatchDelete();
-                })
-              /* 批量取消收藏：仅收藏 Tab 显示（该 Tab 可见对话均为已收藏） */
-              if (this.vm.currentTab === 1) {
-                Text("取消收藏")
-                  .fontSize($r('app.float.font_button'))
-                  .fontWeight(500)
-                  .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
-                  .layoutWeight(1)
-                  .textAlign(TextAlign.Center)
-                  .onClick(() => {
-                    if (this.vm.selectedIds.length > 0) this.vm.doBatchUnfavorite();
-                  })
-              }
-              /* 批量移动到文件夹：仅收藏 Tab 显示（收藏对话才参与文件夹分类） */
-              if (this.vm.currentTab === 1) {
-                Text("移动")
-                  .fontSize($r('app.float.font_button'))
-                  .fontWeight(500)
-                  .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.toggle_text_active') : $r('app.color.text_secondary'))
-                  .layoutWeight(1)
-                  .textAlign(TextAlign.Center)
-                  .onClick(() => {
-                    if (this.vm.selectedIds.length > 0) this.openBatchMovePicker();
-                  })
-              }
-              Text(this.vm.isAllSelected() ? "取消全选" : "全选")
-                .fontSize($r('app.float.font_button'))
-                .fontColor($r('app.color.toggle_text_active'))
-                .layoutWeight(1)
-                .textAlign(TextAlign.Center)
-                .onClick(() => {
-                  this.vm.toggleSelectAll();
-                })
-            }
-          }
-          .width("100%")
-          .height($r('app.float.title_bar_height'))
-          .justifyContent(FlexAlign.SpaceBetween)
-          .backgroundColor($r('app.color.title_bar_bg'))
-          .border({
-            width: { top: 2 },
-            color: { top: $r('app.color.divider') },
-          });
-        } else {
-          Row() {
-            SymbolGlyph($r("sys.symbol.gearshape"))
-              .fontSize($r('app.float.font_icon_xxl'))
-              .fontWeight(700)
-              .fontColor([$r('app.color.text_primary')])
-              .margin({ right: $r('app.float.space_xs') })
-          }
-          .width("100%")
-          .height($r('app.float.title_bar_height'))
-          .justifyContent(FlexAlign.Center)
-          .backgroundColor($r('app.color.title_bar_bg'))
-          .border({
-            width: { top: 2 },
-            color: { top: $r('app.color.divider') },
+          EditModeActionBar({
+            selectedCount: this.vm.selectedIds.length,
+            showFavoriteActions: this.vm.currentTab === 1,
+            onDelete: () => {
+              this.confirmBatchDelete();
+            },
+            onUnfavorite: () => {
+              this.vm.doBatchUnfavorite();
+            },
+            onMove: () => {
+              this.openBatchMovePicker();
+            },
           })
-          .onClick(() => {
-            this.pathStack.pushPathByName("SettingsPage", undefined);
-          });
         }
       }
       .width("100%")

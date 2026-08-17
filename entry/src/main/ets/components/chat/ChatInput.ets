@@ -57,6 +57,8 @@ export struct ChatInput {
    * idle=发送键 / streaming=暂停键 / paused=显示「继续生成」按钮
    */
   @Param streamState: "idle" | "streaming" | "paused" = "idle";
+  /* 底部导航条高度（vp，父级传入）：输入区内容用其手动避让，避免被导航条遮挡 */
+  @Param navBarHeightVp: number = 0;
 
   /* 监听 prefillText 变化：回填内容到输入框（@Monitor 是 V2 监听 @Param 变化的机制） */
   @Monitor('prefillText')
@@ -243,8 +245,7 @@ export struct ChatInput {
                   : [$r('app.color.toggle_text_inactive')]
               )
               .margin({
-                left: $r('app.float.space_xxs'),
-                right: $r('app.float.space_xs')
+                right: $r('app.float.space_xxs')
               })
             Text("联网搜索")
               .fontSize($r('app.float.font_toggle'))
@@ -281,13 +282,13 @@ export struct ChatInput {
               ? $r("sys.symbol.square_fill") // 生成中 → 暂停图标（实心方块）
               : $r("sys.symbol.arrowshape_up_fill"), // 普通态 → 发送图标
           )
-            .fontSize(
-              this.streamState === "streaming"
-                ? $r('app.float.font_icon_md')
-                : $r('app.float.font_icon_xl')
-            )
-            .fontColor([Color.White])
-            .margin({ bottom: 1 })
+          .fontSize(
+            this.streamState === "streaming"
+              ? $r('app.float.font_icon_md')
+              : $r('app.float.font_icon_xl')
+          )
+          .fontColor([Color.White])
+          .margin({ bottom: 1 })
         }
         .width(32)
         .height(32)
@@ -310,20 +311,26 @@ export struct ChatInput {
       }
       .width("100%")
       .alignItems(VerticalAlign.Center)
+      .margin({ bottom: $r('app.float.space_xl') })
     }
     /* 容器样式 */
     .width("100%")
+    /**
+     * 沉浸式：expandSafeArea 让白色背景向下延伸到底部导航条背后；
+     * 内容用显式 padding（导航条高度）避让手势条——safeAreaPadding 在固定高度组件上会失效
+     */
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
     .padding({
       left: $r('app.float.space_md'),
       right: $r('app.float.space_md'),
       top: $r('app.float.space_sm'),
-      bottom: $r('app.float.space_sm'),
+      bottom: this.navBarHeightVp + 4, // 4 = space_xs，底部额外留出手势条空间
     })
     .backgroundColor($r('app.color.input_bg'))
     .border({
       width: { top: 2 },
       color: { top: $r('app.color.divider') },
-    });
+    })
   }
 
   /**

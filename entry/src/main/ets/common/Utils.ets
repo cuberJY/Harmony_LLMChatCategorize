@@ -5,6 +5,32 @@
  */
 
 import { promptAction, UIContext } from "@kit.ArkUI";
+import { common } from "@kit.AbilityKit";
+
+/**
+ * 沉浸式安全区辅助器：
+ * 统一提供标题栏高度（vp）读取。状态栏/导航条高度由 EntryAbility 存入 AppStorage，
+ * 页面侧用 @StorageProp('statusBarHeightVp'/'navBarHeightVp') 读取后做显式 padding 避让，
+ * 避免 expandSafeArea + safeAreaPadding 在固定高度组件上避让失效（内容顶到系统栏）的问题。
+ */
+export class SafeAreaHelper {
+  /** 标题栏高度（vp）：读取 app.float.title_bar_height 资源（px→vp） */
+  static getTitleBarHeight(uiContext: UIContext): number {
+    const host = uiContext.getHostContext() as common.UIAbilityContext;
+    const px = host.resourceManager.getNumber($r('app.float.title_bar_height').id);
+    return uiContext.px2vp(px);
+  }
+
+  /** 状态栏高度（vp）：AppStorage 读取（EntryAbility 启动时注入，非响应式一次性读取） */
+  static getStatusBarHeight(): number {
+    return AppStorage.get<number>('statusBarHeightVp') ?? 0;
+  }
+
+  /** 导航条高度（vp）：AppStorage 读取（EntryAbility 启动时注入，非响应式一次性读取） */
+  static getNavBarHeight(): number {
+    return AppStorage.get<number>('navBarHeightVp') ?? 0;
+  }
+}
 
 /**
  * 生成唯一随机 ID（毫秒时间戳 + 随机串），统一 Conversation 与 Category 的 ID 生成逻辑

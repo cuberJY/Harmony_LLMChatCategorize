@@ -22,11 +22,14 @@ import { CategoryRepository } from "../database/CategoryRepository";
 import { Category } from "../model/Category";
 import { Conversation } from "../model/Conversation";
 import { FolderItem } from "../components/item/FolderItem";
+import { EditModeTitleBar } from "../components/common/EditModeTitleBar";
+import { EditModeActionBar } from "../components/common/EditModeActionBar";
+import { NewFolderFab } from "../components/common/NewFolderFab";
 import { ConversationItem } from "../components/item/ConversationItem";
 import { EditFolderDialogParams, buildEditFolderContent } from "../components/dialog/EditFolderDialog";
 import { FolderPickerDialogParams, buildFolderPickerContent } from "../components/dialog/FolderPickerDialog";
 import { RenameDialogParams, buildRenameDialog } from "../components/dialog/RenameInputDialog";
-import { showDeleteConfirm } from "../common/Utils";
+import { showDeleteConfirm, SafeAreaHelper } from "../common/Utils";
 import { DIALOG_DELAY_AFTER_MENU, DIALOG_OFFSET_SLIGHT, DIALOG_OFFSET_TALL, DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
 import { FolderParams } from "../model/FolderParams";
 import { FolderViewModel } from "../viewmodel/FolderViewModel";
@@ -49,8 +52,14 @@ export struct FolderPage {
   private renameConvNode: ComponentContent<RenameDialogParams> | null = null; // 重命名对话
   private batchMoveNode: ComponentContent<FolderPickerDialogParams> | null = null; // 批量移动对话
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE; // 记录全局避让模式
+  /* 沉浸式系统栏高度（vp，EntryAbility 注入）：aboutToAppear 一次性读取（V2 无 @StorageProp，用 @Local + 手动读取） */
+  @Local statusBarHeightVp: number = 0;
+  @Local navBarHeightVp: number = 0;
 
   aboutToAppear(): void {
+    /* 读取系统栏高度（标题栏/底部栏/列表避让用） */
+    this.statusBarHeightVp = SafeAreaHelper.getStatusBarHeight();
+    this.navBarHeightVp = SafeAreaHelper.getNavBarHeight();
     /**
      * 记住全局模式（EntryAbility 里设的 RESIZE），本页切换为 NONE：
      * 弹窗使用 Bottom + dy -360 固定位置（与收藏 Tab 一致），键盘弹出时不跳动
@@ -69,44 +78,32 @@ export struct FolderPage {
   build() {
     NavDestination() {
       Column() {
-        Row() {
-          Row() {
-            SymbolGlyph($r("sys.symbol.chevron_left"))
-              .fontSize($r('app.float.font_icon_xl'))
-              .fontWeight(700)
-              .fontColor([$r('app.color.text_primary')])
-          }
-          .width(40)
-          .justifyContent(FlexAlign.Start)
-          .onClick(() => {
-            /* 编辑模式下返回键先退出多选，再次点击才返回上一级 */
-            if (this.vm.isEditMode) {
+        /* 多选编辑模式：标题区改为"已选择 X 项"（与 SideBarPage 共用通用组件） */
+        if (this.vm.isEditMode) {
+          EditModeTitleBar({
+            selectedCount: this.vm.selectedIds.length,
+            isAllSelected: this.vm.isAllSelected(),
+            onExit: () => {
               this.vm.exitEditMode();
-            } else {
-              this.pathStack.pop();
-            }
+            },
+            onToggleSelectAll: () => {
+              this.vm.toggleSelectAll();
+            },
           })
-
-          /* 多选编辑模式：标题区改为"已选择 X 项"（与收藏 Tab 一致） */
-          if (this.vm.isEditMode) {
+        } else {
+          Row() {
             Row() {
-              Text("已选择 ")
-                .fontSize($r('app.float.font_title'))
-                .fontWeight(600)
-                .fontColor($r('app.color.text_primary'))
-              Text(this.vm.selectedIds.length.toString())
-                .fontSize($r('app.float.font_title'))
-                .fontWeight(600)
-                .fontColor($r('app.color.text_important'))
-                .textAlign(TextAlign.Center)
-              Text(" 项")
-                .fontSize($r('app.float.font_title'))
-                .fontWeight(600)
-                .fontColor($r('app.color.text_primary'))
+              SymbolGlyph($r("sys.symbol.chevron_left"))
+                .fontSize($r('app.float.font_icon_xxl'))
+                .fontWeight(700)
+                .fontColor([$r('app.color.text_primary')])
             }
-            .layoutWeight(1)
-            .justifyContent(FlexAlign.Center)
-          } else {
+            .width(40)
+            .justifyContent(FlexAlign.Start)
+            .onClick(() => {
+              this.pathStack.pop();
+            })
+
             Text(this.vm.folderName.length > 0 ? this.vm.folderName : "文件夹")
               .fontSize($r('app.float.font_title'))
               .fontWeight(700)
@@ -115,15 +112,21 @@ export struct FolderPage {
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
               .textAlign(TextAlign.Center)
-          }
 
-          Row().width(40)
+            Row(){}.width(40) // 占位符，保持标题居居中
+          }
+          .width("100%")
+          .height(SafeAreaHelper.getTitleBarHeight(this.getUIContext()) + this.statusBarHeightVp)
+          .padding({
+            top: this.statusBarHeightVp,
+            left: $r('app.float.space_lg'),
+            right: $r('app.float.space_lg')
+          })
+          .backgroundColor($r('app.color.title_bar_bg'))
+          /* 沉浸式：expandSafeArea 背景向上延伸 + 显式 padding 内容避让（safeAreaPadding 在固定高度组件上失效） */
+          .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+          .border({ width: { bottom: 2 }, color: { bottom: $r('app.color.divider') } })
         }
-        .width("100%")
-        .height($r('app.float.title_bar_height'))
-        .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
-        .backgroundColor($r('app.color.title_bar_bg'))
-        .border({ width: { bottom: 2 }, color: { bottom: $r('app.color.divider') } })
 
         if (this.vm.subFolders.length === 0 && this.vm.convs.length === 0) {
           Column() {
@@ -212,7 +215,11 @@ export struct FolderPage {
           }
           .width("100%")
           .layoutWeight(1)
-          .padding({ top: $r('app.float.space_md') })
+          /* 沉浸式：非编辑态无底部栏，列表底部避让导航条（编辑态由底部操作栏避让，这里不再留白） */
+          .padding({
+            top: $r('app.float.space_md'),
+            bottom: this.vm.isEditMode ? 0 : this.navBarHeightVp,
+          })
           .backgroundColor($r('app.color.page_bg'))
           /* 项间自动分割线（与收藏 Tab 一致：文件夹/对话之间都有全宽分割线） */
           .divider({
@@ -222,65 +229,21 @@ export struct FolderPage {
           .edgeEffect(EdgeEffect.Spring);
         }
 
-        /* 多选编辑模式：底部操作栏（与收藏 Tab 一致：取消/取消收藏/删除/移动/全选） */
+        /* 多选编辑模式：底部操作栏（与 SideBarPage 共用通用组件，本页恒为收藏页操作） */
         if (this.vm.isEditMode) {
-          Row() {
-            Row() {
-              Text("取消")
-                .fontSize($r('app.float.font_button'))
-                .fontColor($r('app.color.toggle_text_active'))
-                .layoutWeight(1)
-                .textAlign(TextAlign.Center)
-                .onClick(() => {
-                  this.vm.exitEditMode();
-                })
-              Text("删除")
-                .fontSize($r('app.float.font_button'))
-                .fontWeight(500)
-                .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
-                .layoutWeight(1)
-                .textAlign(TextAlign.Center)
-                .onClick(() => {
-                  if (this.vm.selectedIds.length > 0) this.confirmBatchDelete();
-                })
-              /* 批量取消收藏：本页对话均为已收藏，选中后取消即从当前文件夹移除 */
-              Text("取消收藏")
-                .fontSize($r('app.float.font_button'))
-                .fontWeight(500)
-                .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
-                .layoutWeight(1)
-                .textAlign(TextAlign.Center)
-                .onClick(() => {
-                  if (this.vm.selectedIds.length > 0) this.vm.doBatchUnfavorite();
-                })
-              /* 批量移动：弹出文件夹选择器（对话可移入当前页内其他文件夹） */
-              Text("移动")
-                .fontSize($r('app.float.font_button'))
-                .fontWeight(500)
-                .fontColor(this.vm.selectedIds.length > 0 ? $r('app.color.toggle_text_active') : $r('app.color.text_secondary'))
-                .layoutWeight(1)
-                .textAlign(TextAlign.Center)
-                .onClick(() => {
-                  if (this.vm.selectedIds.length > 0) this.openBatchMovePicker();
-                })
-              Text(this.vm.isAllSelected() ? "取消全选" : "全选")
-                .fontSize($r('app.float.font_button'))
-                .fontColor($r('app.color.toggle_text_active'))
-                .layoutWeight(1)
-                .textAlign(TextAlign.Center)
-                .onClick(() => {
-                  this.vm.toggleSelectAll();
-                })
-            }
-          }
-          .width("100%")
-          .height($r('app.float.title_bar_height'))
-          .justifyContent(FlexAlign.SpaceBetween)
-          .backgroundColor($r('app.color.title_bar_bg'))
-          .border({
-            width: { top: 2 },
-            color: { top: $r('app.color.divider') },
-          });
+          EditModeActionBar({
+            selectedCount: this.vm.selectedIds.length,
+            showFavoriteActions: true,
+            onDelete: () => {
+              this.confirmBatchDelete();
+            },
+            onUnfavorite: () => {
+              this.vm.doBatchUnfavorite();
+            },
+            onMove: () => {
+              this.openBatchMovePicker();
+            },
+          })
         }
       }
       .width("100%")
@@ -349,27 +312,16 @@ export struct FolderPage {
   @Builder
   private fabBuilder() {
     Stack() {
-      Button() {
-        SymbolGlyph($r("sys.symbol.plus"))
-          .fontSize($r('app.float.font_icon_xxl'))
-          .fontColor([Color.White])
-          .fontWeight(900)
-      }
-      .width(48)
-      .height(48)
-      .type(ButtonType.Circle)
-      .backgroundColor($r('app.color.primary'))
-      .shadow({ radius: 8, color: $r('app.color.fab_shadow'), offsetY: 2 })
-      .margin({ right: $r('app.float.space_xl'), bottom: $r('app.float.space_xl') })
-      /* 多选编辑模式下隐藏悬浮按钮，避免与底部操作栏重叠（visibility 不影响外层 Stack 的命中透传） */
-      .visibility(this.vm.isEditMode ? Visibility.None : Visibility.Visible)
-      .onClick(() => {
-        this.openNewFolderDialog();
+      NewFolderFab({
+        visible: !this.vm.isEditMode,
+        onAddClick: () => {
+          this.openNewFolderDialog();
+        },
       })
     }
     .width("100%")
     .height("100%")
-    .align(Alignment.BottomEnd) // 按钮定位到右下角，margin 提供外边距
+    .align(Alignment.BottomEnd) // 按钮定位到底部，margin 提供外边距
     .hitTestBehavior(HitTestMode.None); // 透明区域不拦截触摸，仅按钮响应点击
   }
 

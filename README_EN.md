@@ -32,6 +32,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Global search** — a search sheet opens from the sidebar's magnifier icon; matches conversation titles and message content, groups hits by conversation with snippets, and jumps precisely to the matching message; scope can be limited to active branches or include all historical branches
 - **Secure key storage** — API Key encrypted via Asset Store Kit (TEE); legacy plaintext auto-migrated
 - **Background keep-alive** — requests a `dataTransfer` continuous task while streaming in background
+- **Immersive UI** — full-screen edge-to-edge layout; transparent system bars blend into the page and content is never obscured; cleaner dark-mode palette
 - **System backup / restore** — DB and config restored with system backup (Bundle)
 - **Smart scroll** — staged follow (instant pin while thinking, smooth animation for main text), pause on manual scroll, "back to bottom" floating button
 - **Markdown rendering** — native rendering + lazy/threaded rendering optimizations + dark-mode support
@@ -70,7 +71,7 @@ ChatCategorize/
 │   │   ├── service/          # Service layer (Provider factory + StreamTask)
 │   │   ├── viewmodel/        # State layer (MVVM ViewModels)
 │   │   ├── model/            # Data models (@Observed)
-│   │   ├── components/       # UI components (chat / item / dialog)
+│   │   ├── components/       # UI components (chat / common / dialog / item / panel; common = reusable multi-select edit title/action bars)
 │   │   ├── pages/            # Pages (Home / Chat / SideBar / Folder / Settings)
 │   │   ├── entryability/     # Ability entry
 │   │   └── entrybackupability/ # Backup & restore capability
@@ -162,6 +163,11 @@ U1(root) ── A1 (variant 0) ── U2 ── A2          ← active chain (hi
 - Requests a `dataTransfer` continuous task (`backgroundTaskManager.startBackgroundRunning`) while streaming in background to prevent the SSE connection from being frozen
 - Only counts `isStreaming=true` tasks; released immediately when all finish or the app returns to foreground
 - Prerequisites: `KEEP_BACKGROUND_RUNNING` permission + `backgroundModes: ["dataTransfer"]`
+
+### 10. Immersive System-bar Adaptation
+
+- `EntryAbility` enables full-screen layout (`setWindowLayoutFullScreen`) with transparent system bars whose content color switches dynamically with dark/light mode (`onConfigurationUpdate`)
+- Status/navigation bar heights are read via `getWindowAvoidArea` into `AppStorage`; pages use `SafeAreaHelper` plus explicit padding to avoid the bars (since `safeAreaPadding` fails on fixed-height components); the multi-select edit title/action bars already include immersive adaptation
 
 ## Data Models
 
