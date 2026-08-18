@@ -136,7 +136,7 @@ export struct ConversationItem {
         /* 移动到文件夹（历史页 showMoveMenu=false 隐藏：未收藏对话不参与文件夹分类） */
         if (this.showMoveMenu) {
           MenuItem({
-            symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.folder'))
+            symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.arrow_right_folder_circle'))
               .fontSize($r('app.float.font_icon_lg'))
               .fontWeight(500)
               .fontColor([$r('app.color.operation_icon')]),
@@ -146,7 +146,7 @@ export struct ConversationItem {
               this.onMenuMove(this.conversation);
             })
         }
-        /* 置顶 / 取消置顶（动态切换：未置顶→蓝色"置顶"，已置顶→红色"取消置顶"） */
+        /* 置顶 / 取消置顶 */
         if (this.showPinMenu) {
           MenuItem({
             symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.pin'))
@@ -155,14 +155,11 @@ export struct ConversationItem {
               .fontColor([$r('app.color.operation_icon')]),
             content: this.conversation.isPinned ? "取消置顶" : "置顶",
           })
-            .contentFontColor(
-              this.conversation.isPinned ? $r('app.color.text_danger') : $r('app.color.primary'),
-            )
             .onChange(() => {
               this.onMenuPin(this.conversation);
             })
         }
-        /* 收藏 / 取消收藏（动态切换：未收藏→蓝色"收藏"，已收藏→红色"取消收藏"） */
+        /* 收藏 / 取消收藏 */
         MenuItem({
           symbolStartIcon: new SymbolGlyphModifier(this.conversation.isFavorite ? $r('sys.symbol.star_slash') : $r('sys.symbol.star'))
             .fontSize($r('app.float.font_icon_lg'))
@@ -170,9 +167,6 @@ export struct ConversationItem {
             .fontColor([$r('app.color.operation_icon')]),
           content: this.conversation.isFavorite ? "取消收藏" : "收藏",
         })
-          .contentFontColor(
-            this.conversation.isFavorite ? $r('app.color.text_danger') : $r('app.color.primary'),
-          )
           .onChange(() => {
             this.onMenuFavorite(this.conversation);
           })

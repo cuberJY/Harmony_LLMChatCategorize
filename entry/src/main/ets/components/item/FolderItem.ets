@@ -73,7 +73,7 @@ export struct FolderItem {
         })
       /* 移动 */
       MenuItem({
-        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.folder'))
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.arrow_right_folder_circle'))
           .fontSize($r('app.float.font_icon_lg'))
           .fontWeight(500)
           .fontColor([$r('app.color.operation_icon')]),
@@ -90,9 +90,6 @@ export struct FolderItem {
           .fontColor([$r('app.color.operation_icon')]),
         content: this.category.isPinned ? "取消置顶" : "置顶",
       })
-        .contentFontColor(
-          this.category.isPinned ? $r('app.color.text_danger') : $r('app.color.primary'),
-        )
         .onChange(() => {
           this.onMenuPin(this.category);
         })
