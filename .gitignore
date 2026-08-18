@@ -2,6 +2,8 @@
 /oh_modules
 /local.properties
 /.idea
+# IDE 本地配置
+/.vscode
 **/build
 /.hvigor
 .cxx
