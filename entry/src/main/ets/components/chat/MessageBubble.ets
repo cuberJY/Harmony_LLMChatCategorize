@@ -124,6 +124,7 @@ export struct MessageBubble {
    * ChatPage 收到后设置 sheet 状态并弹出（弹层生命周期与页面绑定，避免 item 级 bindSheet 残留）
    */
   @Event onOpenSheet: (msg: Message, kind: "text" | "web") => void = () => {};
+  @Event onShare: (msg: Message) => void = () => {}; // 「更多」菜单-分享
 
   /* 非响应式成员（普通成员即可，无需观察） */
   private mdController: MarkdownController = new MarkdownController(); // lv-markdown-in 样式/拦截控制器
@@ -794,17 +795,27 @@ export struct MessageBubble {
           .fontSize($r('app.float.font_icon_lg'))
           .fontWeight(500)
           .fontColor([$r('app.color.operation_icon')]),
-        content: $r('app.string.copy'),
+        content: "复制",
       })
         .onChange(() => {
           this.copyMessage();
+        })
+      MenuItem({
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.share'))
+          .fontSize($r('app.float.font_icon_lg'))
+          .fontWeight(500)
+          .fontColor([$r('app.color.operation_icon')]),
+        content: "分享",
+      })
+        .onChange(() => {
+          this.onShare(this.message);
         })
       MenuItem({
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.doc_plaintext'))
           .fontSize($r('app.float.font_icon_lg'))
           .fontWeight(500)
           .fontColor([$r('app.color.operation_icon')]),
-        content: $r('app.string.select_text'),
+        content: "选择文本",
       })
         .onChange(() => {
           /* 打开「选择文本」半模态面板（页面级统一管理） */
@@ -815,7 +826,7 @@ export struct MessageBubble {
           .fontSize($r('app.float.font_icon_lg'))
           .fontWeight(500)
           .fontColor([$r('app.color.operation_icon')]),
-        content: $r('app.string.create_branch'),
+        content: "生成新回复",
       })
         .onChange(() => {
           this.onCreateBranch(this.message);
@@ -827,7 +838,7 @@ export struct MessageBubble {
             .fontSize($r('app.float.font_icon_lg'))
             .fontWeight(500)
             .fontColor([$r('app.color.operation_icon')]),
-          content: $r('app.string.regenerate'),
+          content: "换个回答",
         })
           .onChange(() => {
             this.isReasoningExpanded = true; // 重新生成时自动展开思考过程
@@ -840,7 +851,7 @@ export struct MessageBubble {
           .fontSize($r('app.float.font_icon_lg'))
           .fontWeight(500)
           .fontColor([$r('app.color.text_danger')]),
-        content: $r('app.string.delete'),
+        content: "删除",
       })
         .contentFontColor($r('app.color.text_danger'))
         .onChange(() => {
@@ -879,7 +890,7 @@ export struct MessageBubble {
   /* 「继续生成」胶囊按钮：仅暂停态显示，样式与输入区「深度思考」「联网搜索」开关一致（圆角胶囊 + active 蓝底白字） */
   @Builder
   resumeButton() {
-    Text($r('app.string.continue_generate'))
+    Text("继续生成")
       .fontSize($r('app.float.font_toggle'))
       .fontColor($r('app.color.text_ai'))
       .padding({
@@ -995,8 +1006,8 @@ export struct MessageBubble {
     }
     showDeleteConfirm(
       this.getUIContext(),
-      $r('app.string.delete_message_title'),
-      $r('app.string.delete_message_confirm'),
+      "删除消息",
+      "确定删除该消息吗？删除后将同时删除该消息后续的所有分支",
       () => {
         this.onDelete(this.message);
       },

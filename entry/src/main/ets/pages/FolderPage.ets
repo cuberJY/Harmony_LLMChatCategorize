@@ -16,11 +16,13 @@
  * - 路由参数通过 @Param（HomePage pageMap 注入）接收，替代 router.getParams
  */
 
-import { ComponentContent, KeyboardAvoidMode } from "@kit.ArkUI";
+import { ComponentContent, KeyboardAvoidMode, window } from "@kit.ArkUI";
 import { BusinessError } from "@kit.BasicServicesKit";
+import { common } from "@kit.AbilityKit";
 import { CategoryRepository } from "../database/CategoryRepository";
 import { Category } from "../model/Category";
 import { Conversation } from "../model/Conversation";
+import { Message } from "../model/Message";
 import { FolderItem } from "../components/item/FolderItem";
 import { EditModeTitleBar } from "../components/common/EditModeTitleBar";
 import { EditModeActionBar } from "../components/common/EditModeActionBar";
@@ -33,6 +35,10 @@ import { showDeleteConfirm, SafeAreaHelper } from "../common/Utils";
 import { DIALOG_DELAY_AFTER_MENU, DIALOG_OFFSET_SLIGHT, DIALOG_OFFSET_TALL, DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
 import { FolderParams } from "../model/FolderParams";
 import { FolderViewModel } from "../viewmodel/FolderViewModel";
+import { ShareSheetPanel, ShareCardData, ShareCardItem } from "../components/panel/ShareSheetPanel";
+import { ShareService, ShareFormat } from "../service/ShareService";
+import { ConversationRepository } from "../database/ConversationRepository";
+import { image } from "@kit.ImageKit";
 
 @ComponentV2
 export struct FolderPage {
@@ -55,6 +61,12 @@ export struct FolderPage {
   /* 沉浸式系统栏高度（vp，EntryAbility 注入）：aboutToAppear 一次性读取（V2 无 @StorageProp，用 @Local + 手动读取） */
   @Local statusBarHeightVp: number = 0;
   @Local navBarHeightVp: number = 0;
+  /* 分享半模态面板状态：sheetShow 控制 bindSheet 显隐（$$ 双向绑定，下滑/点遮罩关闭自动复位） */
+  @Local shareSheetShow: boolean = false;
+  @Local shareSheetTitle: string = "分享"; // 分享面板标题
+  @Local sharePreviewText: string = ""; // 纯文本预览内容
+  @Local sharePreviewHtml: string = ""; // HTML 预览内容
+  @Local shareCardData: ShareCardData | null = null; // 图片卡片数据
 
   aboutToAppear(): void {
     /* 读取系统栏高度（标题栏/底部栏/列表避让用） */
@@ -207,6 +219,9 @@ export struct FolderPage {
                     onMenuFavorite: (selected: Conversation) => {
                       this.vm.unfavorite(selected);
                     },
+                    onMenuShare: (selected: Conversation) => {
+                      this.handleShareConversation(selected);
+                    },
                   })
                 }.width("100%");
               },
@@ -252,6 +267,16 @@ export struct FolderPage {
       /* 悬浮新建子文件夹按钮（右下角） */
       .overlay(this.fabBuilder(), {
         align: Alignment.BottomEnd,
+      })
+      /* 分享半模态面板（预览 + 格式选择 + 分享按钮）：弹层生命周期与页面绑定，onDisappear 兜底复位 */
+      .bindSheet($$this.shareSheetShow, this.shareSheetContent(), {
+        height: this.shareSheetHeight(),
+        dragBar: false,
+        showClose: false,
+        backgroundColor: $r('app.color.dialog_bg'),
+        onDisappear: () => {
+          this.shareSheetShow = false;
+        },
       });
     }
     .hideTitleBar(true)
@@ -565,5 +590,85 @@ export struct FolderPage {
         this.vm.doBatchDelete();
       },
     );
+  }
+
+  /* ===== 分享对话（与 SideBarPage 逻辑一致，复用 ShareSheetPanel 半模态面板）===== */
+
+  /**
+   * 分享整段对话：加载消息 → 打开分享半模态面板（预览 + 选格式）
+   */
+  private async handleShareConversation(conv: Conversation): Promise<void> {
+    const messages = await ConversationRepository.getInstance().getMessages(conv.id);
+    if (messages.length === 0) {
+      console.error(`handleShareConversation: 对话 ${conv.id} 无消息`);
+      return;
+    }
+    const title = conv.title.length > 0 ? conv.title : "新对话";
+    /* 生成纯文本与 HTML 预览 + 图片卡片数据（面板打开前设置，按此渲染） */
+    this.shareSheetTitle = title;
+    this.sharePreviewText = ShareService.formatConversationAsText(messages, title);
+    this.sharePreviewHtml = ShareService.formatConversationAsHtml(messages, title);
+    this.shareCardData = this.buildCardData(messages, title);
+    this.shareSheetShow = true;
+  }
+
+  /**
+   * 分享整段对话：按用户选择格式调用系统分享面板
+   * @param format 分享格式（纯文本 / HTML / 图片 / PDF）
+   * @param pixelMap 图片格式时由面板 componentSnapshot 截取的 PixelMap
+   * @param pdfPath PDF 格式时由面板 PdfExporter 生成的 PDF 文件路径
+   */
+  private doShareConversation(format: ShareFormat, pixelMap?: image.PixelMap, pdfPath?: string): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    if (format === ShareFormat.IMAGE && pixelMap !== undefined) {
+      /* 图片：导出 PNG 文件后按图片分享 */
+      ShareService.sharePixelMap(context, pixelMap, this.shareSheetTitle);
+    } else if (format === ShareFormat.PDF && pdfPath !== undefined) {
+      /* PDF：直接分享 PdfExporter 生成的 PDF 文件 */
+      ShareService.sharePdfFile(context, pdfPath, this.shareSheetTitle);
+    } else if (format === ShareFormat.HTML) {
+      ShareService.share(context, this.sharePreviewHtml, ShareFormat.HTML, this.shareSheetTitle);
+    } else {
+      ShareService.share(context, this.sharePreviewText, ShareFormat.PLAIN_TEXT, this.shareSheetTitle);
+    }
+    /* 分享面板已拉起，关闭预览半模态 */
+    this.shareSheetShow = false;
+  }
+
+  /**
+   * 组装图片卡片数据：消息列表 → 角色 + 内容（用户消息纯文本；AI 消息保留 Markdown 原文，
+   * 由卡片内 Markdown 组件渲染，分享图片中 AI 回复呈现原始富文本格式）
+   */
+  private buildCardData(messages: Message[], title: string): ShareCardData {
+    const items: ShareCardItem[] = messages.map((m: Message): ShareCardItem => {
+      const item: ShareCardItem = {
+        role: m.isUser() ? 'user' : 'assistant',
+        content: m.content,
+      };
+      return item;
+    });
+    return { title: title, items: items };
+  }
+
+  /* 分享半模态面板内容：预览 + 格式选择 + 分享按钮 */
+  @Builder
+  shareSheetContent() {
+    ShareSheetPanel({
+      previewText: this.sharePreviewText,
+      previewHtml: this.sharePreviewHtml,
+      cardData: this.shareCardData,
+      shareTitle: this.shareSheetTitle,
+      onShare: (format: ShareFormat, pixelMap?: image.PixelMap, pdfPath?: string) => {
+        this.doShareConversation(format, pixelMap, pdfPath);
+      },
+      onClose: () => {
+        this.shareSheetShow = false;
+      },
+    })
+  }
+
+  /** 分享半模态面板高度（vp）：撑满窗口（窗口高 - 状态栏 - 标题栏），复用 Utils 统一计算 */
+  private shareSheetHeight(): number {
+    return SafeAreaHelper.getSheetHeight(this.getUIContext());
   }
 }

@@ -4,7 +4,7 @@
  * 不依赖业务模块（模型/数据库），避免循环依赖
  */
 
-import { promptAction, UIContext } from "@kit.ArkUI";
+import { promptAction, UIContext, window } from "@kit.ArkUI";
 import { common } from "@kit.AbilityKit";
 
 /**
@@ -29,6 +29,33 @@ export class SafeAreaHelper {
   /** 导航条高度（vp）：AppStorage 读取（EntryAbility 启动时注入，非响应式一次性读取） */
   static getNavBarHeight(): number {
     return AppStorage.get<number>('navBarHeightVp') ?? 0;
+  }
+
+  /**
+   * 半模态面板可用高度（vp）：窗口高度 - 状态栏高度 - 标题栏高度。
+   * ChatPage / SideBarPage / FolderPage 的分享、搜索半模态面板共用，
+   * 抽离三处重复的窗口/安全区计算逻辑
+   */
+  static getSheetHeight(uiContext: UIContext): number {
+    try {
+      const host = uiContext.getHostContext() as common.UIAbilityContext | undefined;
+      if (host === undefined || host.windowStage === undefined) {
+        return 500; // 兜底高度
+      }
+      /* 标题栏高度（float 资源带 'vp' 单位，getNumber 返回 px，需转回 vp） */
+      const titleBarHeightPx = host.resourceManager.getNumber($r('app.float.title_bar_height').id);
+      const titleBarHeight = uiContext.px2vp(titleBarHeightPx);
+      const win = host.windowStage.getMainWindowSync();
+      /* 窗口总高度（px） */
+      const windowHeightPx = win.getWindowProperties().windowRect.height;
+      /* 状态栏（顶部安全区）高度（px），非沉浸式窗口时为 0 */
+      const safeTopPx = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect.height;
+      const windowHeight = uiContext.px2vp(windowHeightPx);
+      const safeTop = uiContext.px2vp(safeTopPx);
+      return Math.max(200, windowHeight - safeTop - titleBarHeight);
+    } catch (e) {
+      return 500; // 异常兜底，保证面板可显示
+    }
   }
 }
 

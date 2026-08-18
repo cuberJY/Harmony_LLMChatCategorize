@@ -96,7 +96,7 @@ export struct ChatInput {
       Row() {
         Text(
           this.isEditing
-            ? $r('app.string.edit_mode_hint')
+            ? "正在编辑消息（发送后在该位置创建新分支）"
             : (this.modelName.length > 0 ? this.modelName : "未配置模型，请前往设置"),
         )
           .fontSize($r('app.float.font_model_name'))

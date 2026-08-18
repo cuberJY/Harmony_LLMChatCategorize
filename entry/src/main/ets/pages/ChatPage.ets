@@ -13,6 +13,9 @@ import { showToast, KeyboardBackHelper, SafeAreaHelper } from "../common/Utils";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";
 import { ThinkingEffort } from "../config/ModelPresets";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
+import { ShareSheetPanel, ShareCardData, ShareCardItem } from "../components/panel/ShareSheetPanel";
+import { ShareService, ShareFormat } from "../service/ShareService";
+import { image } from "@kit.ImageKit";
 
 /**
  * 状态管理 V2 结构：
@@ -44,8 +47,13 @@ export struct ChatPage {
    * 避免 item 级 bindSheet 在 LazyForEach 中残留遮罩（修复：弹出弹窗后页面触摸被吞）
    */
   @Local sheetShow: boolean = false; // 面板显示状态（$$ 双向绑定，拖拽/点遮罩关闭时自动置回 false）
-  @Local sheetKind: "none" | "text" | "web" = "none"; // 当前面板类型：「选择文本」/「xx个网页」
+  @Local sheetKind: "none" | "text" | "web" | "share" = "none"; // 当前面板类型：「选择文本」/「xx个网页」/「分享」
   @Local sheetMsg: Message = new Message("", "user", ""); // 当前面板对应的消息（面板内容数据源）
+  /* 分享半模态面板预览数据（sheetKind === "share" 时使用） */
+  @Local shareSheetTitle: string = "分享"; // 分享面板标题
+  @Local sharePreviewText: string = ""; // 纯文本预览内容
+  @Local sharePreviewHtml: string = ""; // HTML 预览内容
+  @Local shareCardData: ShareCardData | null = null; // 图片卡片数据（Canvas 绘制数据源）
   /* 沉浸式系统栏高度（vp，EntryAbility 注入）：aboutToAppear 一次性读取（V2 无 @StorageProp，用 @Local + 手动读取） */
   @Local statusBarHeightVp: number = 0;
   @Local navBarHeightVp: number = 0;
@@ -252,6 +260,9 @@ export struct ChatPage {
                     this.sheetKind = kind;
                     this.sheetShow = true;
                   },
+                  onShare: (m: Message) => {
+                    this.handleShareQAPair(m);
+                  },
                 })
               }.width("100%")
               .onAreaChange((oldArea: Area, newArea: Area) => {
@@ -454,6 +465,18 @@ export struct ChatPage {
         webs: this.sheetMsg.searchedWebs,
         onClose: () => { this.sheetShow = false; },
       });
+    } else if (this.sheetKind === "share") {
+      /* 分享面板：预览 + 格式选择 + 分享按钮 */
+      ShareSheetPanel({
+        previewText: this.sharePreviewText,
+        previewHtml: this.sharePreviewHtml,
+        cardData: this.shareCardData,
+        shareTitle: this.shareSheetTitle,
+        onShare: (format: ShareFormat, pixelMap?: image.PixelMap, pdfPath?: string) => {
+          this.doShareQAPair(format, pixelMap, pdfPath);
+        },
+        onClose: () => { this.sheetShow = false; },
+      });
     }
   }
 
@@ -465,7 +488,7 @@ export struct ChatPage {
       Row() {
         /* 左侧占位（与右侧关闭按钮等宽，保证标题视觉居中） */
         Row().width($r('app.float.space_xxl'))
-        Text($r('app.string.select_text'))
+        Text("选择文本")
           .fontSize($r('app.float.font_title'))
           .fontWeight(700)
           .fontColor($r('app.color.text_primary'))
@@ -521,30 +544,11 @@ export struct ChatPage {
   }
 
   /**
-   * 计算半模态面板高度（vp）：
-   * 面板从底部弹出，要求其顶部与页面顶部标题栏下缘对齐，
-   * 故 高度 = 窗口高度 - 状态栏高度 - 标题栏高度（窗口/状态栏为 px，统一转 vp）。
+   * 半模态面板高度（vp）：复用 Utils 的统一计算。
+   * 面板从底部弹出，顶部与页面标题栏下缘对齐，故高度 = 窗口高 - 状态栏 - 标题栏
    */
   private pageSheetHeight(): number {
-    try {
-      const host = this.getUIContext().getHostContext() as common.UIAbilityContext | undefined;
-      if (host === undefined || host.windowStage === undefined) {
-        return 500; // 兜底高度
-      }
-      /* 标题栏高度（float 资源带 'vp' 单位，getNumber 返回 px，需转回 vp） */
-      const titleBarHeightPx = host.resourceManager.getNumber($r('app.float.title_bar_height').id);
-      const titleBarHeight = this.getUIContext().px2vp(titleBarHeightPx);
-      const win = host.windowStage.getMainWindowSync();
-      /* 窗口总高度（px） */
-      const windowHeightPx = win.getWindowProperties().windowRect.height;
-      /* 状态栏（顶部安全区）高度（px），非沉浸式窗口时为 0 */
-      const safeTopPx = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM).topRect.height;
-      const windowHeight = this.getUIContext().px2vp(windowHeightPx);
-      const safeTop = this.getUIContext().px2vp(safeTopPx);
-      return Math.max(200, windowHeight - safeTop - titleBarHeight);
-    } catch (e) {
-      return 500; // 异常兜底，保证面板可显示
-    }
+    return SafeAreaHelper.getSheetHeight(this.getUIContext());
   }
 
   /**
@@ -598,5 +602,79 @@ export struct ChatPage {
          此路径 onShown 不会触发（ChatPage 未被覆盖），故必须在此复位 */
       this.isSideBarPushing = false;
     });
+  }
+
+  /**
+   * 分享单次问答：查找该消息的配对消息 → 打开分享半模态面板（预览 + 选格式）
+   * 用户消息气泡 → 连带后续AI回复；AI消息气泡 → 连带前面用户消息
+   */
+  private handleShareQAPair(msg: Message): void {
+    const allMessages = this.vm.messageDataSource.getAll();
+    let userMsg: Message;
+    let aiMsg: Message;
+
+    if (msg.isUser()) {
+      // 用户消息：找到紧跟在后面的 AI 回复
+      userMsg = msg;
+      const idx = allMessages.indexOf(msg);
+      aiMsg = idx >= 0 && idx + 1 < allMessages.length ? allMessages[idx + 1] : msg;
+      if (aiMsg.isUser()) {
+        aiMsg = msg; // 后面没有 AI 回复，只分享用户消息
+      }
+    } else {
+      // AI 消息：找到前面的用户消息
+      aiMsg = msg;
+      const idx = allMessages.indexOf(msg);
+      userMsg = idx > 0 ? allMessages[idx - 1] : msg;
+      if (!userMsg.isUser()) {
+        userMsg = msg; // 前面没有用户消息
+      }
+    }
+
+    /* 生成纯文本与 HTML 预览 + 图片卡片数据（shareSheetKind 打开前设置，面板按此渲染） */
+    this.shareSheetTitle = "分享问答";
+    this.sharePreviewText = ShareService.formatQAPairAsText(userMsg, aiMsg);
+    this.sharePreviewHtml = ShareService.formatQAPairAsHtml(userMsg, aiMsg);
+    this.shareCardData = this.buildCardData([userMsg, aiMsg]);
+    this.sheetKind = "share";
+    this.sheetShow = true;
+  }
+
+  /**
+   * 分享单次问答：按用户选择格式调用系统分享面板
+   * @param format 分享格式（纯文本 / HTML / 图片 / PDF）
+   * @param pixelMap 图片格式时由面板截取卡片的 PixelMap
+   * @param pdfPath PDF 格式时由面板 PdfExporter 生成的 PDF 文件路径
+   */
+  private doShareQAPair(format: ShareFormat, pixelMap?: image.PixelMap, pdfPath?: string): void {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    if (format === ShareFormat.IMAGE && pixelMap !== undefined) {
+      /* 图片：导出 PNG 文件后按图片分享 */
+      ShareService.sharePixelMap(context, pixelMap, this.shareSheetTitle);
+    } else if (format === ShareFormat.PDF && pdfPath !== undefined) {
+      /* PDF：直接分享 PdfExporter 生成的 PDF 文件 */
+      ShareService.sharePdfFile(context, pdfPath, this.shareSheetTitle);
+    } else if (format === ShareFormat.HTML) {
+      ShareService.share(context, this.sharePreviewHtml, ShareFormat.HTML, this.shareSheetTitle);
+    } else {
+      ShareService.share(context, this.sharePreviewText, ShareFormat.PLAIN_TEXT, this.shareSheetTitle);
+    }
+    /* 分享面板已拉起，关闭预览半模态 */
+    this.sheetShow = false;
+  }
+
+  /**
+   * 组装图片卡片数据：消息列表 → 角色 + 内容（用户消息纯文本；AI 消息保留 Markdown 原文，
+   * 由卡片内 Markdown 组件渲染，分享图片中 AI 回复呈现原始富文本格式）
+   */
+  private buildCardData(messages: Message[]): ShareCardData {
+    const items: ShareCardItem[] = messages.map((m: Message): ShareCardItem => {
+      const item: ShareCardItem = {
+        role: m.isUser() ? 'user' : 'assistant',
+        content: m.content,
+      };
+      return item;
+    });
+    return { title: this.shareSheetTitle, items: items };
   }
 }

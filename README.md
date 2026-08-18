@@ -16,6 +16,7 @@
 | 大模型 API | DeepSeek Responses API（Provider 工厂模式可扩展）           |
 | 联网搜索   | DeepSeek 服务端 web_search 工具                             |
 | Markdown   | @luvi/lv-markdown-in 原生渲染（LaTeX / 代码高亮 / Mermaid） |
+| 分享解析   | marked ArkTS 移植（[Harmony-Markdown-Editor](https://github.com/electronicminer/Harmony-Markdown-Editor)，MIT） |
 
 ## 功能特性
 
@@ -34,6 +35,7 @@
 - **智能滚动** — 生成中自动钉底，手动滚动暂停，回到底部按钮
 - **Markdown 渲染** — 原生渲染 + 性能优化 + 深色模式
 - **文本交互** — 长按复制、代码块复制、原文查看
+- **分享** — 消息 / 对话一键分享：纯文本、HTML、图片、PDF 四格式，AI 回复富文本原样呈现
 
 ## 快速开始
 
@@ -62,7 +64,7 @@ ChatCategorize/
 ├── AppScope/                  # 应用级配置
 ├── entry/src/main/
 │   ├── ets/
-│   │   ├── common/            # 常量与公共工具
+│   │   ├── common/            # 常量与公共工具（markdown/ 为 marked 移植解析核心）
 │   │   ├── config/            # 应用配置与密钥存储
 │   │   ├── database/          # 数据层（DAO + Repository）
 │   │   ├── service/           # 服务层（Provider 工厂 + StreamTask）
@@ -110,10 +112,16 @@ ChatCategorize/
 - LazyForEach 懒加载 + 流式节流 + 可见位置稳定；思考即时钉底、正文平滑动画，用户滚动手势期间暂停流式写入
 - Markdown 懒渲染 + 思考过程块化渲染，避免逐行重建抖动
 
-### 9. 后台保活
+### 9. 分享 Markdown 解析 — marked 移植
+- 引入 [Harmony-Markdown-Editor](https://github.com/electronicminer/Harmony-Markdown-Editor)（MIT）中的 **marked ArkTS 移植解析核心**，替换原手写轻量解析，用于分享（HTML / PDF / 纯文本）
+- 位于 `entry/src/main/ets/common/markdown/`，完整 GFM：表格 / 删除线 / 嵌套列表 / 任务列表等；代码块经 `HighlightAnalyzer` 轻量高亮（`<span class="hl-*">` + 注入 CSS）
+- 统一封装 `service/MarkdownParser.ets`（`markdownToHtml` / `markdownToText` / `HIGHLIGHT_CSS`）；HTML 与 PDF 分享共用同一解析，两格式同步受益
+- 原仓库 `Markdown/src/main/ets/core/` 为 marked（github.com/markedjs/marked）的 ArkTS 移植；本工程提取纯解析层并做 ArkTS 严格模式兼容改造（去扩展 / 显式类型 / Map 化 links 等）
+
+### 10. 后台保活
 - 后台有流式任务时申请 `dataTransfer` 长时任务，全部结束或回前台立即释放（需 `KEEP_BACKGROUND_RUNNING` 权限）
 
-### 10. 沉浸式系统栏
+### 11. 沉浸式系统栏
 - 全屏布局 + 透明系统栏，深浅色动态适配；系统栏高度注入 AppStorage，页面显式避让（固定高度组件上 `safeAreaPadding` 会失效）
 
 ## 数据模型

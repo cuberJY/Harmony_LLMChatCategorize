@@ -16,6 +16,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 | LLM API           | DeepSeek Responses API (extensible Provider factory)              |
 | Web search        | DeepSeek server-side web_search tool                              |
 | Markdown          | @luvi/lv-markdown-in native rendering (LaTeX / code highlight / Mermaid) |
+| Share parsing     | marked ArkTS port ([Harmony-Markdown-Editor](https://github.com/electronicminer/Harmony-Markdown-Editor), MIT) |
 
 ## Features
 
@@ -34,6 +35,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Smart scroll** — auto-pin while generating, pause on manual scroll, "back to bottom" button
 - **Markdown rendering** — native rendering + performance optimizations + dark-mode support
 - **Text interaction** — long-press copy, code-block copy, raw-text viewer
+- **Share** — one-tap share of messages / conversations as plain text, HTML, image, or PDF; AI replies keep their rich formatting
 
 ## Quick Start
 
@@ -62,7 +64,7 @@ ChatCategorize/
 ├── AppScope/                  # App-level config
 ├── entry/src/main/
 │   ├── ets/
-│   │   ├── common/            # Constants & utilities
+│   │   ├── common/            # Constants & utilities (markdown/ = marked port core)
 │   │   ├── config/            # App config & key storage
 │   │   ├── database/          # Data layer (DAO + Repository)
 │   │   ├── service/           # Service layer (Provider factory + StreamTask)
@@ -110,10 +112,16 @@ ChatCategorize/
 - LazyForEach lazy loading + streaming throttle + stable visible position; instant pin while thinking, smooth animation for main text, streaming UI writes paused during user scroll gestures
 - Markdown lazy rendering + block-based reasoning rendering to avoid per-line rebuild jitter
 
-### 9. Background Keep-alive
+### 9. Share Markdown Parsing — marked Port
+- Introduced the **marked ArkTS port parsing core** from [Harmony-Markdown-Editor](https://github.com/electronicminer/Harmony-Markdown-Editor) (MIT), replacing the previous hand-written lightweight parser, used for sharing (HTML / PDF / plain text)
+- Located at `entry/src/main/ets/common/markdown/`, full GFM: tables / strikethrough / nested lists / task lists etc.; code blocks get lightweight highlighting via `HighlightAnalyzer` (`<span class="hl-*">` + injected CSS)
+- Unified wrapper in `service/MarkdownParser.ets` (`markdownToHtml` / `markdownToText` / `HIGHLIGHT_CSS`); HTML and PDF sharing share the same parser, so both formats benefit together
+- The upstream `Markdown/src/main/ets/core/` is the ArkTS port of marked (github.com/markedjs/marked); this project extracts the pure parsing layer and adapts it to ArkTS strict mode (removed extensions / explicit types / Map-based links etc.)
+
+### 10. Background Keep-alive
 - Requests a `dataTransfer` continuous task while streaming in background, released when all finish or the app returns to foreground (needs `KEEP_BACKGROUND_RUNNING` permission)
 
-### 10. Immersive System Bars
+### 11. Immersive System Bars
 - Full-screen layout + transparent system bars with dark/light adaptation; bar heights injected into AppStorage and explicitly avoided by pages (since `safeAreaPadding` fails on fixed-height components)
 
 ## Data Models

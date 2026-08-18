@@ -159,7 +159,7 @@ export class SideBarViewModel {
     const ok = await ConversationRepository.getInstance().update(conv);
     if (!ok) {
       conv.title = oldTitle; // 失败回滚内存，避免界面与数据库不一致
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* DB 重载收藏 Tab（uncategorizedConvs 与历史列表可能是不同实例，统一以数据库为准） */
@@ -179,7 +179,7 @@ export class SideBarViewModel {
     if (!ok) {
       conv.isFavorite = oldFav; // 失败回滚内存
       conv.categoryId = oldCat;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* DB 重载：历史列表与收藏列表统一以数据库为准，消除跨列表实例手动同步 */
@@ -197,7 +197,7 @@ export class SideBarViewModel {
     if (!ok) {
       conv.isFavorite = oldFav; // 失败回滚内存
       conv.categoryId = oldCat;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* DB 重载：历史列表与收藏列表统一以数据库为准，消除跨列表实例手动同步 */
@@ -214,12 +214,12 @@ export class SideBarViewModel {
     const ok = await ConversationRepository.getInstance().setPinned(conv, conv.isPinned);
     if (!ok) {
       conv.isPinned = oldPin; // 失败回滚内存
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadFavorites(); // DB 重载：置顶对话自动排到顶部
     this.listVersion++; // 强制 ForEach 重建：置顶图标出现、菜单文案切换
-    showToast(conv.isPinned ? "已置顶" : "已取消置顶");
+    showToast(conv.isPinned ? $r('app.string.toast_pinned') : $r('app.string.toast_unpinned'));
   }
 
   /* 执行置顶/取消置顶（文件夹）：同上 */
@@ -229,12 +229,12 @@ export class SideBarViewModel {
     const ok = await CategoryRepository.getInstance().setPinned(cat, cat.isPinned);
     if (!ok) {
       cat.isPinned = oldPin;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadFavorites();
     this.listVersion++;
-    showToast(cat.isPinned ? "已置顶" : "已取消置顶");
+    showToast(cat.isPinned ? $r('app.string.toast_pinned') : $r('app.string.toast_unpinned'));
   }
 
   /* 执行移动文件夹：更新 parentId 并刷新列表 */
@@ -243,7 +243,7 @@ export class SideBarViewModel {
     const ok = await CategoryRepository.getInstance().moveTo(cat, targetId); // 空串 = 移到顶级
     if (!ok) {
       cat.parentId = oldParent; // 失败回滚内存
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadFavorites();
@@ -258,7 +258,7 @@ export class SideBarViewModel {
     if (!ok) {
       conv.categoryId = oldCat; // 失败回滚内存
       conv.isFavorite = oldFav;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* DB 重载：历史列表与收藏列表统一以数据库为准 */
@@ -273,13 +273,13 @@ export class SideBarViewModel {
     const ok = await ConversationRepository.getInstance().move(ids, folderId);
     this.exitEditMode();
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* DB 重载：历史列表与收藏列表统一以数据库为准 */
     await this.loadConversations();
     await this.loadFavorites();
-    showToast(folderId.length > 0 ? `已移动 ${ids.length} 个对话` : $r('app.string.moved_out'));
+    showToast(folderId.length > 0 ? $r('app.string.toast_moved_n', ids.length) : $r('app.string.moved_out'));
   }
 
   /* 执行批量取消收藏：选中对话置 is_favorite=0 并清空分类，退出编辑模式后重载 */
@@ -288,14 +288,14 @@ export class SideBarViewModel {
     this.exitEditMode();
     const ok = await ConversationRepository.getInstance().unfavoriteByIds(ids);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* DB 重载：历史列表与收藏列表统一以数据库为准 */
     await this.loadConversations();
     await this.loadFavorites();
     this.listVersion++;
-    showToast(`已取消收藏 ${ids.length} 个对话`);
+    showToast($r('app.string.toast_unfavorited_n', ids.length));
   }
 
   /* 执行删除：先拷贝 id，再删除 → 退出编辑模式 → DB 重载 */
@@ -303,7 +303,7 @@ export class SideBarViewModel {
     this.exitEditMode();
     const ok = await ConversationRepository.getInstance().deleteConversations(ids);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* 删除对话时同步中止并清理其流任务（后台流/保活计数随之释放） */
@@ -315,14 +315,14 @@ export class SideBarViewModel {
     await this.loadConversations();
     await this.loadFavorites();
     this.listVersion++;
-    showToast(`已删除 ${ids.length} 个对话`);
+    showToast($r('app.string.toast_deleted_n', ids.length));
   }
 
   /* 执行删除文件夹（级联）：文件夹下对话的分类会被清空（clearCategory） */
   async doDeleteFolder(id: string): Promise<void> {
     const ok = await CategoryRepository.getInstance().deleteCategoryCascade(id);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* DB 重载：历史列表（对话分类变化）与收藏列表统一以数据库为准 */
@@ -336,11 +336,11 @@ export class SideBarViewModel {
     const cat = new Category(undefined, name, undefined, color); // 颜色一并入库
     const ok = await CategoryRepository.getInstance().insert(cat);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadFavorites();
-    showToast(`已创建 ${name}`);
+    showToast($r('app.string.toast_created_folder', name));
   }
 
   /* 执行编辑文件夹：重命名 + 切换图标颜色 */
@@ -351,7 +351,7 @@ export class SideBarViewModel {
     if (!ok) {
       cat.name = oldName; // 失败回滚内存
       cat.color = oldColor;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadFavorites();

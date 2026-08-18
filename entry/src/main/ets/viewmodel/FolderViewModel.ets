@@ -91,11 +91,11 @@ export class FolderViewModel {
     const cat = new Category(undefined, name, this.folderId, color);
     const ok = await CategoryRepository.getInstance().insert(cat);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
-    showToast(`已创建「${name}」`);
+    showToast($r('app.string.toast_created_folder', name));
   }
 
   /* 执行编辑子文件夹：重命名 + 切换图标颜色 */
@@ -106,7 +106,7 @@ export class FolderViewModel {
     if (!ok) {
       cat.name = oldName; // 失败回滚内存
       cat.color = oldColor;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
@@ -121,19 +121,19 @@ export class FolderViewModel {
     const ok = await CategoryRepository.getInstance().setPinned(cat, cat.isPinned);
     if (!ok) {
       cat.isPinned = oldPin;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData(); // 重载：置顶文件夹排到当前文件夹列表顶部
     this.listVersion++;
-    showToast(cat.isPinned ? "已置顶" : "已取消置顶");
+    showToast(cat.isPinned ? $r('app.string.toast_pinned') : $r('app.string.toast_unpinned'));
   }
 
   /* 执行删除文件夹（级联） */
   async deleteFolderCascade(id: string): Promise<void> {
     const ok = await CategoryRepository.getInstance().deleteCategoryCascade(id);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
@@ -146,7 +146,7 @@ export class FolderViewModel {
     const ok = await CategoryRepository.getInstance().moveTo(cat, targetId); // 空串 = 移到顶级
     if (!ok) {
       cat.parentId = oldParent; // 失败回滚内存
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
@@ -163,7 +163,7 @@ export class FolderViewModel {
     if (!ok) {
       conv.categoryId = oldCat; // 失败回滚内存
       conv.isFavorite = oldFav;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* 若移出的目标不是当前文件夹 → 从当前列表移除 */
@@ -180,7 +180,7 @@ export class FolderViewModel {
     const ok = await ConversationRepository.getInstance().update(conv);
     if (!ok) {
       conv.title = oldTitle; // 失败回滚内存
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     this.listVersion++; // 强制 ForEach 重建，刷新对话标题
@@ -194,19 +194,19 @@ export class FolderViewModel {
     const ok = await ConversationRepository.getInstance().setPinned(conv, conv.isPinned);
     if (!ok) {
       conv.isPinned = oldPin;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData(); // 重载：置顶对话排到当前文件夹列表顶部
     this.listVersion++;
-    showToast(conv.isPinned ? "已置顶" : "已取消置顶");
+    showToast(conv.isPinned ? $r('app.string.toast_pinned') : $r('app.string.toast_unpinned'));
   }
 
   /* 执行删除对话 */
   async deleteConv(id: string): Promise<void> {
     const ok = await ConversationRepository.getInstance().deleteConversations([id]);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     /* 删除对话时同步中止并清理其流任务（与侧边栏 doDelete 对齐，避免后台流/保活泄漏） */
@@ -226,7 +226,7 @@ export class FolderViewModel {
     if (!ok) {
       conv.isFavorite = oldFav; // 失败回滚内存
       conv.categoryId = oldCat;
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     conv.isFavorite = false;
@@ -245,12 +245,12 @@ export class FolderViewModel {
     this.exitEditMode();
     const ok = await ConversationRepository.getInstance().unfavoriteByIds(ids);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
     this.listVersion++;
-    showToast(`已取消收藏 ${ids.length} 个对话`);
+    showToast($r('app.string.toast_unfavorited_n', ids.length));
   }
 
   /* 执行批量删除：退出编辑模式后重载列表，并同步中止删除对话的流任务 */
@@ -259,7 +259,7 @@ export class FolderViewModel {
     this.exitEditMode();
     const ok = await ConversationRepository.getInstance().deleteConversations(ids);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     const chatVm = ChatViewModel.getInstance();
@@ -268,7 +268,7 @@ export class FolderViewModel {
     }
     await this.loadData();
     this.listVersion++;
-    showToast(`已删除 ${ids.length} 个对话`);
+    showToast($r('app.string.toast_deleted_n', ids.length));
   }
 
   /* 执行批量移动：选中对话统一移入目标文件夹，退出编辑模式后重载 */
@@ -277,11 +277,11 @@ export class FolderViewModel {
     this.exitEditMode();
     const ok = await ConversationRepository.getInstance().move(ids, folderId);
     if (!ok) {
-      showToast("操作失败，请重试");
+      showToast($r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
     this.listVersion++;
-    showToast(folderId.length > 0 ? `已移动 ${ids.length} 个对话` : $r('app.string.moved_out'));
+    showToast(folderId.length > 0 ? $r('app.string.toast_moved_n', ids.length) : $r('app.string.moved_out'));
   }
 }

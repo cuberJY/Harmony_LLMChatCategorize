@@ -26,6 +26,7 @@ export struct ConversationItem {
   @Event onMenuMove: (conv: Conversation) => void = (conv: Conversation) => {}; // 长按菜单-移动到文件夹
   @Event onMenuFavorite: (conv: Conversation) => void = (conv: Conversation) => {}; // 长按菜单-收藏/取消收藏
   @Event onMenuPin: (conv: Conversation) => void = (conv: Conversation) => {}; // 长按菜单-置顶/取消置顶
+  @Event onMenuShare: (conv: Conversation) => void = (conv: Conversation) => {}; // 长按菜单-分享
   
   build() {
     Row() {
@@ -109,6 +110,17 @@ export struct ConversationItem {
         })
           .onChange(() => {
             this.onMenuSelect(this.conversation);
+          })
+        /* 分享 */
+        MenuItem({
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.share'))
+            .fontSize($r('app.float.font_icon_lg'))
+            .fontWeight(500)
+            .fontColor([$r('app.color.operation_icon')]),
+          content: "分享",
+        })
+          .onChange(() => {
+            this.onMenuShare(this.conversation);
           })
         /* 重命名 */
         MenuItem({

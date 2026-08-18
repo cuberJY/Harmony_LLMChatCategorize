@@ -13,12 +13,12 @@
       "value": "label"
     },
     {
-      "name": "name_empty",
-      "value": "名称不能为空"
+      "name": "permission_keep_background_running",
+      "value": "AI 流式回复过程中在后台保持网络连接，以便退到后台后继续生成"
     },
     {
-      "name": "title_empty",
-      "value": "标题不能为空"
+      "name": "name_empty",
+      "value": "名称不能为空"
     },
     {
       "name": "rename_success",
@@ -67,10 +67,6 @@
     {
       "name": "streaming_busy",
       "value": "正在回复中，请稍候"
-    },
-    {
-      "name": "continue_generate",
-      "value": "继续生成"
     },
     {
       "name": "error_cfg_not_configured",
@@ -153,10 +149,6 @@
       "value": "保存失败，请重试"
     },
     {
-      "name": "permission_keep_background_running",
-      "value": "AI 流式回复过程中在后台保持网络连接，以便退到后台后继续生成"
-    },
-    {
       "name": "copied",
       "value": "已复制"
     },
@@ -169,44 +161,44 @@
       "value": "代码已复制"
     },
     {
-      "name": "edit_mode_hint",
-      "value": "正在编辑消息（发送后在该位置创建新分支）"
-    },
-    {
-      "name": "copy",
-      "value": "复制"
-    },
-    {
-      "name": "select_text",
-      "value": "选择文本"
-    },
-    {
-      "name": "create_branch",
-      "value": "生成新回复"
-    },
-    {
-      "name": "regenerate",
-      "value": "换个回答"
-    },
-    {
-      "name": "delete",
-      "value": "删除"
-    },
-    {
-      "name": "delete_message_title",
-      "value": "删除消息"
-    },
-    {
-      "name": "delete_message_confirm",
-      "value": "确定删除该消息吗？删除后将同时删除该消息后续的所有分支"
-    },
-    {
       "name": "edit_delete_forbidden",
       "value": "正在编辑中，暂不能删除"
     },
     {
-      "name": "cancel",
-      "value": "取消"
+      "name": "share_snapshot_failed",
+      "value": "截图失败，请稍后重试"
+    },
+    {
+      "name": "toast_op_failed",
+      "value": "操作失败，请重试"
+    },
+    {
+      "name": "toast_created_folder",
+      "value": "已创建「%s」"
+    },
+    {
+      "name": "toast_pinned",
+      "value": "已置顶"
+    },
+    {
+      "name": "toast_unpinned",
+      "value": "已取消置顶"
+    },
+    {
+      "name": "toast_moved_n",
+      "value": "已移动 %d 个对话"
+    },
+    {
+      "name": "toast_unfavorited_n",
+      "value": "已取消收藏 %d 个对话"
+    },
+    {
+      "name": "toast_deleted_n",
+      "value": "已删除 %d 个对话"
+    },
+    {
+      "name": "web_open_failed",
+      "value": "无法打开网页"
     }
   ]
 }

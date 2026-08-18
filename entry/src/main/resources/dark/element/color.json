@@ -10,11 +10,11 @@
     },
     {
       "name": "page_bg",
-      "value": "#050505"
+      "value": "#121212"
     },
     {
       "name": "title_bar_bg",
-      "value": "#121212"
+      "value": "#171717"
     },
     {
       "name": "divider",
@@ -74,7 +74,7 @@
     },
     {
       "name": "input_bg",
-      "value": "#050505"
+      "value": "#121212"
     },
     {
       "name": "input_border",

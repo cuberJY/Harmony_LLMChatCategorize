@@ -125,7 +125,7 @@ export struct WebSheetPanel {
         host.openLink(url);
       }
     } catch (e) {
-      showToast("无法打开网页");
+      showToast($r('app.string.web_open_failed'));
     }
   }
 }
