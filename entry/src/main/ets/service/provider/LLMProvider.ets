@@ -80,4 +80,12 @@ export interface LLMProvider {
     thinkingEffort: ThinkingEffort,
     webSearch: boolean,
   ): AbortHandle;
+
+  /**
+   * 对话标题自动生成（非流式，低开销）
+   * 发送首条用户消息并完成首轮 AI 回复后调用：根据首轮问答为对话生成简洁标题
+   * @param messages 用于生成标题的上下文消息（首轮用户提问 + AI 回复）
+   * @returns 生成的标题；未配置 / 网络失败 / 响应解析失败时返回空串（调用方回退截断占位标题）
+   */
+  generateTitle(messages: Message[]): Promise<string>;
 }

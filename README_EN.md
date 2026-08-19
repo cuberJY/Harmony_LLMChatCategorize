@@ -27,7 +27,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Conversation branches** — change answer / generate new reply / switch branch; old branches switchable back
 - **Edit / delete messages** — editing creates a new branch in place; deletion cascades
 - **Folder categorization** — unlimited depth; multi-select batch ops (delete / unfavorite / move)
-- **History** — auto-persisted, time-grouped, global search / multi-select / batch delete
+- **History** — auto-persisted, time-grouped, global search / multi-select / batch delete; titles are auto-generated after the first Q&A round
 - **Global search** — matches titles and message content, grouped by conversation, with hit positioning
 - **Secure key storage** — API Key encrypted in TEE; legacy plaintext auto-migrated
 - **Background keep-alive** — continuous task while streaming in background

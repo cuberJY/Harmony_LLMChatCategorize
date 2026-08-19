@@ -88,6 +88,29 @@ interface ErrorDetail {
   message?: string;
 }
 
+/* 非流式标题生成响应：output 数组中的 message item 含 content[].text（output_text） */
+interface TitleResponseContent {
+  type?: string; // "output_text"
+  text?: string;
+}
+interface TitleResponseItem {
+  type?: string; // "message"
+  content?: TitleResponseContent[];
+}
+interface TitleResponse {
+  output?: TitleResponseItem[];
+  /* 请求错误（余额不足/鉴权失败等）带 error 对象；成功时显式为 null，判断时必须排除 null */
+  error?: ErrorDetail | null;
+}
+
+/**
+ * 标题生成指令（system 级，注入标题生成请求）
+ * 约束：极短、概括、无符号，直接输出标题本身（避免模型输出解释文字污染标题）
+ */
+const TITLE_INSTRUCTION: string =
+  "你是对话标题生成助手。请根据用户提供的对话内容，为这段对话生成一个短标题。" +
+  "要求：不超过15个字，尽量控制在4-10字，简短精炼，直接输出标题本身，不要任何解释或前缀。";
+
 /* SSE 单行解析结果 */
 interface SSEResult {
   kind: "none" | "chunk" | "reasoning" | "searchStart" | "searchEnd" | "searchQuery" | "searchBrowse"
@@ -138,6 +161,92 @@ export class DeepSeekProvider implements LLMProvider {
   /* 渠道是否已配置（未配置时 sendMessage 会通过 onError 提示用户） */
   isConfigured(): boolean {
     return AppConfig.getInstance().isConfigured();
+  }
+
+  /**
+   * 对话标题自动生成（非流式 Responses API 请求）
+   * 区别于 sendMessage 的流式：这里用 http.request 一次性取回结果，token 开销极小。
+   * 实现要点：
+   *   - instructions 作为 system 级指令注入（限定长度/格式，只输出标题本身）
+   *   - 解析 output[].content[].text（output_text）
+   *   - 未配置 / 网络失败 / 解析失败一律返回空串，绝不抛异常（调用方回退截断占位标题）
+   * @param messages 首轮问答上下文（用户提问 + AI 回复）
+   * @returns 生成的标题；失败时为空串
+   */
+  async generateTitle(messages: Message[]): Promise<string> {
+    /* 未配置时直接返回空串（调用方保留占位标题，不打扰用户） */
+    if (!this.isConfigured()) {
+      return "";
+    }
+    const preset = AppConfig.getInstance().getPreset();
+    const apiMessages: ApiMessage[] = messages.map((msg: Message): ApiMessage => {
+      return { role: msg.role, content: msg.content };
+    });
+    const requestBodyObj: ResponsesRequestBody = {
+      model: AppConfig.getInstance().getModel(),
+      input: apiMessages,
+      stream: false,
+      instructions: TITLE_INSTRUCTION, // 标题生成指令（输入与指令同时提供，模型据此输出标题）
+      reasoning: { effort: "none" }, // 标题生成无需思考：关闭思考模式，加快返回、避免长推理导致超时
+    };
+    const requestBody = JSON.stringify(requestBodyObj);
+
+    const httpRequest: http.HttpRequest = http.createHttp();
+    try {
+      const response = await httpRequest.request(preset.endpoint, {
+        method: http.RequestMethod.POST,
+        header: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${AppConfig.getInstance().getApiKey()}`,
+        },
+        extraData: requestBody,
+        connectTimeout: 10 * 1000, // 标题生成应轻快，超时短一些
+        readTimeout: 30 * 1000,
+      });
+      if (response.responseCode >= 400) {
+        return ""; // HTTP 错误（余额不足/鉴权失败等）→ 回退占位
+      }
+      return this.parseTitleResponse(response.result as string);
+    } catch (e) {
+      return ""; // 网络异常 → 回退占位
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  /**
+   * 解析非流式 Responses API 响应，提取 output_text 标题
+   * 响应结构：output[].type="message" → content[].type="output_text" → text
+   * @param jsonStr 响应体 JSON 字符串
+   * @returns 提取的标题文本；解析失败/为空时返回空串
+   */
+  private parseTitleResponse(jsonStr: string): string {
+    if (jsonStr.length === 0) {
+      return "";
+    }
+    try {
+      const parsed = JSON.parse(jsonStr) as TitleResponse;
+      /* 成功响应时 error 字段为 null（非 undefined），须排除 null 后再判为请求失败 */
+      if (parsed.error !== undefined && parsed.error !== null) {
+        return ""; // 响应级错误 → 回退占位
+      }
+      if (parsed.output === undefined) {
+        return "";
+      }
+      for (const item of parsed.output) {
+        if (item.type !== "message" || item.content === undefined) {
+          continue;
+        }
+        for (const part of item.content) {
+          if (part.type === "output_text" && part.text !== undefined && part.text.trim().length > 0) {
+            return part.text.trim();
+          }
+        }
+      }
+    } catch (e) {
+      /* JSON 解析失败 → 回退占位 */
+    }
+    return "";
   }
 
   /**
