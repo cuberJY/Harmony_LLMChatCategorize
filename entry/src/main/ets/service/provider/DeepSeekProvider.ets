@@ -634,20 +634,30 @@ export class DeepSeekProvider implements LLMProvider {
 
   /**
    * HTTP 状态码 → 统一错误码映射（供应商归一化核心）
-   * 不同供应商的错误码映射各不相同，接入新供应商时在此处（或对应 Provider 内）维护各自规则
+   * 按 DeepSeek 官方错误码文档适配：
+   *   400 格式错误 / 401 认证失败 / 402 余额不足 / 422 参数错误 / 429 限流 / 500 故障 / 503 繁忙
+   * 其中 402 与 400+Insufficient Balance 都映射为「余额不足」；422 同属参数非法不可重试。
    */
   private mapHttpError(status: number, rawMessage: string): LLMError {
     switch (status) {
       case 401:
         return buildError(ErrorCode.AUTH_INVALID_KEY, rawMessage, status, PROVIDER_NAME);
+      case 402:
+        /* 官方错误码：402 = 账户余额不足（应提示充值，且不可重试） */
+        return buildError(ErrorCode.INSUFFICIENT_BALANCE, rawMessage, status, PROVIDER_NAME);
       case 429:
         return buildError(ErrorCode.RATE_LIMITED, rawMessage, status, PROVIDER_NAME);
       case 400: {
         /**
-         * 400 需结合错误信息判断：上下文超限（含 context/token 字样）→ 可新建对话解决；
-         * 其余 400 = 请求本身非法 → 不可重试（否则「继续生成」会对同一非法请求无限重试）
+         * 400 需结合错误信息判断（三种情形，按优先级）：
+         * 1) 余额不足：部分网关以 400 + "Insufficient Balance" 返回（官方文档主用 402，但实测存在 400 形态）；
+         * 2) 上下文超限（含 context/token 字样）→ 可新建对话解决；
+         * 3) 其余 400 = 请求本身非法 → 不可重试（否则「继续生成」会对同一非法请求无限重试）
          */
         const lower = rawMessage.toLowerCase();
+        if (lower.includes("insufficient") || lower.includes("balance") || lower.includes("quota")) {
+          return buildError(ErrorCode.INSUFFICIENT_BALANCE, rawMessage, status, PROVIDER_NAME);
+        }
         if (lower.includes("context") || lower.includes("token")) {
           return buildError(ErrorCode.CTX_OVERFLOW, rawMessage, status, PROVIDER_NAME);
         }
@@ -656,8 +666,12 @@ export class DeepSeekProvider implements LLMProvider {
       case 403:
         /* 403 Forbidden（权限/区域限制等）：同属不可重试 */
         return buildError(ErrorCode.REQ_INVALID, rawMessage, status, PROVIDER_NAME);
+      case 422:
+        /* 官方错误码：422 = 请求参数错误（同属不可重试，修复后重试） */
+        return buildError(ErrorCode.REQ_INVALID, rawMessage, status, PROVIDER_NAME);
       default:
         if (status >= 500) {
+          /* 500 服务器故障 / 503 服务器繁忙：服务端问题，可稍后重试 */
           return buildError(ErrorCode.SRV_ERROR, rawMessage, status, PROVIDER_NAME);
         }
         return buildError(ErrorCode.UNKNOWN, rawMessage, status, PROVIDER_NAME);
@@ -671,6 +685,12 @@ export class DeepSeekProvider implements LLMProvider {
   private mapResponseFailed(errorCode: string, errorMsg: string): LLMError {
     const raw = errorMsg.length > 0 ? errorMsg : errorCode;
     const code = errorCode.toLowerCase();
+    const msg = errorMsg.toLowerCase();
+    /* 余额不足：error.code 常见 insufficient_balance / insufficient_quota；message 含 balance/insufficient/quota */
+    if (code.includes("insufficient") || code.includes("balance") || code.includes("quota")
+      || msg.includes("insufficient") || msg.includes("balance") || msg.includes("quota")) {
+      return buildError(ErrorCode.INSUFFICIENT_BALANCE, raw, undefined, PROVIDER_NAME);
+    }
     if (code.includes("rate") || code.includes("limit")) {
       return buildError(ErrorCode.RATE_LIMITED, raw, undefined, PROVIDER_NAME);
     }

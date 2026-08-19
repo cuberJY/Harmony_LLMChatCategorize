@@ -77,6 +77,10 @@
       "value": "API Key 无效或已过期，请检查设置"
     },
     {
+      "name": "error_insufficient_balance",
+      "value": "账户余额不足，请充值后重试"
+    },
+    {
       "name": "error_rate_limited",
       "value": "请求过于频繁，请稍后重试"
     },

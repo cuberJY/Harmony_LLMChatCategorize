@@ -29,6 +29,7 @@ import {
 /** 分享格式枚举 */
 export enum ShareFormat {
   PLAIN_TEXT = 'plain_text',
+  MARKDOWN = 'markdown',
   HTML = 'html',
   IMAGE = 'image',
   PDF = 'pdf',
@@ -47,6 +48,11 @@ export class ShareService {
       if (format === ShareFormat.HTML) {
         /* HTML：生成 .html 文件后按文件分享（接收方收到的是文件，而非纯文本） */
         await ShareService.shareHtmlFile(context, content, title);
+        return;
+      }
+      if (format === ShareFormat.MARKDOWN) {
+        /* Markdown：生成 .md 文件后按文件分享（保留原始标记，接收方用支持 MD 的应用打开） */
+        await ShareService.shareMarkdownFile(context, content, title);
         return;
       }
       /* 纯文本：content 直接分享为文本 */
@@ -96,6 +102,34 @@ export class ShareService {
       previewMode: systemShare.SharePreviewMode.DEFAULT,
       selectionMode: systemShare.SelectionMode.SINGLE,
     });
+  }
+
+  /**
+   * Markdown 分享为文件：将 Markdown 源码写入应用缓存目录的 .md 文件，
+   * 通过 uri 字段按文件分享（接收方可用支持 Markdown 的应用/编辑器打开）
+   * UTD 用 PLAIN_TEXT（系统无 markdown 类型），.md 后缀足以让接收方识别
+   */
+  private static async shareMarkdownFile(context: common.UIAbilityContext, md: string, title: string): Promise<void> {
+    /* 文件名：去除标题中的非法文件名字符，过长则截断；标题为空时用时间戳兜底 */
+    const safeName = title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 30) || `chat_${Date.now()}`;
+    const filePath = `${context.cacheDir}/${safeName}.md`;
+
+    /* 写入 .md 文件（CREATE 建文件 + TRUNC 清空已有内容，避免重名残留旧内容） */
+    const file = await fs.open(filePath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+    try {
+      await fs.write(file.fd, md);
+    } finally {
+      await fs.close(file.fd);
+    }
+
+    /* 构造文件分享数据：uri 指向沙箱 .md 文件，utd 用纯文本类型 */
+    const shareData = new systemShare.SharedData({
+      utd: uniformTypeDescriptor.UniformDataType.PLAIN_TEXT,
+      uri: fileUri.getUriFromPath(filePath),
+      title: title,
+      description: title,
+    });
+    ShareService.showPanel(context, shareData);
   }
 
   /**
@@ -197,13 +231,42 @@ export class ShareService {
     for (const msg of messages) {
       if (msg.isUser()) {
         lines.push(`用户：`);
-        lines.push(`${msg.content}`);
+        lines.push(`${markdownToText(msg.content)}`);
       } else {
-        // AI 消息去掉 Markdown 标记，保留纯文本
-        const plainText = markdownToText(msg.content);
+        /* AI 消息：Markdown → 纯文本（剥离 ##、** 等标记与 HTML 实体，后续再加 markdown 分享） */
         lines.push(`AI：`);
-        lines.push(`${plainText}`);
+        lines.push(`${markdownToText(msg.content)}`);
       }
+      lines.push('');
+    }
+
+    return lines.join('\n').trim();
+  }
+
+  /**
+   * 格式化整段对话为 Markdown 源码（保留原始标记，供 .md 文件分享）
+   * 格式：
+   *   # [对话标题]
+   *
+   *   **用户：**
+   *   [原始 Markdown 内容]
+   *
+   *   **AI：**
+   *   [原始 Markdown 内容]
+   */
+  static formatConversationAsMarkdown(messages: Message[], convTitle: string): string {
+    const lines: string[] = [];
+    lines.push(`# ${convTitle}`);
+    lines.push('');
+
+    for (const msg of messages) {
+      if (msg.isUser()) {
+        lines.push(`**用户：**`);
+      } else {
+        lines.push(`**AI：**`);
+      }
+      /* 内容保留原始 Markdown 原文，不做任何转换 */
+      lines.push(msg.content);
       lines.push('');
     }
 
@@ -242,10 +305,29 @@ export class ShareService {
    */
   static formatQAPairAsText(userMsg: Message, aiMsg: Message): string {
     const lines: string[] = [];
-    lines.push(`用户：${userMsg.content}`);
+    lines.push(`用户：${markdownToText(userMsg.content)}`);
     lines.push('');
     lines.push(`AI：${markdownToText(aiMsg.content)}`);
     return lines.join('\n');
+  }
+
+  /**
+   * 格式化单次问答为 Markdown 源码（保留原始标记，供 .md 文件分享）
+   * 格式：
+   *   **用户：**
+   *   [原始 Markdown 内容]
+   *
+   *   **AI：**
+   *   [原始 Markdown 内容]
+   */
+  static formatQAPairAsMarkdown(userMsg: Message, aiMsg: Message): string {
+    const lines: string[] = [];
+    lines.push(`**用户：**`);
+    lines.push(userMsg.content);
+    lines.push('');
+    lines.push(`**AI：**`);
+    lines.push(aiMsg.content);
+    return lines.join('\n').trim();
   }
 
   /**

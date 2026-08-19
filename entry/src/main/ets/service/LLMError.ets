@@ -9,9 +9,10 @@
 export type ErrorCategory =
   | "config"      // 配置问题（未填/失效 Key）
   | "auth"        // 鉴权失败（401）
+  | "payment"     // 账户余额不足（402 / 400+Insufficient Balance，不可重试）
   | "rate_limit"  // 限流（429）
   | "context"     // 上下文超限（400）
-  | "client"      // 请求非法（400 其他原因 / 403，不可重试）
+  | "client"      // 请求非法（400 其他原因 / 403 / 422，不可重试）
   | "output"      // 输出被截断（response.incomplete）
   | "server"      // 服务端错误（5xx / response.failed）
   | "network"     // 网络错误（超时/断连/请求失败）
@@ -40,9 +41,10 @@ export interface LLMError {
 export enum ErrorCode {
   CFG_NOT_CONFIGURED = "CFG_NOT_CONFIGURED", // 未配置 API Key
   AUTH_INVALID_KEY = "AUTH_INVALID_KEY",     // 鉴权失败（401）
+  INSUFFICIENT_BALANCE = "INSUFFICIENT_BALANCE", // 账户余额不足（402 / 400+Insufficient Balance，不可重试）
   RATE_LIMITED = "RATE_LIMITED",             // 限流（429）
   CTX_OVERFLOW = "CTX_OVERFLOW",             // 上下文超限（400）
-  REQ_INVALID = "REQ_INVALID",               // 请求参数非法（400/403，不可重试）
+  REQ_INVALID = "REQ_INVALID",               // 请求参数非法（400/403/422，不可重试）
   SRV_ERROR = "SRV_ERROR",                   // 服务端错误（5xx / response.failed）
   OUT_TRUNCATED = "OUT_TRUNCATED",           // 输出截断（response.incomplete）
   NET_TIMEOUT = "NET_TIMEOUT",               // 连接/读超时
@@ -60,6 +62,8 @@ function categoryOf(code: ErrorCode): ErrorCategory {
       return "config";
     case ErrorCode.AUTH_INVALID_KEY:
       return "auth";
+    case ErrorCode.INSUFFICIENT_BALANCE:
+      return "payment";
     case ErrorCode.RATE_LIMITED:
       return "rate_limit";
     case ErrorCode.CTX_OVERFLOW:
@@ -93,7 +97,8 @@ function retryableOf(code: ErrorCode): boolean {
     case ErrorCode.UNKNOWN:
       return true;
     case ErrorCode.REQ_INVALID:
-      return false;
+    case ErrorCode.INSUFFICIENT_BALANCE:
+      return false; // 请求非法 / 余额不足：重试无法解决（余额不足重复请求只会再次失败）
     default:
       return false;
   }
@@ -133,6 +138,8 @@ export function errorMessageResource(code: string): Resource {
       return $r("app.string.error_cfg_not_configured");
     case ErrorCode.AUTH_INVALID_KEY:
       return $r("app.string.error_auth_invalid_key");
+    case ErrorCode.INSUFFICIENT_BALANCE:
+      return $r("app.string.error_insufficient_balance");
     case ErrorCode.RATE_LIMITED:
       return $r("app.string.error_rate_limited");
     case ErrorCode.CTX_OVERFLOW:
@@ -166,6 +173,7 @@ export function errorTitleResource(category: ErrorCategory): Resource {
       return $r("app.string.error_title_interrupted");
     case "config":
     case "auth":
+    case "payment":
     case "rate_limit":
     case "context":
     case "client":

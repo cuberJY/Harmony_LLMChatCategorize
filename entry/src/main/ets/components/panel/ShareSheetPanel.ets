@@ -19,11 +19,8 @@
  */
 
 import { image } from '@kit.ImageKit';
-import { common } from '@kit.AbilityKit';
 import { ShareFormat } from '../../service/ShareService';
-import { PdfExporter } from '../../service/PdfExporter';
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
-import { showToast } from '../../common/Utils';
 import {
   SHARE_CARD_BG,
   SHARE_TEXT_PRIMARY,
@@ -56,30 +53,23 @@ const BUBBLE_RADIUS: number = 16; // 气泡圆角
 const CARD_BG: string = SHARE_CARD_BG; // 卡片背景（浅灰）
 const USER_BUBBLE_BG: string = SHARE_USER_BUBBLE_BG; // 用户气泡（浅蓝）
 const AI_BUBBLE_BG: string = SHARE_AI_BUBBLE_BG; // AI 气泡（白）
-/* 卡片问答轮数上限：1 次问答 = 1 条用户消息及其回复。
-   限制卡片高度，避免长对话截图过大/超长（超出部分用省略提示）。
-   图片卡片受组件截图高度硬限制（约 16000px），取 10 轮稳妥；PDF 为分页文档可更长 */
-const IMAGE_MAX_ROUNDS: number = 10; // 图片卡片最多问答轮数
-const PDF_MAX_ROUNDS: number = 50; // PDF 卡片最多问答轮数
 
 @ComponentV2
 export struct ShareSheetPanel {
   @Param previewText: string = ""; // 纯文本预览内容
+  @Param previewMarkdown: string = ""; // Markdown 源码预览内容（.md 文件分享）
   @Param previewHtml: string = ""; // HTML 预览内容
   @Param cardData: ShareCardData | null = null; // 图片卡片数据（null 时图片 tab 显示空态）
   @Param shareTitle: string = ""; // 分享标题（PDF 文件命名用，页面传入 shareSheetTitle）
   @Local selectedFormat: ShareFormat = ShareFormat.PLAIN_TEXT; // 当前选中格式（默认纯文本）
 
-  /* AI 消息 Markdown 渲染控制器（图片卡片固定浅色主题，截图白底与主题无关） */
+  /* AI 消息 Markdown 渲染控制器（预览首轮卡片固定浅色主题，导出卡片由宿主页面 ExportCardLayer 渲染） */
   private mdController: MarkdownController = new MarkdownController();
-  /* 卡片渲染稳定检测：Markdown 是异步渲染的，以「卡片高度超过阈值时间不再变化」作为渲染完成信号，
-     截图前等待稳定，避免截到空白/未完成内容（不依赖三方库渲染回调，可靠） */
-  @Local cardHeight: number = 0; // 卡片最近一次布局高度（onAreaChange 记录）
-  @Local cardHeightTime: number = 0; // 最近一次高度变化时间戳（Date.now()）
 
   /* 回调 */
   @Event onShare: (format: ShareFormat, pixelMap?: image.PixelMap, pdfPath?: string) => void =
     (format: ShareFormat, pixelMap?: image.PixelMap, pdfPath?: string) => {}; // 点击「分享」按钮（图片带 PixelMap / PDF 带生成的文件路径）
+  @Event onExportRequest: (format: ShareFormat) => void = () => {}; // 图片/PDF 导出请求（弹层内无法截图，交宿主页面处理）
   @Event onClose: () => void = () => {}; // 关闭面板
 
   aboutToAppear(): void {
@@ -97,25 +87,6 @@ export struct ShareSheetPanel {
       .setQuoteBorderColor('#DDDDDD')
       .setCodeBlockTheme('light')
       .setMermaidTheme('light');
-  }
-
-  /**
-   * 等待卡片渲染稳定：卡片高度出现后，超过 500ms 不再变化视为 Markdown 渲染完成
-   * （最多等待上限防死等），超时后按当前状态继续截图。
-   * 等待上限按格式区分：图片卡片内容少（10 轮）等 5s；PDF 卡片最多 50 轮、
-   * Markdown 异步渲染更慢，放宽到 10s，避免长内容被截到未完成状态
-   */
-  private async waitCardReady(): Promise<void> {
-    const waitMs: number = this.selectedFormat === ShareFormat.PDF ? 10000 : 5000;
-    const deadline: number = Date.now() + waitMs;
-    while (Date.now() < deadline) {
-      if (this.cardHeight > 0 && Date.now() - this.cardHeightTime > 500) {
-        return; // 高度稳定 → 渲染完成
-      }
-      await new Promise<void>((resolve: () => void) => {
-        setTimeout(resolve, 50);
-      });
-    }
   }
 
   build() {
@@ -177,6 +148,31 @@ export struct ShareSheetPanel {
           })
           .onClick(() => {
             this.selectedFormat = ShareFormat.PLAIN_TEXT;
+          })
+
+        Text("MD")
+          .fontSize($r('app.float.font_toggle'))
+          .fontColor(
+            this.selectedFormat === ShareFormat.MARKDOWN ? $r('app.color.toggle_text_active') : $r('app.color.toggle_text_inactive'),
+          )
+          .fontWeight(this.selectedFormat === ShareFormat.MARKDOWN ? 700 : 400)
+          .padding({
+            left: $r('app.float.space_md'),
+            right: $r('app.float.space_md'),
+            top: $r('app.float.space_xs'),
+            bottom: $r('app.float.space_xs'),
+          })
+          .backgroundColor(this.selectedFormat === ShareFormat.MARKDOWN ? $r('app.color.toggle_bg_active') : Color.Transparent)
+          .height(36)
+          .width(64)
+          .borderRadius(18)
+          .textAlign(TextAlign.Center)
+          .margin({
+            left: $r('app.float.space_xxs'),
+            right: $r('app.float.space_xxs'),
+          })
+          .onClick(() => {
+            this.selectedFormat = ShareFormat.MARKDOWN;
           })
 
         Text("HTML")
@@ -282,6 +278,25 @@ export struct ShareSheetPanel {
           .height("100%")
           .align(Alignment.TopStart)
           .scrollBar(BarState.Auto)
+        } else if (this.selectedFormat === ShareFormat.MARKDOWN) {
+          /* Markdown 源码预览：原文只读文本，可长按复制（与纯文本预览同样式） */
+          Scroll() {
+            Text(this.previewMarkdown)
+              .fontSize($r('app.float.font_body'))
+              .fontColor($r('app.color.text_ai'))
+              .copyOption(CopyOptions.LocalDevice)
+              .width("100%")
+              .padding({
+                left: $r('app.float.space_xl'),
+                right: $r('app.float.space_xl'),
+                top: $r('app.float.space_md'),
+                bottom: $r('app.float.space_md'),
+              })
+          }
+          .width("100%")
+          .height("100%")
+          .align(Alignment.TopStart)
+          .scrollBar(BarState.Auto)
         } else if (this.selectedFormat === ShareFormat.HTML) {
           /* HTML 预览：RichText 渲染 HTML 字符串（仅内容区内部滚动，不影响整个面板） */
           Scroll() {
@@ -293,13 +308,20 @@ export struct ShareSheetPanel {
           .align(Alignment.TopStart)
           .scrollBar(BarState.Auto)
         } else {
-          /* 图片 / PDF 预览：ArkUI 组件排版的聊天卡片（真实排版，所见即所得）。
-             PDF 与图片共用同一张卡片截图：PDF 分享时由 PdfExporter 把长图
-             按 A4 页高切分嵌入多页 PDF 文件 */
+          /* 图片 / PDF 预览：轻量首轮样式卡（不渲染完整内容，保证半模态触控不卡顿）。
+             完整内容由宿主页面 ExportCardLayer 在点「分享」时挂载隐藏分段卡片渲染 + 页面级截图
+             （弹层内 componentSnapshot 截图不可用，get 报 100001） */
           Scroll() {
             Column() {
               if (this.cardData !== null) {
-                this.cardPreview(this.cardData)
+                this.previewCard(this.cardData)
+                Text("预览仅展示首轮，分享时完整生成")
+                  .fontSize($r('app.float.font_remind'))
+                  .fontColor(SHARE_HINT_TEXT)
+                  .margin({
+                    top: $r('app.float.space_md'),
+                    bottom: $r('app.float.space_md'),
+                  })
               } else {
                 Text("暂无分享内容")
                   .fontSize($r('app.float.font_remind'))
@@ -358,12 +380,12 @@ export struct ShareSheetPanel {
   /* 图片卡片（ArkUI 组件排版） */
 
   /**
-   * 聊天卡片组件：设置固定 id 供 componentSnapshot 截图。
-   * 卡片内部用 ArkUI 原生组件排版（Column/Row/Text），自动换行与对齐由引擎保证，
-   * 不再手写 Canvas 换行算法，从根本上解决排版混乱问题。
+   * 轻量样式预览卡：仅展示首轮对话（用户消息 + AI 回复）示意最终效果。
+   * AI 消息完整渲染 Markdown（真实富文本样式）；不渲染后续轮次 ——
+   * 完整卡片在点「分享」时由宿主页面 ExportCardLayer 隐藏分段渲染，预览区保持轻量、触控不卡顿
    */
   @Builder
-  cardPreview(data: ShareCardData) {
+  previewCard(data: ShareCardData) {
     Column() {
       /* 卡片标题（居中加粗） */
       Text(data.title)
@@ -374,8 +396,8 @@ export struct ShareSheetPanel {
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .margin({ bottom: 16 })
 
-      /* 消息气泡列表 */
-      ForEach(this.limitItems(data.items), (item: ShareCardItem) => {
+      /* 首轮对话气泡（样式展示） */
+      ForEach(this.previewItems(data.items), (item: ShareCardItem) => {
         /* 用户消息右对齐 / AI 消息左对齐 */
         Row() {
           if (item.role === 'user') {
@@ -390,7 +412,7 @@ export struct ShareSheetPanel {
                 .lineHeight(22)
                 .copyOption(CopyOptions.None)
             } else {
-              /* AI 消息：Markdown 组件渲染原文（标题/列表/代码块/公式等） */
+              /* AI 消息：Markdown 组件渲染完整原文（真实富文本样式） */
               Markdown({
                 text: item.content,
                 mode: 'text',
@@ -415,132 +437,50 @@ export struct ShareSheetPanel {
         .alignItems(VerticalAlign.Top)
         .margin({ bottom: 14 })
       }, (item: ShareCardItem, index: number) => `${item.role}_${index}`)
-
-      /* 超出问答轮数上限时提示（避免卡片过长） */
-      if (this.countRounds(data.items) > this.getMaxRounds()) {
-        Text(`… 共 ${this.countRounds(data.items)} 次问答，仅展示前 ${this.getMaxRounds()} 次`)
-          .fontSize(12)
-          .fontColor(SHARE_HINT_TEXT)
-          .width("100%")
-          .textAlign(TextAlign.Center)
-          .margin({ bottom: 8 })
-      }
     }
     .width(CARD_WIDTH)
     .padding(20)
     .borderRadius(CARD_RADIUS)
     .backgroundColor(CARD_BG)
-    .id('shareCard') // componentSnapshot 截图锚点
-    .onAreaChange((oldValue: Area, newValue: Area) => {
-      /* 记录卡片高度与变化时间：高度连续稳定表示 Markdown 异步渲染已落地（截图前等待依据） */
-      const h: number = Number(newValue.height);
-      if (h > 0 && Math.abs(h - this.cardHeight) > 0.5) {
-        this.cardHeight = h;
-        this.cardHeightTime = Date.now();
-      }
-    })
   }
 
-  /** 当前格式允许的最大问答轮数（图片卡片矮、PDF 为分页文档可更长） */
-  private getMaxRounds(): number {
-    return this.selectedFormat === ShareFormat.PDF ? PDF_MAX_ROUNDS : IMAGE_MAX_ROUNDS;
-  }
-
-  /** 统计消息列表中的问答轮数（用户消息条数 = 问答轮数） */
-  private countRounds(items: ShareCardItem[]): number {
-    let rounds: number = 0;
-    for (const item of items) {
-      if (item.role === 'user') {
-        rounds++;
-      }
+  /** 取首轮对话用于样式预览：第一条用户消息起，至下一条用户消息前；无用户消息时取第一条 */
+  private previewItems(items: ShareCardItem[]): ShareCardItem[] {
+    if (items.length === 0) {
+      return [];
     }
-    return rounds;
-  }
-
-  /** 按问答轮数截取消息：保留前 maxRounds 条用户消息及其回复，超出部分丢弃 */
-  private limitItems(items: ShareCardItem[]): ShareCardItem[] {
-    const maxRounds: number = this.getMaxRounds();
-    const result: ShareCardItem[] = [];
-    let rounds: number = 0;
-    for (const item of items) {
-      if (item.role === 'user') {
-        rounds++;
-        if (rounds > maxRounds) {
-          break;
-        }
+    const first: ShareCardItem = items[0];
+    if (first.role === 'assistant') {
+      return [first];
+    }
+    const result: ShareCardItem[] = [first];
+    for (let i = 1; i < items.length; i++) {
+      if (items[i].role === 'user') {
+        break;
       }
-      result.push(item);
+      result.push(items[i]);
     }
     return result;
   }
 
   /**
-   * 分享按钮点击：图片/PDF 格式先等卡片渲染稳定（Markdown 异步渲染落地），
-   * 再用 UIContext 组件截图截取卡片为 PixelMap；图片格式回调 PixelMap 由页面写文件分享，
-   * PDF 格式交给 PdfExporter 把长图切分嵌入多页 A4 PDF 文件后回调文件路径分享；
-   * 文本/HTML 格式直接回调。
-   * 截图双保险：方式一 get(id) 截取已挂载组件（等待渲染完成）；
-   * 方式二 createFromBuilder 离屏构建卡片再截图（不依赖组件挂树，弹层场景兜底）。
-   * 均失败则 Toast 提示，避免点击无反馈
+   * 分享按钮点击：
+   *  - 图片 / PDF：弹层内 componentSnapshot 截图不可用（get 报 100001、createFromBuilder
+   *    不支持 Markdown 三方组件），通过 onExportRequest 交宿主页面：页面挂载隐藏分段卡片
+   *    （ExportCardLayer，页面级组件可截图）逐段截图后，图片拼接长图（ImageMerger）/
+   *    PDF 生成多页（PdfExporter），完成后由页面拉起系统分享并关闭面板。
+   *  - 文本/MD/HTML：直接回调。
    */
-  private async handleShareClick(): Promise<void> {
+  private handleShareClick(): void {
     if (this.selectedFormat === ShareFormat.IMAGE || this.selectedFormat === ShareFormat.PDF) {
       if (this.cardData === null) {
         return; // 无内容不响应
       }
-      /* 等待 Markdown 渲染完成（卡片高度稳定，最多 3 秒） */
-      await this.waitCardReady();
-      const snap = this.getUIContext().getComponentSnapshot();
-      /* 方式一：UIContext 组件截图（waitUntilRenderFinished 等渲染结束，弹层内比全局接口可靠） */
-      let pixelMap: image.PixelMap | null = null;
-      try {
-        const result: image.PixelMap = await snap.get('shareCard', { waitUntilRenderFinished: true });
-        if (result !== undefined && result !== null) {
-          pixelMap = result;
-        } else {
-          console.error('ShareSheetPanel snapshot get returned undefined');
-        }
-      } catch (e) {
-        console.error(`ShareSheetPanel snapshot get failed: ${JSON.stringify(e)}`);
-      }
-      /* 方式二：离屏构建卡片再截图（组件未挂树/弹层受限时的兜底） */
-      if (pixelMap === null) {
-        try {
-          const data: ShareCardData = this.cardData;
-          const result2: image.PixelMap = await snap.createFromBuilder(
-            () => {
-              this.cardPreview(data);
-            },
-            500,
-            true,
-            { waitUntilRenderFinished: true },
-          );
-          if (result2 !== undefined && result2 !== null) {
-            pixelMap = result2;
-          }
-        } catch (e) {
-          console.error(`ShareSheetPanel snapshot createFromBuilder failed: ${JSON.stringify(e)}`);
-        }
-      }
-      if (pixelMap === null) {
-        showToast($r('app.string.share_snapshot_failed'));
-        return;
-      }
-      if (this.selectedFormat === ShareFormat.PDF) {
-        /* PDF：长图 → 多页 A4 PDF 文件（PdfExporter 内部落盘 cacheDir），回调文件路径分享 */
-        try {
-          const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-          const pdfPath: string = await PdfExporter.export(context, pixelMap, this.shareTitle);
-          this.onShare(this.selectedFormat, undefined, pdfPath);
-        } catch (e) {
-          console.error(`ShareSheetPanel pdf export failed: ${JSON.stringify(e)}`);
-          showToast($r('app.string.share_snapshot_failed'));
-        }
-      } else {
-        this.onShare(this.selectedFormat, pixelMap);
-      }
-    } else {
-      this.onShare(this.selectedFormat);
+      /* 交宿主页面级导出，关闭面板（导出完成后页面直接拉起系统分享） */
+      this.onExportRequest(this.selectedFormat);
+      this.onClose();
+      return;
     }
+    this.onShare(this.selectedFormat);
   }
 }

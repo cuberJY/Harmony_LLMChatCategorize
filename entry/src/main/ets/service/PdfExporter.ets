@@ -102,4 +102,78 @@ export class PdfExporter {
       doc.releaseDocument();
     }
   }
+
+  /**
+   * 将多段图片导出为多页 A4 PDF 文件（宿主页面分段截图方案）
+   * 每段图等比缩放到页宽铺入页面；段高超一页时按页高在段图内切分铺多页。
+   * @param context UIAbilityContext（cacheDir 用于临时切分图片与最终 PDF）
+   * @param segments 各段卡片截图（ExportCardLayer 逐段 componentSnapshot 得到，每段 1 轮问答）
+   * @param title 分享标题（用于 PDF 文件名）
+   * @returns 生成的 PDF 文件路径
+   */
+  static async exportSegments(context: common.UIAbilityContext, segments: image.PixelMap[], title: string): Promise<string> {
+    const safeName = title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 30) || `chat_${Date.now()}`;
+    const pdfPath = `${context.cacheDir}/${safeName}.pdf`;
+
+    const packer = image.createImagePacker();
+    const doc = new pdfService.PdfDocument();
+    /* 全局页号：跨段连续递增（createDocument 已建第 0 页） */
+    let pageIndex: number = 0;
+    try {
+      doc.createDocument(PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT);
+
+      for (const seg of segments) {
+        /* 段图尺寸与等比缩放（统一铺满页宽，保证各页宽度一致） */
+        const info = await seg.getImageInfo();
+        const imgW: number = info.size.width;
+        const imgH: number = info.size.height;
+        const scale: number = PDF_PAGE_WIDTH / imgW;
+        const scaledH: number = imgH * scale;
+        const segPages: number = Math.max(1, Math.ceil(scaledH / PDF_PAGE_HEIGHT));
+
+        /* 段图打包为 PNG，用 ImageSource 按 A4 页高在段图坐标上切分 */
+        const srcData: ArrayBuffer = await packer.packing(seg, { format: 'image/png', quality: 100 });
+        const src = image.createImageSource(srcData);
+
+        for (let i = 0; i < segPages; i++) {
+          /* 段图坐标中的段落边界（等分页数，最后一段收尾） */
+          const y0: number = Math.round(i * imgH / segPages);
+          const y1: number = Math.round((i + 1) * imgH / segPages);
+          const segH: number = y1 - y0;
+          const segDispH: number = Math.round(segH * scale);
+
+          /* 按原图坐标裁剪段落并放大到页宽 */
+          const crop = await src.createPixelMap({
+            desiredRegion: { x: 0, y: y0, size: { width: imgW, height: segH } },
+            desiredSize: { width: PDF_PAGE_WIDTH, height: segDispH },
+          });
+
+          /* 段落写临时 PNG（PDF Kit addImageObject 按文件路径读取；用全局页号命名避免跨段重名覆盖） */
+          const segPath = `${context.cacheDir}/pdf_seg_${pageIndex}.png`;
+          const segData: ArrayBuffer = await packer.packing(crop, { format: 'image/png', quality: 100 });
+          const segFile = await fs.open(segPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+          try {
+            await fs.write(segFile.fd, segData);
+          } finally {
+            await fs.close(segFile.fd);
+          }
+          crop.release();
+
+          /* 图片铺入页面：顶部对齐（y 为图片底边到页面底边的距离） */
+          const page = pageIndex === 0 ? doc.getPage(0) : doc.insertBlankPage(pageIndex, PDF_PAGE_WIDTH, PDF_PAGE_HEIGHT);
+          page.addImageObject(segPath, 0, PDF_PAGE_HEIGHT - segDispH, PDF_PAGE_WIDTH, segDispH);
+          pageIndex++;
+        }
+        src.release();
+      }
+
+      if (!doc.saveDocument(pdfPath)) {
+        throw new Error(`PdfExporter exportSegments saveDocument failed: ${pdfPath}`);
+      }
+      return pdfPath;
+    } finally {
+      packer.release();
+      doc.releaseDocument();
+    }
+  }
 }

@@ -169,6 +169,7 @@ export struct MessageErrorCard {
   private errorAccentColor(): ResourceColor {
     switch (this.errCategory()) {
       case "auth":
+      case "payment":
       case "rate_limit":
       case "context":
       case "config":

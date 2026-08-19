@@ -35,7 +35,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Smart scroll** — auto-pin while generating, pause on manual scroll, "back to bottom" button
 - **Markdown rendering** — native rendering + performance optimizations + dark-mode support
 - **Text interaction** — long-press copy, code-block copy, raw-text viewer
-- **Share** — one-tap share of messages / conversations as plain text, HTML, image, or PDF; AI replies keep their rich formatting
+- **Share** — one-tap share of messages / conversations as plain text, Markdown, HTML, a long image, or PDF; AI replies keep their rich formatting; long conversations are exported per Q&A round into a long image / multi-page PDF
 
 ## Quick Start
 
@@ -117,6 +117,7 @@ ChatCategorize/
 - Located at `entry/src/main/ets/common/markdown/`, full GFM: tables / strikethrough / nested lists / task lists etc.; code blocks get lightweight highlighting via `HighlightAnalyzer` (`<span class="hl-*">` + injected CSS)
 - Unified wrapper in `service/MarkdownParser.ets` (`markdownToHtml` / `markdownToText` / `HIGHLIGHT_CSS`); HTML and PDF sharing share the same parser, so both formats benefit together
 - The upstream `Markdown/src/main/ets/core/` is the ArkTS port of marked (github.com/markedjs/marked); this project extracts the pure parsing layer and adapts it to ArkTS strict mode (removed extensions / explicit types / Map-based links etc.)
+- Image/PDF export is segmented: a hidden host-page layer (ExportCardLayer) renders each Q&A round and screenshots them one by one; ImageMerger stitches them into one long image, PdfExporter splits them across A4 pages (works around the unusable in-sheet snapshot and the render-buffer height limit)
 
 ### 10. Background Keep-alive
 - Requests a `dataTransfer` continuous task while streaming in background, released when all finish or the app returns to foreground (needs `KEEP_BACKGROUND_RUNNING` permission)

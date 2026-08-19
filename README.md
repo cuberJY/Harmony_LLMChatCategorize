@@ -35,7 +35,7 @@
 - **智能滚动** — 生成中自动钉底，手动滚动暂停，回到底部按钮
 - **Markdown 渲染** — 原生渲染 + 性能优化 + 深色模式
 - **文本交互** — 长按复制、代码块复制、原文查看
-- **分享** — 消息 / 对话一键分享：纯文本、HTML、图片、PDF 四格式，AI 回复富文本原样呈现
+- **分享** — 消息 / 对话一键分享：纯文本、Markdown、HTML、长图、PDF 五格式，AI 回复富文本原样呈现；长对话按轮分段导出为长图 / 多页 PDF
 
 ## 快速开始
 
@@ -117,6 +117,7 @@ ChatCategorize/
 - 位于 `entry/src/main/ets/common/markdown/`，完整 GFM：表格 / 删除线 / 嵌套列表 / 任务列表等；代码块经 `HighlightAnalyzer` 轻量高亮（`<span class="hl-*">` + 注入 CSS）
 - 统一封装 `service/MarkdownParser.ets`（`markdownToHtml` / `markdownToText` / `HIGHLIGHT_CSS`）；HTML 与 PDF 分享共用同一解析，两格式同步受益
 - 原仓库 `Markdown/src/main/ets/core/` 为 marked（github.com/markedjs/marked）的 ArkTS 移植；本工程提取纯解析层并做 ArkTS 严格模式兼容改造（去扩展 / 显式类型 / Map 化 links 等）
+- 图片 / PDF 采用分段导出：宿主页面隐藏层（ExportCardLayer）按问答轮次分段渲染并逐段截图，图片经 ImageMerger 纵向拼接为长图、PDF 由 PdfExporter 按 A4 页高切分铺多页（规避弹层内截图不可用与超长卡片渲染缓冲上限）
 
 ### 10. 后台保活
 - 后台有流式任务时申请 `dataTransfer` 长时任务，全部结束或回前台立即释放（需 `KEEP_BACKGROUND_RUNNING` 权限）

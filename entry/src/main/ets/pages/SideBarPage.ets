@@ -29,7 +29,7 @@ import { EditModeTitleBar } from "../components/common/EditModeTitleBar";
 import { EditModeActionBar } from "../components/common/EditModeActionBar";
 import { NewFolderFab } from "../components/common/NewFolderFab";
 import { RenameDialogParams, buildRenameDialog } from "../components/dialog/RenameInputDialog";
-import { showDeleteConfirm, SafeAreaHelper } from "../common/Utils";
+import { showDeleteConfirm, SafeAreaHelper, showToast } from "../common/Utils";
 import { DIALOG_DELAY_AFTER_MENU, DIALOG_OFFSET_SLIGHT, DIALOG_OFFSET_TALL, DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { FolderParams } from "../model/FolderParams";
@@ -42,6 +42,10 @@ import { ShareSheetPanel, ShareCardData, ShareCardItem } from "../components/pan
 import { ShareService, ShareFormat } from "../service/ShareService";
 import { ConversationRepository } from "../database/ConversationRepository";
 import { image } from "@kit.ImageKit";
+import { ExportCardLayer, EXPORT_CARD_WIDTH, EXPORT_IMAGE_MAX_ROUNDS, EXPORT_PDF_MAX_ROUNDS } from "../components/export/ExportCardLayer";
+import { ExportLoading } from "../components/export/ExportLoading";
+import { PdfExporter } from "../service/PdfExporter";
+import { ImageMerger, IMAGE_MERGE_MAX_HEIGHT } from "../service/ImageMerger";
 
 @ComponentV2
 export struct SideBarPage {
@@ -80,8 +84,14 @@ export struct SideBarPage {
   @Local shareSheetShow: boolean = false;
   @Local shareSheetTitle: string = "分享"; // 分享面板标题
   @Local sharePreviewText: string = ""; // 纯文本预览内容
+  @Local sharePreviewMarkdown: string = ""; // Markdown 源码预览内容（.md 文件分享）
   @Local sharePreviewHtml: string = ""; // HTML 预览内容
   @Local shareCardData: ShareCardData | null = null; // 图片卡片数据（Canvas 绘制数据源）
+  /* PDF 导出隐藏层开关：置 true 触发 ExportCardLayer 渲染隐藏分段卡片（页面级组件可截图，
+     弹层内截图实测报 100001 不可用），导出完成置 false 卸载 */
+  @Local exportShow: boolean = false;
+  /* 当前导出格式（图片/PDF）：ExportCardLayer 轮数上限与导出处理分支按此区分 */
+  @Local exportFormat: ShareFormat = ShareFormat.PDF;
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE; // 记录全局避让模式
   private swiperController: SwiperController = new SwiperController(); // Swiper 控制器：程序化带动画切换
 
@@ -504,6 +514,20 @@ export struct SideBarPage {
             },
           })
         }
+        /* 图片/PDF 导出隐藏层：页面级分段卡片渲染 + 截图（弹层内截图不可用，需在页面组件树中挂载） */
+        ExportCardLayer({
+          showLayer: this.exportShow,
+          cardData: this.shareCardData,
+          shareTitle: this.shareSheetTitle,
+          maxRounds: this.exportFormat === ShareFormat.IMAGE ? EXPORT_IMAGE_MAX_ROUNDS : EXPORT_PDF_MAX_ROUNDS,
+          onSegmentsReady: (segCount: number, segHeights: number[]) => {
+            this.doExport(this.exportFormat, segCount, segHeights);
+          },
+        })
+        /* 导出加载层：图片/PDF 生成期间显示 LoadingProgress（exportShow 置 false 自动卸载） */
+        if (this.exportShow) {
+          ExportLoading()
+        }
       }
       .width("100%")
       .height("100%")
@@ -549,6 +573,10 @@ export struct SideBarPage {
       this.vm.listVersion++;
     })
     .onBackPressed(() => {
+      /* 导出加载期间：拦截返回键，避免导出中断或页面 pop 后分享弹窗错位 */
+      if (this.exportShow) {
+        return true; // true = 本页自行处理返回键，框架不再执行默认弹栈
+      }
       /* 多选编辑模式：系统返回键优先退出编辑模式（拦截本次返回），再按一次才真正返回 ChatPage */
       if (this.vm.isEditMode) {
         this.vm.exitEditMode();
@@ -916,10 +944,11 @@ export struct SideBarPage {
       this.shareSheetShow = false; // 无内容可分享，关闭已弹出的面板
       return;
     }
-    /* 生成纯文本与 HTML 预览 + 图片卡片数据：marked 解析为同步 CPU 密集操作，
+    /* 生成纯文本 / Markdown / HTML 预览 + 图片卡片数据：marked 解析为同步 CPU 密集操作，
        先让出执行权（setTimeout 0）使面板首帧正常渲染，再异步填充预览，避免刚弹出的面板被卡顿 */
     setTimeout(() => {
       this.sharePreviewText = ShareService.formatConversationAsText(messages, title);
+      this.sharePreviewMarkdown = ShareService.formatConversationAsMarkdown(messages, title);
       this.sharePreviewHtml = ShareService.formatConversationAsHtml(messages, title);
       this.shareCardData = this.buildCardData(messages, title);
     }, 0);
@@ -941,6 +970,9 @@ export struct SideBarPage {
       ShareService.sharePdfFile(context, pdfPath, this.shareSheetTitle);
     } else if (format === ShareFormat.HTML) {
       ShareService.share(context, this.sharePreviewHtml, ShareFormat.HTML, this.shareSheetTitle);
+    } else if (format === ShareFormat.MARKDOWN) {
+      /* Markdown：生成 .md 文件后按文件分享（保留原始标记） */
+      ShareService.share(context, this.sharePreviewMarkdown, ShareFormat.MARKDOWN, this.shareSheetTitle);
     } else {
       ShareService.share(context, this.sharePreviewText, ShareFormat.PLAIN_TEXT, this.shareSheetTitle);
     }
@@ -968,16 +1000,75 @@ export struct SideBarPage {
   shareSheetContent() {
     ShareSheetPanel({
       previewText: this.sharePreviewText,
+      previewMarkdown: this.sharePreviewMarkdown,
       previewHtml: this.sharePreviewHtml,
       cardData: this.shareCardData,
       shareTitle: this.shareSheetTitle,
       onShare: (format: ShareFormat, pixelMap?: image.PixelMap, pdfPath?: string) => {
         this.doShareConversation(format, pixelMap, pdfPath);
       },
+      onExportRequest: (format: ShareFormat) => {
+        this.handleExportRequest(format);
+      },
       onClose: () => {
         this.shareSheetShow = false;
       },
     })
+  }
+
+  /**
+   * 面板图片/PDF 导出请求：记录导出格式并置 exportShow 触发 ExportCardLayer
+   * 渲染隐藏分段卡片（弹层内截图不可用，改由页面级组件截图；面板点击后已自行关闭）
+   */
+  private handleExportRequest(format: ShareFormat): void {
+    if (format === ShareFormat.IMAGE || format === ShareFormat.PDF) {
+      this.exportFormat = format;
+      this.exportShow = true;
+    }
+  }
+
+  /**
+   * 图片/PDF 导出：ExportCardLayer 各段渲染稳定后回调，页面级逐段 get(id) 截图，
+   * 段高超限时按比例缩小（scale）兜底，然后：
+   *  - 图片：ImageMerger 纵向拼接为一张长图，写 PNG 文件后按图片分享；
+   *  - PDF：PdfExporter 铺入多页 A4 PDF，完成后走既有 doShareConversation 拉起系统分享
+   */
+  private async doExport(format: ShareFormat, segCount: number, segHeights: number[]): Promise<void> {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const snap = this.getUIContext().getComponentSnapshot();
+    const segments: image.PixelMap[] = [];
+    try {
+      for (let i = 0; i < segCount; i++) {
+        /* 段高（vp）换算物理像素：超 15000px 则动态缩小 scale（等比），避免超截图渲染缓冲上限 */
+        let scale: number = 1;
+        const hPx: number = this.getUIContext().vp2px(segHeights[i] || 0);
+        if (hPx > 15000) {
+          scale = 15000 / hPx;
+        }
+        const pm: image.PixelMap = await snap.get(`exportCard_${i}`, { waitUntilRenderFinished: true, scale: scale });
+        if (pm === undefined || pm === null) {
+          throw new Error(`exportCard_${i} snapshot undefined`);
+        }
+        segments.push(pm);
+      }
+      if (format === ShareFormat.IMAGE) {
+        /* 图片：各段纵向拼接为长图（内部按 targetWidth 对齐、超高超限缩小并释放各段），
+           拼接完成后写 PNG 分享，再释放拼接结果 */
+        const merged: image.PixelMap = await ImageMerger.mergeVertical(
+          segments, this.getUIContext().vp2px(EXPORT_CARD_WIDTH), IMAGE_MERGE_MAX_HEIGHT);
+        await ShareService.sharePixelMap(context, merged, this.shareSheetTitle);
+        merged.release();
+      } else {
+        const pdfPath: string = await PdfExporter.exportSegments(context, segments, this.shareSheetTitle);
+        this.doShareConversation(ShareFormat.PDF, undefined, pdfPath);
+      }
+      this.exportShow = false;
+    } catch (e) {
+      const err: Error = e as Error;
+      console.error(`SideBarPage export FAILED: ${err.message}`);
+      this.exportShow = false;
+      showToast($r('app.string.share_snapshot_failed'));
+    }
   }
 
   /** 分享半模态面板高度：与搜索面板一致（窗口高 - 状态栏 - 标题栏） */
