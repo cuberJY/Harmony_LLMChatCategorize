@@ -56,8 +56,11 @@ const BUBBLE_RADIUS: number = 16; // 气泡圆角
 const CARD_BG: string = SHARE_CARD_BG; // 卡片背景（浅灰）
 const USER_BUBBLE_BG: string = SHARE_USER_BUBBLE_BG; // 用户气泡（浅蓝）
 const AI_BUBBLE_BG: string = SHARE_AI_BUBBLE_BG; // AI 气泡（白）
-/* 卡片截图条数上限：限制卡片高度，避免长对话截图过大/超长（超出部分用省略提示） */
-const CARD_MAX_ITEMS: number = 10;
+/* 卡片问答轮数上限：1 次问答 = 1 条用户消息及其回复。
+   限制卡片高度，避免长对话截图过大/超长（超出部分用省略提示）。
+   图片卡片受组件截图高度硬限制（约 16000px），取 10 轮稳妥；PDF 为分页文档可更长 */
+const IMAGE_MAX_ROUNDS: number = 10; // 图片卡片最多问答轮数
+const PDF_MAX_ROUNDS: number = 50; // PDF 卡片最多问答轮数
 
 @ComponentV2
 export struct ShareSheetPanel {
@@ -98,10 +101,13 @@ export struct ShareSheetPanel {
 
   /**
    * 等待卡片渲染稳定：卡片高度出现后，超过 500ms 不再变化视为 Markdown 渲染完成
-   * （最多 3 秒防死等），超时后按当前状态继续截图
+   * （最多等待上限防死等），超时后按当前状态继续截图。
+   * 等待上限按格式区分：图片卡片内容少（10 轮）等 5s；PDF 卡片最多 50 轮、
+   * Markdown 异步渲染更慢，放宽到 10s，避免长内容被截到未完成状态
    */
   private async waitCardReady(): Promise<void> {
-    const deadline: number = Date.now() + 3000;
+    const waitMs: number = this.selectedFormat === ShareFormat.PDF ? 10000 : 5000;
+    const deadline: number = Date.now() + waitMs;
     while (Date.now() < deadline) {
       if (this.cardHeight > 0 && Date.now() - this.cardHeightTime > 500) {
         return; // 高度稳定 → 渲染完成
@@ -410,9 +416,9 @@ export struct ShareSheetPanel {
         .margin({ bottom: 14 })
       }, (item: ShareCardItem, index: number) => `${item.role}_${index}`)
 
-      /* 超出条数上限时提示（避免卡片过长） */
-      if (data.items.length > CARD_MAX_ITEMS) {
-        Text(`… 共 ${data.items.length} 条消息，图片过长`)
+      /* 超出问答轮数上限时提示（避免卡片过长） */
+      if (this.countRounds(data.items) > this.getMaxRounds()) {
+        Text(`… 共 ${this.countRounds(data.items)} 次问答，仅展示前 ${this.getMaxRounds()} 次`)
           .fontSize(12)
           .fontColor(SHARE_HINT_TEXT)
           .width("100%")
@@ -435,12 +441,37 @@ export struct ShareSheetPanel {
     })
   }
 
-  /** 截取分享卡片消息（最多 CARD_MAX_ITEMS 条） */
-  private limitItems(items: ShareCardItem[]): ShareCardItem[] {
-    if (items.length <= CARD_MAX_ITEMS) {
-      return items;
+  /** 当前格式允许的最大问答轮数（图片卡片矮、PDF 为分页文档可更长） */
+  private getMaxRounds(): number {
+    return this.selectedFormat === ShareFormat.PDF ? PDF_MAX_ROUNDS : IMAGE_MAX_ROUNDS;
+  }
+
+  /** 统计消息列表中的问答轮数（用户消息条数 = 问答轮数） */
+  private countRounds(items: ShareCardItem[]): number {
+    let rounds: number = 0;
+    for (const item of items) {
+      if (item.role === 'user') {
+        rounds++;
+      }
     }
-    return items.slice(0, CARD_MAX_ITEMS);
+    return rounds;
+  }
+
+  /** 按问答轮数截取消息：保留前 maxRounds 条用户消息及其回复，超出部分丢弃 */
+  private limitItems(items: ShareCardItem[]): ShareCardItem[] {
+    const maxRounds: number = this.getMaxRounds();
+    const result: ShareCardItem[] = [];
+    let rounds: number = 0;
+    for (const item of items) {
+      if (item.role === 'user') {
+        rounds++;
+        if (rounds > maxRounds) {
+          break;
+        }
+      }
+      result.push(item);
+    }
+    return result;
   }
 
   /**

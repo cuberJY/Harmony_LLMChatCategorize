@@ -904,18 +904,25 @@ export struct SideBarPage {
    * 分享整段对话：加载消息 → 打开分享半模态面板（预览 + 选格式）
    */
   private async handleShareConversation(conv: Conversation): Promise<void> {
+    const title = conv.title.length > 0 ? conv.title : "新对话";
+    /* 先立即弹出面板（标题先行），不等待数据库读取与预览生成：
+       超长对话 getMessages 读库+反序列化耗时可达秒级，若在弹出前 await 会阻塞 UI 线程，
+       表现为"点分享后过一会才出面板"。先弹，再异步取消息、生成预览后填充 */
+    this.shareSheetTitle = title;
+    this.shareSheetShow = true;
     const messages = await ConversationRepository.getInstance().getMessages(conv.id);
     if (messages.length === 0) {
       console.error(`handleShareConversation: 对话 ${conv.id} 无消息`);
+      this.shareSheetShow = false; // 无内容可分享，关闭已弹出的面板
       return;
     }
-    const title = conv.title.length > 0 ? conv.title : "新对话";
-    /* 生成纯文本与 HTML 预览 + 图片卡片数据（面板打开前设置，按此渲染） */
-    this.shareSheetTitle = title;
-    this.sharePreviewText = ShareService.formatConversationAsText(messages, title);
-    this.sharePreviewHtml = ShareService.formatConversationAsHtml(messages, title);
-    this.shareCardData = this.buildCardData(messages, title);
-    this.shareSheetShow = true;
+    /* 生成纯文本与 HTML 预览 + 图片卡片数据：marked 解析为同步 CPU 密集操作，
+       先让出执行权（setTimeout 0）使面板首帧正常渲染，再异步填充预览，避免刚弹出的面板被卡顿 */
+    setTimeout(() => {
+      this.sharePreviewText = ShareService.formatConversationAsText(messages, title);
+      this.sharePreviewHtml = ShareService.formatConversationAsHtml(messages, title);
+      this.shareCardData = this.buildCardData(messages, title);
+    }, 0);
   }
 
   /**
