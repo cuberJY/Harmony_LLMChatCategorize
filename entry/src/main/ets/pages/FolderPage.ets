@@ -118,7 +118,7 @@ export struct FolderPage {
               SymbolGlyph($r("sys.symbol.chevron_left"))
                 .fontSize($r('app.float.font_icon_xxl'))
                 .fontWeight(700)
-                .fontColor([$r('app.color.text_primary')])
+                .fontColor([$r('app.color.font_primary')])
             }
             .width(40)
             .justifyContent(FlexAlign.Start)
@@ -129,7 +129,7 @@ export struct FolderPage {
             Text(this.vm.folderName.length > 0 ? this.vm.folderName : "文件夹")
               .fontSize($r('app.float.font_title'))
               .fontWeight(700)
-              .fontColor($r('app.color.text_primary'))
+              .fontColor($r('app.color.font_primary'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
@@ -154,7 +154,7 @@ export struct FolderPage {
           Column() {
             Text("此文件夹为空")
               .fontSize($r('app.float.font_remind'))
-              .fontColor($r('app.color.text_secondary'))
+              .fontColor($r('app.color.font_secondary'))
           }
           .width("100%")
           .layoutWeight(1)

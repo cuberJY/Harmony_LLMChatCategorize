@@ -30,11 +30,11 @@ export struct MessageErrorCard {
         Text(errorTitleResource(this.errCategory()))
           .fontSize($r('app.float.font_body'))
           .fontWeight(600)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor($r('app.color.font_primary'))
           .layoutWeight(1)
         Text(this.errCode())
           .fontSize($r('app.float.font_thinking'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.font_secondary'))
       }
       .width("100%")
       .margin({
@@ -45,7 +45,7 @@ export struct MessageErrorCard {
       /* 说明行：与 Toast 相同的简短文案 */
       Text(errorMessageResource(this.errCode()))
         .fontSize($r('app.float.font_body'))
-        .fontColor($r('app.color.text_primary'))
+        .fontColor($r('app.color.font_primary'))
         .width("100%")
         .margin({
           top: $r('app.float.space_sm'),
@@ -59,14 +59,14 @@ export struct MessageErrorCard {
         )
           .fontSize($r('app.float.font_icon_md'))
           .fontWeight(600)
-          .fontColor([$r('app.color.text_secondary')])
+          .fontColor([$r('app.color.font_secondary')])
           .margin({
             left: this.isErrorExpanded() ? 1 : $r('app.float.space_xs'),
             right: this.isErrorExpanded() ? $r('app.float.space_xs') : $r('app.float.space_sm'),
           })
         Text(this.isErrorExpanded() ? "收起详情" : "查看详情")
           .fontSize($r('app.float.font_thinking'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.font_secondary'))
       }
       .width("100%")
       .margin({ left: $r('app.float.space_xxs'), })
@@ -80,10 +80,10 @@ export struct MessageErrorCard {
           Row() {
             Text("原始信息：")
               .fontSize($r('app.float.font_thinking'))
-              .fontColor($r('app.color.text_secondary'))
+              .fontColor($r('app.color.font_secondary'))
             Text(this.errRawMessage())
               .fontSize($r('app.float.font_thinking'))
-              .fontColor($r('app.color.text_secondary'))
+              .fontColor($r('app.color.font_secondary'))
               .layoutWeight(1)
           }
           .width("100%")
@@ -98,10 +98,10 @@ export struct MessageErrorCard {
             Row() {
               Text("HTTP 状态码：")
                 .fontSize($r('app.float.font_thinking'))
-                .fontColor($r('app.color.text_secondary'))
+                .fontColor($r('app.color.font_secondary'))
               Text(`${this.errHttpStatus()}`)
                 .fontSize($r('app.float.font_thinking'))
-                .fontColor($r('app.color.text_secondary'))
+                .fontColor($r('app.color.font_secondary'))
             }
             .width("100%")
             .margin({

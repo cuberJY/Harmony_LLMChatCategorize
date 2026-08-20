@@ -116,6 +116,7 @@ export function showDeleteConfirm(
     message: message,
     primaryButton: {
       value: "取消",
+      fontColor: $r('app.color.font_emphasize'),
       action: () => {
       },
     },

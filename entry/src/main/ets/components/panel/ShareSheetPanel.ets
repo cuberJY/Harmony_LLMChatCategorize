@@ -101,14 +101,14 @@ export struct ShareSheetPanel {
         Text("分享")
           .fontSize($r('app.float.font_title'))
           .fontWeight(700)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor($r('app.color.font_primary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
         Row() {
           SymbolGlyph($r('sys.symbol.xmark'))
             .fontSize($r('app.float.font_icon_lg'))
             .fontWeight(700)
-            .fontColor([$r('app.color.text_primary')])
+            .fontColor([$r('app.color.font_primary')])
         }
         .width($r('app.float.space_xxl'))
         .justifyContent(FlexAlign.Center)
@@ -268,7 +268,7 @@ export struct ShareSheetPanel {
           Scroll() {
             Text(this.previewText)
               .fontSize($r('app.float.font_body'))
-              .fontColor($r('app.color.text_ai'))
+              .fontColor($r('app.color.font_primary'))
               .copyOption(CopyOptions.LocalDevice)
               .width("100%")
               .padding({
@@ -287,7 +287,7 @@ export struct ShareSheetPanel {
           Scroll() {
             Text(this.previewMarkdown)
               .fontSize($r('app.float.font_body'))
-              .fontColor($r('app.color.text_ai'))
+              .fontColor($r('app.color.font_primary'))
               .copyOption(CopyOptions.LocalDevice)
               .width("100%")
               .padding({
@@ -329,7 +329,7 @@ export struct ShareSheetPanel {
               } else {
                 Text("暂无分享内容")
                   .fontSize($r('app.float.font_remind'))
-                  .fontColor($r('app.color.text_secondary'))
+                  .fontColor($r('app.color.font_secondary'))
                   .margin({ top: $r('app.float.space_lg') })
               }
             }
@@ -367,7 +367,7 @@ export struct ShareSheetPanel {
       .width(80)
       .height(40)
       .borderRadius(20)
-      .backgroundColor($r('app.color.primary'))
+      .backgroundColor($r('app.color.brand'))
       .margin({
         top: $r('app.float.space_md'),
         bottom: $r('app.float.space_xxl'),

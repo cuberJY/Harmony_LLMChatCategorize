@@ -33,6 +33,12 @@ import { BranchChainManager, VariantInfo } from "./BranchChainManager";
 const MAX_AUTO_RETRY: number = 2;
 
 /**
+ * AI 生成/占位标题的最大字符数：硬截断上限。
+ * normalizeTitle（AI 标题清洗）与首条消息占位标题共用，保证长度口径一致
+ */
+const MAX_TITLE_LENGTH: number = 25;
+
+/**
  * 切换分支后的"锚点静默期"（ms）：从切换开始到补偿完成前抑制自动钉底，
  * 覆盖新变体 Markdown 异步渲染增高窗口，避免补偿滚动触发 onReachEnd 后又被渲染增高钉到底部
  */
@@ -357,7 +363,6 @@ export class ChatViewModel {
       return "";
     }
     /* 兜底截断：直接截取，不加省略号（标题应简短完整） */
-    const MAX_TITLE_LENGTH = 15;
     if (t.length > MAX_TITLE_LENGTH) {
       return t.substring(0, MAX_TITLE_LENGTH);
     }
@@ -1076,7 +1081,7 @@ export class ChatViewModel {
         /* 记录待生成标题的对话：首轮 AI 回复完成后（onComplete）触发标题生成并清空 */
         this.pendingTitleConvId = this.currentConversationId;
         this.currentConversation.title =
-          content.length > 20 ? content.substring(0, 20) + "..." : content;
+          content.length > MAX_TITLE_LENGTH ? content.substring(0, MAX_TITLE_LENGTH) + "..." : content;
         this.currentConversation.updatedAt = msg.createdAt;
         ConversationRepository.getInstance().insert(this.currentConversation);
       }

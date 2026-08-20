@@ -32,7 +32,7 @@ export struct ExportLoading {
         LoadingProgress()
           .width(60)
           .height(60)
-          .color($r('app.color.primary'))
+          .color($r('app.color.brand'))
         Text("正在生成分享内容…")
           .fontSize($r('app.float.font_remind'))
           .fontColor(Color.White)

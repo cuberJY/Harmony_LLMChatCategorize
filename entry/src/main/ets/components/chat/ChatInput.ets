@@ -100,7 +100,7 @@ export struct ChatInput {
             : (this.modelName.length > 0 ? this.modelName : "未配置模型，请前往设置"),
         )
           .fontSize($r('app.float.font_model_name'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.font_secondary'))
           .layoutWeight(1) // 占据剩余空间，把取消按钮推到最右
           .margin({ left: $r('app.float.space_xs') })
 
@@ -110,7 +110,7 @@ export struct ChatInput {
             SymbolGlyph($r("sys.symbol.xmark"))
               .fontSize($r('app.float.font_icon_lg'))
               .fontWeight(700)
-              .fontColor([$r('app.color.text_primary')])
+              .fontColor([$r('app.color.font_primary')])
           }
           .width(26)
           .height(26)
@@ -148,12 +148,12 @@ export struct ChatInput {
          */
         .stopBackPress(false)
         .fontSize($r('app.float.font_input'))
-        .fontColor($r('app.color.text_primary'))
+        .fontColor($r('app.color.font_primary'))
         .width("100%")
         .lineHeight(this.inputLineHeight) // 显式行高
         .lineSpacing(LengthMetrics.px(this.inputLineSpacing)) // 行间距
         .constraintSize({ maxHeight: this.inputMaxHeight }) // 最大高度约束，触发滚动
-        .placeholderColor($r('app.color.text_secondary'))
+        .placeholderColor($r('app.color.font_secondary'))
         .backgroundColor($r('app.color.chat_input_bg'))
         .borderWidth(0) // 去掉边框
         .padding({
@@ -294,7 +294,7 @@ export struct ChatInput {
         .height(32)
         .type(ButtonType.Circle)
         .backgroundColor(
-          this.isSendButtonEnabled() ? $r('app.color.primary') : $r('app.color.send_btn_disabled'),
+          this.isSendButtonEnabled() ? $r('app.color.brand') : $r('app.color.send_btn_disabled'),
         )
         .enabled(this.isSendButtonEnabled()) // 生成中恒可点（暂停键）；否则有内容才可点（发送键）
         .onClick(() => {
@@ -355,7 +355,7 @@ export struct ChatInput {
             .contentFontColor(
               this.thinkingEffort === level.value
                 ? $r('app.color.toggle_text_active')
-                : $r('app.color.text_primary')
+                : $r('app.color.font_primary')
             )
             .onChange(() => {
               /* 点选档位 → 上报父级（VM 更新唯一真源后回流刷新按钮文字与菜单选中态） */

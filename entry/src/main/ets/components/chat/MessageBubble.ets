@@ -200,24 +200,24 @@ export struct MessageBubble {
       .setLazyRender(true) // 屏幕外块先用轻量占位渲染
       .setLazyPreloadBlockCount(2) // 仅预渲染可视区附近少量块
       .setThreadRenderEnable(true) // 线程渲染（默认已开，可显式声明）
-      .setTitleColor($r('app.color.text_primary'))
-      .setTextColor($r('app.color.text_ai'))
-      .setInlineCodeColor($r('app.color.text_important'))
+      .setTitleColor($r('app.color.font_primary'))
+      .setTextColor($r('app.color.font_primary'))
+      .setInlineCodeColor($r('app.color.font_emphasize'))
       .setInlineCodeBackgroundColor($r('app.color.bubble_bg_thinking'))
-      .setQuoteTextColor($r('app.color.text_secondary'))
+      .setQuoteTextColor($r('app.color.font_secondary'))
       .setQuoteBorderColor($r('app.color.divider'))
       .setQuoteBackgroundColor($r('app.color.bubble_bg_thinking'))
-      .setHyperlinkTextColor($r('app.color.text_important'))
+      .setHyperlinkTextColor($r('app.color.font_emphasize'))
       .setHyperlinkBackgroundColor(Color.Transparent)
-      .setTableTitleTextColor($r('app.color.text_primary'))
+      .setTableTitleTextColor($r('app.color.font_primary'))
       .setTableTitleBackgroundColor($r('app.color.bubble_bg_thinking'))
       .setTableBackgroundColor($r('app.color.bubble_bg_ai'))
       .setTableInterleaveBackgroundColor($r('app.color.bubble_bg_thinking'))
       .setTableOuterBorderColor($r('app.color.divider'))
       .setTableInnerBorderColor($r('app.color.divider'))
-      .setTodoSelectedColor($r('app.color.text_important'))
-      .setUlPointColor($r('app.color.text_secondary'))
-      .setFootnoteTextColor($r('app.color.text_secondary'))
+      .setTodoSelectedColor($r('app.color.font_emphasize'))
+      .setUlPointColor($r('app.color.font_secondary'))
+      .setFootnoteTextColor($r('app.color.font_secondary'))
       .setLineColor($r('app.color.divider'))
       /* 字号统一（float.json 资源管理） */
       .setTextSize($r('app.float.font_body')) // 正文 = font_body，与用户消息一致
@@ -237,8 +237,8 @@ export struct MessageBubble {
       .setCodeBlockAutoCollapseEnable(true) // 超过阈值(默认10行)的代码块自动折叠，长代码块渲染压力大时受益
       .setMermaidTheme(isDark ? 'dark' : 'light');
     /* 以下两个 setter 返回 void，不能链式调用，需单独设置 */
-    controller.setTableNormalTextColor($r('app.color.text_ai'));
-    controller.setTableInterleaveTextColor($r('app.color.text_secondary'));
+    controller.setTableNormalTextColor($r('app.color.font_primary'));
+    controller.setTableInterleaveTextColor($r('app.color.font_secondary'));
   }
 
   /* 监听系统配置变化（深色/浅色切换），仅需动态更新字符串/数值类型的主题 */
@@ -280,9 +280,9 @@ export struct MessageBubble {
         }
         /* 正文气泡 */
         if (this.message.isUser()) {
-          this.bubbleContent($r('app.color.text_user'), $r('app.color.bubble_bg_user'));
+          this.bubbleContent($r('app.color.font_primary'), $r('app.color.bubble_bg_user'));
         } else {
-          this.bubbleContent($r('app.color.text_ai'), $r('app.color.bubble_bg_ai'));
+          this.bubbleContent($r('app.color.font_primary'), $r('app.color.bubble_bg_ai'));
         }
         /* 生成终止错误卡片（AI 消息且有结构化错误时显示；正文保持纯净，错误信息独立呈现） */
         if (!this.message.isUser() && this.message.error !== undefined) {
@@ -331,7 +331,7 @@ export struct MessageBubble {
               : `已思考（用时 ${this.message.thinkingDuration} 秒）`,
         )
           .fontSize($r('app.float.font_body'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.font_secondary'))
           .margin({ left: $r('app.float.space_xxs') })
           .layoutWeight(1)
         /* 折叠/展开箭头 */
@@ -340,7 +340,7 @@ export struct MessageBubble {
         )
           .fontSize($r('app.float.font_icon_md'))
           .fontWeight(600)
-          .fontColor([$r('app.color.text_secondary')])
+          .fontColor([$r('app.color.font_secondary')])
           .margin({
             right: this.isReasoningExpanded ? $r('app.float.space_sm') : $r('app.float.space_md'),
           })
@@ -540,7 +540,7 @@ export struct MessageBubble {
           })
         Text(block.text)
           .fontSize($r('app.float.font_thinking'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.font_secondary'))
           .lineHeight($r('app.float.line_height_thinking'))
           .layoutWeight(1)
       }
@@ -563,7 +563,7 @@ export struct MessageBubble {
           })
         Text(block.text)
           .fontSize($r('app.float.font_thinking'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.font_secondary'))
           .lineHeight($r('app.float.line_height_thinking'))
           .layoutWeight(1)
       }
@@ -579,14 +579,14 @@ export struct MessageBubble {
         SymbolGlyph($r("sys.symbol.AI_deep_thinking"))
           .fontSize($r('app.float.font_icon_sm'))
           .fontWeight(600)
-          .fontColor([$r('app.color.text_secondary')])
+          .fontColor([$r('app.color.font_secondary')])
           .margin({
             right: $r('app.float.space_sm'),
             top: $r('app.float.space_xxs')
           })
         Text(block.text)
           .fontSize($r('app.float.font_thinking'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.font_secondary'))
           .lineHeight($r('app.float.line_height_thinking'))
           .layoutWeight(1)
       }
@@ -665,7 +665,7 @@ export struct MessageBubble {
   statusHint(text: string, animated: boolean = false) {
     Text(animated ? `${text}${this.statusDots()}` : text)
       .fontSize($r('app.float.font_body'))
-      .fontColor($r('app.color.text_secondary'))
+      .fontColor($r('app.color.font_secondary'))
       .padding({
         left: $r('app.float.bubble_padding_h'),
         right: $r('app.float.bubble_padding_h'),
@@ -892,7 +892,7 @@ export struct MessageBubble {
   resumeButton() {
     Text("继续生成")
       .fontSize($r('app.float.font_toggle'))
-      .fontColor($r('app.color.text_ai'))
+      .fontColor($r('app.color.font_primary'))
       .padding({
         left: $r('app.float.space_sm'),
         right: $r('app.float.space_sm'),
@@ -920,7 +920,7 @@ export struct MessageBubble {
         .margin({ right: $r('app.float.space_xs') })
       Text(`${this.message.searchedWebs.length} 个网页`)
         .fontSize($r('app.float.font_toggle'))
-        .fontColor($r('app.color.text_ai'))
+        .fontColor($r('app.color.font_primary'))
     }
     .padding({
       left: $r('app.float.space_sm'),

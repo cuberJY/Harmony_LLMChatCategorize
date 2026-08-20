@@ -34,7 +34,7 @@ export struct ConversationItem {
       Column() {
         Text(this.conversation.title.length > 0 ? this.conversation.title : "新对话")
           .fontSize($r('app.float.font_name'))
-          .fontColor($r('app.color.text_primary'))
+          .fontColor($r('app.color.font_primary'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width("100%")
@@ -65,8 +65,8 @@ export struct ConversationItem {
         .width(20)
         .height(20)
         .borderRadius(10)
-        .border({ width: 1.5, color: this.isSelected ? $r('app.color.primary') : $r('app.color.send_btn_disabled') })
-        .backgroundColor(this.isSelected ? $r('app.color.primary') : Color.Transparent)
+        .border({ width: 1.5, color: this.isSelected ? $r('app.color.brand') : $r('app.color.send_btn_disabled') })
+        .backgroundColor(this.isSelected ? $r('app.color.brand') : Color.Transparent)
         .margin({
             left: $r('app.float.space_sm'),
         })

@@ -27,7 +27,7 @@ export struct EditModeTitleBar {
           SymbolGlyph($r("sys.symbol.xmark"))
             .fontSize($r('app.float.font_icon_xl'))
             .fontWeight(900)
-            .fontColor([$r('app.color.text_primary')])
+            .fontColor([$r('app.color.font_primary')])
         }
         .width(32)
         .height(32)
@@ -44,16 +44,16 @@ export struct EditModeTitleBar {
         Text("已选择 ")
           .fontSize($r('app.float.font_title'))
           .fontWeight(600)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor($r('app.color.font_primary'))
         Text(this.selectedCount.toString())
           .fontSize($r('app.float.font_title'))
           .fontWeight(600)
-          .fontColor($r('app.color.text_important'))
+          .fontColor($r('app.color.font_emphasize'))
           .textAlign(TextAlign.Center)
         Text(" 项")
           .fontSize($r('app.float.font_title'))
           .fontWeight(600)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor($r('app.color.font_primary'))
       }
       .justifyContent(FlexAlign.Center)
 
@@ -65,7 +65,7 @@ export struct EditModeTitleBar {
         )
         .fontSize($r('app.float.font_icon_xxl'))
         .fontWeight(700)
-        .fontColor([$r('app.color.text_primary')])
+        .fontColor([$r('app.color.font_primary')])
       }
       .width(40)
       .layoutWeight(1)

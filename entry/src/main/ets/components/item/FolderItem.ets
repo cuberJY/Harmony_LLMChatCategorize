@@ -23,14 +23,15 @@ export struct FolderItem {
     Row() {
       /* 文件夹图标（按 color 着色） */
       SymbolGlyph($r("sys.symbol.folder"))
-        .fontSize($r('app.float.font_icon_lg'))
+        .fontSize($r('app.float.font_icon_xl'))
+        .fontWeight(600)
         .fontColor([this.category.color])
         .margin({ right: $r('app.float.space_md') })
 
       /* 名称 */
       Text(this.category.name)
         .fontSize($r('app.float.font_name'))
-        .fontColor($r('app.color.text_primary'))
+        .fontColor($r('app.color.font_primary'))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
@@ -39,7 +40,7 @@ export struct FolderItem {
       /* 进入箭头 */
       SymbolGlyph($r("sys.symbol.chevron_right"))
         .fontSize($r('app.float.font_icon_md'))
-        .fontColor([$r('app.color.text_secondary')])
+        .fontColor([$r('app.color.font_secondary')])
     }
     .width("100%")
     .padding({

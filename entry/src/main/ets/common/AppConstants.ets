@@ -6,14 +6,14 @@
 
 /* 文件夹图标色板（8 色预设，EditFolderDialog 与 Category 默认色共用） */
 export const FOLDER_COLORS: string[] = [
-  "#FF9F0A", // 橙
-  "#FF3B30", // 红
-  "#FF2D55", // 粉
-  "#AF52DE", // 紫
-  "#0A84FF", // 蓝
-  "#5AC8FA", // 青
-  "#34C759", // 绿
-  "#8E8E93", // 灰
+  "#ffe84026",
+  "#ffed6f22",
+  "#ffe4ba10",
+  "#ff64bb5c",
+  "#ff60cfbe",
+  "#ff46b2e3",
+  "#ffac49f4",
+  "#ff5649f8",
 ];
 
 /* 文件夹默认图标颜色（唯一真源，其余文件一律引用此常量，禁止再写 #FF9F0A 字面量） */

@@ -136,7 +136,7 @@ export struct ChatPage {
       SymbolGlyph($r("sys.symbol.chevron_down"))
         .fontSize($r('app.float.font_icon_xl'))
         .fontWeight(700)
-        .fontColor([$r('app.color.text_primary')])
+        .fontColor([$r('app.color.font_primary')])
     }
     .width(32)
     .height(32)
@@ -163,7 +163,7 @@ export struct ChatPage {
           SymbolGlyph($r("sys.symbol.sort"))
             .fontSize($r('app.float.font_icon_xl'))
             .fontWeight(700)
-            .fontColor([$r('app.color.text_primary')])
+            .fontColor([$r('app.color.font_primary')])
         }
         .width(40)
         .justifyContent(FlexAlign.Start)
@@ -174,7 +174,7 @@ export struct ChatPage {
         Text(this.vm.title)
           .fontSize($r('app.float.font_title'))
           .fontWeight(700)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor($r('app.color.font_primary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
 
@@ -182,7 +182,7 @@ export struct ChatPage {
           SymbolGlyph($r("sys.symbol.message_badge_plus"))
             .fontSize($r('app.float.font_icon_xxl'))
             .fontWeight(700)
-            .fontColor([$r('app.color.text_primary')])
+            .fontColor([$r('app.color.font_primary')])
         }
         .width(40)
         .justifyContent(FlexAlign.End)
@@ -226,7 +226,7 @@ export struct ChatPage {
                 if (this.vm.shouldShowTimeDivider(index)) {
                   Text(formatSmartTime(msg.createdAt))
                     .fontSize($r('app.float.font_time')) // 11sp
-                    .fontColor($r('app.color.text_secondary')) // #999999
+                    .fontColor($r('app.color.font_secondary'))
                     .width("100%")
                     .textAlign(TextAlign.Center)
                     .padding({ top: $r('app.float.space_lg'), bottom: $r('app.float.space_xs') });
@@ -525,7 +525,7 @@ export struct ChatPage {
         Text("选择文本")
           .fontSize($r('app.float.font_title'))
           .fontWeight(700)
-          .fontColor($r('app.color.text_primary'))
+          .fontColor($r('app.color.font_primary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
         /* 右上角关闭按钮（叉） */
@@ -533,7 +533,7 @@ export struct ChatPage {
           SymbolGlyph($r('sys.symbol.xmark'))
             .fontSize($r('app.float.font_icon_lg'))
             .fontWeight(700)
-            .fontColor([$r('app.color.text_primary')])
+            .fontColor([$r('app.color.font_primary')])
         }
         .width($r('app.float.space_xxl'))
         .justifyContent(FlexAlign.Center)
@@ -557,7 +557,7 @@ export struct ChatPage {
       Scroll() {
         Text(markdownToText(this.sheetMsg.content))
           .fontSize($r('app.float.font_body'))
-          .fontColor($r('app.color.text_ai'))
+          .fontColor($r('app.color.font_primary'))
           .copyOption(CopyOptions.LocalDevice)
           .width("100%")
           .padding({

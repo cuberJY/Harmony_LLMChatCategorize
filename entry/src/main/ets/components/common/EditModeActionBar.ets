@@ -27,7 +27,7 @@ export struct EditModeActionBar {
         Text("删除")
           .fontSize($r('app.float.font_button'))
           .fontWeight(500)
-          .fontColor(this.selectedCount > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
+          .fontColor(this.selectedCount > 0 ? $r('app.color.text_danger') : $r('app.color.font_secondary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
           .onClick(() => {
@@ -37,7 +37,7 @@ export struct EditModeActionBar {
           Text("取消收藏")
             .fontSize($r('app.float.font_button'))
             .fontWeight(500)
-            .fontColor(this.selectedCount > 0 ? $r('app.color.text_danger') : $r('app.color.text_secondary'))
+            .fontColor(this.selectedCount > 0 ? $r('app.color.text_danger') : $r('app.color.font_secondary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
             .onClick(() => {
@@ -46,7 +46,7 @@ export struct EditModeActionBar {
           Text("移动")
             .fontSize($r('app.float.font_button'))
             .fontWeight(500)
-            .fontColor(this.selectedCount > 0 ? $r('app.color.toggle_text_active') : $r('app.color.text_secondary'))
+            .fontColor(this.selectedCount > 0 ? $r('app.color.toggle_text_active') : $r('app.color.font_secondary'))
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
             .onClick(() => {

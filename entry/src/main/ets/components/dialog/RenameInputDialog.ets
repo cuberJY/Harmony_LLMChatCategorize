@@ -26,24 +26,26 @@ export struct RenameInputDialog {
     Column({ space: $r('app.float.space_md') }) {
       Text(this.title)
         .fontSize($r('app.float.font_title'))
-        .fontWeight(700)
-        .fontColor($r('app.color.text_primary'))
+        .fontWeight(800)
+        .fontColor($r('app.color.font_primary'))
         .width("100%")
+        .margin({ 
+          top: $r('app.float.space_sm'),
+          bottom: $r('app.float.space_xs'),
+        })
         .textAlign(TextAlign.Center)
       TextInput({ placeholder: this.placeholder, text: this.inputValue })
         .defaultFocus(true)
         .fontSize($r('app.float.font_input'))
-        .fontColor($r('app.color.text_primary'))
-        .placeholderColor($r('app.color.text_secondary'))
+        .fontColor($r('app.color.font_primary'))
+        .placeholderColor($r('app.color.font_secondary'))
         .backgroundColor($r('app.color.input_bg'))
         .borderRadius(20)
-        .borderWidth(1)
-        .borderColor($r('app.color.input_border'))
         .padding({
           top: $r('app.float.space_sm'),
           bottom: $r('app.float.space_sm'),
         })
-        .width("100%")
+        .width("95%")
         .height(40)
         .onChange((value: string) => {
           this.inputValue = value;
@@ -51,7 +53,7 @@ export struct RenameInputDialog {
       Row() {
         Text("取消")
           .fontSize($r('app.float.font_button'))
-          .fontColor($r('app.color.primary'))
+          .fontColor($r('app.color.font_emphasize'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
           .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
@@ -60,7 +62,7 @@ export struct RenameInputDialog {
           })
         Text("确定")
           .fontSize($r('app.float.font_button'))
-          .fontColor($r('app.color.primary'))
+          .fontColor($r('app.color.font_emphasize'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
           .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
@@ -75,7 +77,7 @@ export struct RenameInputDialog {
       }.width("100%")
     }
     .padding($r('app.float.space_lg'))
-    .width("90%")
+    .width("92%")
     /* 弹出框按官方规范用超大圆角（32vp） */
     .borderRadius($r('app.float.dialog_radius'))
     .backgroundColor($r('app.color.dialog_bg'));

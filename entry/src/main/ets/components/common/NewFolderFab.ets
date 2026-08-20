@@ -22,7 +22,7 @@ export struct NewFolderFab {
     .width(48)
     .height(48)
     .type(ButtonType.Circle)
-    .backgroundColor($r('app.color.primary'))
+    .backgroundColor($r('app.color.brand'))
     .shadow({ radius: 8, color: $r('app.color.fab_shadow'), offsetY: 2 })
     .margin({ right: $r('app.float.space_xl'), bottom: $r('app.float.middle_button_height') })
     .visibility(this.visible ? Visibility.Visible : Visibility.None)

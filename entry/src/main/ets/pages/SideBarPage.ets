@@ -164,7 +164,7 @@ export struct SideBarPage {
               SymbolGlyph($r("sys.symbol.gearshape"))
                 .fontSize($r('app.float.font_icon_xxl'))
                 .fontWeight(700)
-                .fontColor([$r('app.color.text_primary')])
+                .fontColor([$r('app.color.font_primary')])
             }
             .width(40)
             .layoutWeight(1)
@@ -221,7 +221,7 @@ export struct SideBarPage {
               SymbolGlyph($r("sys.symbol.magnifyingglass"))
                 .fontSize($r('app.float.font_icon_xxl'))
                 .fontWeight(700)
-                .fontColor([$r('app.color.text_primary')])
+                .fontColor([$r('app.color.font_primary')])
                 .margin({
                   left: $r('app.float.space_md'),
                   right: $r('app.float.space_md'),
@@ -244,7 +244,7 @@ export struct SideBarPage {
               SymbolGlyph($r("sys.symbol.ellipsis_message"))
                 .fontSize($r('app.float.font_icon_xxl'))
                 .fontWeight(700)
-                .fontColor([$r('app.color.text_primary')])
+                .fontColor([$r('app.color.font_primary')])
                 .margin({
                   left: $r('app.float.space_md'),
                 })
@@ -279,7 +279,7 @@ export struct SideBarPage {
               Column() {
                 Text("暂无历史对话")
                   .fontSize($r('app.float.font_remind'))
-                  .fontColor($r('app.color.text_secondary'))
+                  .fontColor($r('app.color.font_secondary'))
               }
               .width("100%")
               .layoutWeight(1)
@@ -294,7 +294,7 @@ export struct SideBarPage {
                     ListItem() {
                       Text(group.name)
                         .fontSize($r('app.float.font_time'))
-                        .fontColor($r('app.color.text_secondary'))
+                        .fontColor($r('app.color.font_secondary'))
                         .width("100%")
                         .textAlign(TextAlign.Start)
                         .padding({
@@ -364,7 +364,7 @@ export struct SideBarPage {
               Column() {
                 Text("暂无收藏")
                   .fontSize($r('app.float.font_remind'))
-                  .fontColor($r('app.color.text_secondary'))
+                  .fontColor($r('app.color.font_secondary'))
               }
               .width("100%")
               .height("100%")

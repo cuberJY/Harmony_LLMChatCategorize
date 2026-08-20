@@ -27,8 +27,8 @@ export struct SearchSheetPanel {
           .borderRadius(20)
           .borderWidth(1)
           .fontSize($r('app.float.font_input'))
-          .fontColor($r('app.color.text_primary'))
-          .placeholderColor($r('app.color.text_secondary')) // 占位符颜色
+          .fontColor($r('app.color.font_primary'))
+          .placeholderColor($r('app.color.font_secondary')) // 占位符颜色
           .borderColor($r('app.color.input_border'))
           .backgroundColor($r('app.color.input_bg'))
           .padding({
@@ -54,10 +54,10 @@ export struct SearchSheetPanel {
         Row() {
           Text("包含所有历史分支")
             .fontSize($r('app.float.font_body'))
-            .fontColor($r('app.color.text_secondary'))
+            .fontColor($r('app.color.font_secondary'))
             .layoutWeight(1);
           Toggle({ type: ToggleType.Switch, isOn: this.vm.searchScope !== "active" })
-            .selectedColor($r('app.color.primary'))
+            .selectedColor($r('app.color.brand'))
             .onChange((isOn: boolean) => {
               /* 仅当状态真正变化时才切换（isOn 由 searchScope 推导，避免冗余触发） */
               if (isOn !== (this.vm.searchScope !== "active")) {
@@ -79,7 +79,7 @@ export struct SearchSheetPanel {
         Column() {
           Text("无搜索结果")
             .fontSize($r('app.float.font_remind'))
-            .fontColor($r('app.color.text_secondary'))
+            .fontColor($r('app.color.font_secondary'))
             .offset({ y: -60 }) // 居中偏移，与结果列表垂直居中
         }
         .width("100%")

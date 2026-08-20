@@ -29,6 +29,18 @@
       "value": "16fp"
     },
     {
+      "name": "font_model_name",
+      "value": "12fp"
+    },
+    {
+      "name": "font_input",
+      "value": "16fp"
+    },
+    {
+      "name": "font_remind",
+      "value": "17fp"
+    },
+    {
       "name": "font_h1",
       "value": "24fp"
     },
@@ -53,20 +65,8 @@
       "value": "15fp"
     },
     {
-      "name": "font_model_name",
-      "value": "12fp"
-    },
-    {
-      "name": "font_input",
-      "value": "16fp"
-    },
-    {
-      "name": "font_remind",
-      "value": "17fp"
-    },
-    {
       "name": "font_button",
-      "value": "14fp"
+      "value": "16fp"
     },
     {
       "name": "font_toggle",

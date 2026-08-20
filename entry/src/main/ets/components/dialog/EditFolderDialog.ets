@@ -28,24 +28,28 @@ export struct EditFolderDialog {
 
   @Builder
   private colorChip(color: string) {
-    /* 单个颜色块：选中时带边框高亮 */
+    /* 单个颜色块：选中时圆环 */
     Column() {
       /* 色块本体 */
-      Row()
-        .width(24)
-        .height(24)
-        .borderRadius(12)
-        .backgroundColor(color)
+      if (this.selectedColor === color) {
+        Row()
+          .width(28)
+          .height(28)
+          .backgroundColor(Color.Transparent)
+          .borderRadius(14)
+          .borderWidth(8)
+          .borderColor(color)
+      } else {
+        Row()
+          .width(24)
+          .height(24)
+          .borderRadius(12)
+          .backgroundColor(color)
+      }
     }
     .width(36)
     .height(36)
     .justifyContent(FlexAlign.Center)
-    .border({
-      /* 选中 → 主色边框；未选中 → 透明 */
-      width: this.selectedColor === color ? 2 : 0,
-      color: $r('app.color.primary'),
-      radius: 18,
-    })
     .onClick(() => {
       this.selectedColor = color;
     });
@@ -56,9 +60,13 @@ export struct EditFolderDialog {
       /* 标题 */
       Text(this.title)
         .fontSize($r('app.float.font_title'))
-        .fontWeight(700)
-        .fontColor($r('app.color.text_primary'))
+        .fontWeight(800)
+        .fontColor($r('app.color.font_primary'))
         .width("100%")
+        .margin({ 
+          top: $r('app.float.space_sm'),
+          bottom: $r('app.float.space_xs'),
+        })
         .textAlign(TextAlign.Center)
 
       /* 颜色选择区，8个色块横向排列 */
@@ -75,17 +83,15 @@ export struct EditFolderDialog {
       TextInput({ placeholder: "请输入文件夹名称", text: this.inputValue })
         .defaultFocus(true)
         .fontSize($r('app.float.font_input'))
-        .fontColor($r('app.color.text_primary'))
-        .placeholderColor($r('app.color.text_secondary'))
+        .fontColor($r('app.color.font_primary'))
+        .placeholderColor($r('app.color.font_secondary'))
         .backgroundColor($r('app.color.input_bg'))
         .borderRadius(20)
-        .borderWidth(1)
-        .borderColor($r('app.color.input_border'))
         .padding({
           top: $r('app.float.space_sm'),
           bottom: $r('app.float.space_sm'),
         })
-        .width("100%")
+        .width("95%")
         .height(40)
         .onChange((value: string) => {
           this.inputValue = value;
@@ -95,7 +101,7 @@ export struct EditFolderDialog {
       Row() {
         Text("取消")
           .fontSize($r('app.float.font_button'))
-          .fontColor($r('app.color.primary'))
+          .fontColor($r('app.color.font_emphasize'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
           .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
@@ -104,7 +110,7 @@ export struct EditFolderDialog {
           })
         Text("确定")
           .fontSize($r('app.float.font_button'))
-          .fontColor($r('app.color.primary'))
+          .fontColor($r('app.color.font_emphasize'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
           .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
@@ -119,7 +125,7 @@ export struct EditFolderDialog {
       }.width("100%")
     }
     .padding($r('app.float.space_lg'))
-    .width("90%")
+    .width("92%")
     /* 弹出框按官方规范用超大圆角（32vp） */
     .borderRadius($r('app.float.dialog_radius'))
     .backgroundColor($r('app.color.dialog_bg'));

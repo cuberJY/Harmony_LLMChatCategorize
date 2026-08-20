@@ -32,7 +32,7 @@ export struct SearchResultItem {
           Row() {
             Text(this.conversation.title.length > 0 ? this.conversation.title : "新对话")
               .fontSize($r('app.float.font_name'))
-              .fontColor($r('app.color.text_primary'))
+              .fontColor($r('app.color.font_primary'))
               .maxLines(2)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .width("100%")
@@ -43,13 +43,13 @@ export struct SearchResultItem {
               if (this.titleHit) {
                 Text("标题")
                   .fontSize($r('app.float.font_time'))
-                  .fontColor($r('app.color.text_secondary'))
+                  .fontColor($r('app.color.font_secondary'))
                   .margin({ right: $r('app.float.space_xs') })
               }
               if (this.hits.length > 0) {
                 Text(`${this.hits.length} 条搜索结果`)
                   .fontSize($r('app.float.font_time'))
-                  .fontColor($r('app.color.text_secondary'))
+                  .fontColor($r('app.color.font_secondary'))
               }
             }
             .width("100%")
@@ -62,7 +62,7 @@ export struct SearchResultItem {
         /* 组头右侧：对话最后更新时间 */
         Text(formatSmartTime(this.conversation.updatedAt))
           .fontSize($r('app.float.font_time'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.font_secondary'))
           .alignSelf(ItemAlign.Start)
           .margin({
             left: $r('app.float.space_md'),
@@ -86,14 +86,14 @@ export struct SearchResultItem {
           /* 命中片段摘要（5行省略） */
           Text(hit.snippet)
             .fontSize($r('app.float.font_thinking'))
-            .fontColor($r('app.color.text_secondary'))
+            .fontColor($r('app.color.font_secondary'))
             .maxLines(5)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .layoutWeight(1)
           /* 命中消息发送时间 */
           Text(formatSmartTime(hit.createdAt))
             .fontSize($r('app.float.font_time'))
-            .fontColor($r('app.color.text_secondary'))
+            .fontColor($r('app.color.font_secondary'))
             .alignSelf(ItemAlign.Start)
             .margin({
               left: $r('app.float.space_md'),

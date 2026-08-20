@@ -5,10 +5,6 @@
       "value": "#FFFFFF"
     },
     {
-      "name": "primary",
-      "value": "#FF0A59F7"
-    },
-    {
       "name": "brand",
       "value": "#FF0A59F7"
     },
@@ -41,26 +37,6 @@
       "value": "#F7F7F8"
     },
     {
-      "name": "text_primary",
-      "value": "#1A1A1A"
-    },
-    {
-      "name": "text_secondary",
-      "value": "#999999"
-    },
-    {
-      "name": "text_important",
-      "value": "#0A59F7"
-    },
-    {
-      "name": "text_user",
-      "value": "#1A1A1A"
-    },
-    {
-      "name": "text_ai",
-      "value": "#1A1A1A"
-    },
-    {
       "name": "text_danger",
       "value": "#FF4D4F"
     },
@@ -85,12 +61,8 @@
       "value": "#BBBBBB"
     },
     {
-      "name": "input_container_bg",
-      "value": "#FFFFFF"
-    },
-    {
       "name": "input_bg",
-      "value": "#F1F1F1"
+      "value": "#80E8EAE9"
     },
     {
       "name": "toggle_bg_active",
