@@ -59,6 +59,11 @@ export struct ChatInput {
   @Param streamState: "idle" | "streaming" | "paused" = "idle";
   /* 底部导航条高度（vp，父级传入）：输入区内容用其手动避让，避免被导航条遮挡 */
   @Param navBarHeightVp: number = 0;
+  /**
+   * 键盘是否弹出（父级 keyboardHeightChange 驱动）：弹出时导航条已被键盘遮挡，
+   * 底部 margin 无需再避让导航条，仅保留 16 间距 → 收紧 (keyboardUp ? 0 : navBarHeightVp) + 16
+   */
+  @Param keyboardUp: boolean = false;
 
   /* 监听 prefillText 变化：回填内容到输入框（@Monitor 是 V2 监听 @Param 变化的机制） */
   @Monitor('prefillText')
@@ -131,9 +136,6 @@ export struct ChatInput {
         }
       }
       .width("100%")
-      .margin({
-        bottom: $r('app.float.space_xs'),
-      })
 
       /* 2. 输入框 */
       TextArea({
@@ -164,7 +166,7 @@ export struct ChatInput {
         })
         .margin({
           top: $r('app.float.space_xs'),
-          bottom: $r('app.float.space_md'),
+          bottom: $r('app.float.space_sm'),
         })
         /* 高度由 constraintSize(maxHeight) 约束，超出时滚动 */
         .onChange((value: string) => {
@@ -311,10 +313,9 @@ export struct ChatInput {
       }
       .width("100%")
       .alignItems(VerticalAlign.Center)
-      .margin({ bottom: $r('app.float.space_xl') })
     }
     /* 容器样式 */
-    .width("100%")
+    .width("96%")
     /**
      * 沉浸式：expandSafeArea 让白色背景向下延伸到底部导航条背后；
      * 内容用显式 padding（导航条高度）避让手势条——safeAreaPadding 在固定高度组件上会失效
@@ -323,14 +324,17 @@ export struct ChatInput {
     .padding({
       left: $r('app.float.space_md'),
       right: $r('app.float.space_md'),
-      top: $r('app.float.space_sm'),
-      bottom: this.navBarHeightVp + 4, // 4 = space_xs，底部额外留出手势条空间
+      top: $r('app.float.space_md'),
+      bottom: $r('app.float.space_md'),
     })
     .backgroundColor($r('app.color.chat_input_bg'))
-    .border({
-      width: { top: 2 },
-      color: { top: $r('app.color.divider') },
-    })
+    .borderRadius(32)
+    .border({ width: 2, color: $r('app.color.divider') })
+    /**
+     * 底部 margin：收起键盘 = 导航条高度 + 16（避让手势条）；
+     * 键盘弹出 = 仅 16（导航条已被键盘遮挡，避免输入框与键盘间出现多余空隙）
+     */
+    .margin({ bottom: this.keyboardUp ? $r('app.float.space_md') : (this.navBarHeightVp + 16) })
   }
 
   /**

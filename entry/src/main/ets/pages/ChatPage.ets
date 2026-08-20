@@ -68,6 +68,8 @@ export struct ChatPage {
   /* 沉浸式系统栏高度（vp，EntryAbility 注入）：aboutToAppear 一次性读取（V2 无 @StorageProp，用 @Local + 手动读取） */
   @Local statusBarHeightVp: number = 0;
   @Local navBarHeightVp: number = 0;
+  /* 键盘是否弹出（keyboardHeightChange 驱动）：弹出时导航条被键盘遮挡，输入区无需避让 → 传 ChatInput 动态收 margin */
+  @Local keyboardUp: boolean = false;
 
   aboutToAppear(): void {
     /* 读取系统栏高度（标题栏/输入区内容避让用） */
@@ -89,6 +91,8 @@ export struct ChatPage {
     window.getLastWindow(context).then((win: window.Window) => {
       this.mainWindow = win;
       win.on('keyboardHeightChange', (height: number) => {
+        /* 键盘弹出 → 输入区底部无需避让导航条（导航条已被键盘遮挡），@Param 变化驱动 ChatInput 收 margin */
+        this.keyboardUp = height > 0;
         /* 键盘高度变化驱动全局键盘标志，供 @Entry HomePage.onBackPress 判断"本次返回是否刚收起键盘" */
         if (height > 0) {
           KeyboardBackHelper.onKeyboardShown();
@@ -156,287 +160,290 @@ export struct ChatPage {
   build() {
     /* ChatPage 作为 NavDestination 首页（isEntry 入栈），使 customNavContentTransition 能同时驱动聊天页与侧边栏位移动画 */
     NavDestination() {
-    Column() {
-      Row() {
+      Column() {
         Row() {
-          /* "三横线"图标，点击弹出侧边栏 */
-          SymbolGlyph($r("sys.symbol.sort"))
-            .fontSize($r('app.float.font_icon_xl'))
-            .fontWeight(700)
-            .fontColor([$r('app.color.font_primary')])
-        }
-        .width(40)
-        .justifyContent(FlexAlign.Start)
-        .onClick(() => {
-          this.pushSideBar();
-        })
-
-        Text(this.vm.title)
-          .fontSize($r('app.float.font_title'))
-          .fontWeight(700)
-          .fontColor($r('app.color.font_primary'))
-          .layoutWeight(1)
-          .textAlign(TextAlign.Center)
-
-        Row() {
-          SymbolGlyph($r("sys.symbol.message_badge_plus"))
-            .fontSize($r('app.float.font_icon_xxl'))
-            .fontWeight(700)
-            .fontColor([$r('app.color.font_primary')])
-        }
-        .width(40)
-        .justifyContent(FlexAlign.End)
-        .onClick(() => {
-          /* 已在空白"新对话"中 → 提示，不重复创建 */
-          if (this.vm.messageDataSource.totalCount() === 0) {
-            showToast($r('app.string.already_in_new_conversation'));
-            return;
+          Row() {
+            /* "三横线"图标，点击弹出侧边栏 */
+            SymbolGlyph($r("sys.symbol.sort"))
+              .fontSize($r('app.float.font_icon_xl'))
+              .fontWeight(700)
+              .fontColor([$r('app.color.font_primary')])
           }
-          /* 创建新对话对象，清空消息列表（不立即入库，等待首条用户消息） */
-          this.vm.newConversation();
+          .width(40)
+          .justifyContent(FlexAlign.Start)
+          .onClick(() => {
+            this.pushSideBar();
+          })
+
+          Text(this.vm.title)
+            .fontSize($r('app.float.font_title'))
+            .fontWeight(700)
+            .fontColor($r('app.color.font_primary'))
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+
+          Row() {
+            SymbolGlyph($r("sys.symbol.message_badge_plus"))
+              .fontSize($r('app.float.font_icon_xxl'))
+              .fontWeight(700)
+              .fontColor([$r('app.color.font_primary')])
+          }
+          .width(40)
+          .justifyContent(FlexAlign.End)
+          .onClick(() => {
+            /* 已在空白"新对话"中 → 提示，不重复创建 */
+            if (this.vm.messageDataSource.totalCount() === 0) {
+              showToast($r('app.string.already_in_new_conversation'));
+              return;
+            }
+            /* 创建新对话对象，清空消息列表（不立即入库，等待首条用户消息） */
+            this.vm.newConversation();
+          })
+        }
+        .width("100%")
+        .height(SafeAreaHelper.getTitleBarHeight(this.getUIContext()) + this.statusBarHeightVp)
+        .padding({
+          top: this.statusBarHeightVp,
+          left: $r('app.float.space_xl'),
+          right: $r('app.float.space_xl'),
         })
-      }
-      .width("100%")
-      .height(SafeAreaHelper.getTitleBarHeight(this.getUIContext()) + this.statusBarHeightVp)
-      .padding({
-        top: this.statusBarHeightVp,
-        left: $r('app.float.space_xl'),
-        right: $r('app.float.space_xl'),
-      })
-      .backgroundColor($r('app.color.title_bar_bg'))
-      /**
-       * 沉浸式：expandSafeArea 让标题栏背景向上延伸到状态栏背后（与系统栏同色融为一体）；
-       * 内容改用显式 padding（真实状态栏高度）避让——safeAreaPadding 在固定高度组件上会失效导致重叠
-       */
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
-      .border({
-        width: { bottom: 2 },
-        color: { bottom: $r('app.color.divider') },
-      })
+        .backgroundColor($r('app.color.title_bar_bg'))
+        /**
+         * 沉浸式：expandSafeArea 让标题栏背景向上延伸到状态栏背后（与系统栏同色融为一体）；
+         * 内容改用显式 padding（真实状态栏高度）避让——safeAreaPadding 在固定高度组件上会失效导致重叠
+         */
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+        .border({
+          width: { bottom: 2 },
+          color: { bottom: $r('app.color.divider') },
+        })
 
-      /* 消息列表区域（Stack 叠加右下角"回到底部"悬浮按钮） */
-      Stack({ alignContent: Alignment.BottomEnd }) {
-      List({ scroller: this.vm.listScroller }) {
-        /* LazyForEach：懒加载只渲染可视区消息，减少渲染开销；@Trace 属性变化驱动 MessageBubble 自动更新 */
-        LazyForEach(
-          this.vm.messageDataSource,
-          (msg: Message, index: number) => {
-            ListItem() {
-              Column() {
-                if (this.vm.shouldShowTimeDivider(index)) {
-                  Text(formatSmartTime(msg.createdAt))
-                    .fontSize($r('app.float.font_time')) // 11sp
-                    .fontColor($r('app.color.font_secondary'))
-                    .width("100%")
-                    .textAlign(TextAlign.Center)
-                    .padding({ top: $r('app.float.space_lg'), bottom: $r('app.float.space_xs') });
-                }
+        /* 消息列表区域（Stack 叠加右下角"回到底部"悬浮按钮） */
+        Stack({ alignContent: Alignment.BottomEnd }) {
+        List({ scroller: this.vm.listScroller }) {
+          /* LazyForEach：懒加载只渲染可视区消息，减少渲染开销；@Trace 属性变化驱动 MessageBubble 自动更新 */
+          LazyForEach(
+            this.vm.messageDataSource,
+            (msg: Message, index: number) => {
+              ListItem() {
+                Column() {
+                  if (this.vm.shouldShowTimeDivider(index)) {
+                    Text(formatSmartTime(msg.createdAt))
+                      .fontSize($r('app.float.font_time')) // 11sp
+                      .fontColor($r('app.color.font_secondary'))
+                      .width("100%")
+                      .textAlign(TextAlign.Center)
+                      .padding({ top: $r('app.float.space_lg'), bottom: $r('app.float.space_xs') });
+                  }
 
-                MessageBubble({
-                  message: msg,
-                  /* 分支变体信息：驱动 "< 当前 / 总数 >"；getVariantInfo 已缓存，二次调用 O(1) */
-                  variantCurrent: this.vm.getVariantInfo(msg).current,
-                  variantTotal: this.vm.getVariantInfo(msg).total,
-                  /* 是否激活链最后一条：仅最后一条显示「换个回答」（防止在历史消息上重新生成导致上下文混乱） */
-                  isLastMessage: index === this.vm.messageDataSource.totalCount() - 1,
-                  /* 正在编辑的用户消息 id：编辑中的消息禁止删除（点击直接 toast） */
-                  editingMessageId: this.vm.editingMessageId,
-                  /* 换个回答：覆盖当前 AI 回复 */
-                  onRegenerate: (m: Message) => {
-                    this.vm.regenerateMessage(m);
-                  },
-                  /* 生成新回复：保留旧回复生成新变体 */
-                  onCreateBranch: (m: Message) => {
-                    this.vm.createBranch(m);
-                  },
-                  /* 编辑：回填输入框（发送时创建新分支） */
-                  onEdit: (m: Message) => {
-                    this.vm.startEdit(m);
-                  },
-                  /* 切换分支：在变体间 ±1 循环 */
-                  onSwitchBranch: (m: Message, delta: number) => {
-                    this.vm.switchBranch(m, delta);
-                  },
-                  /* 删除：删除该消息及其后续所有分支（子树整体删除） */
-                  onDelete: (m: Message) => {
-                    this.vm.deleteMessage(m);
-                  },
-                  /* 继续生成：暂停态下从未完成处续写（传入被点击的消息，按消息定位任务） */
-                  onResume: (m: Message) => {
-                    this.vm.resumeStreaming(m);
-                  },
-                  /* 打开半模态面板（页面级统一管理）：记录目标消息并弹出 */
-                  onOpenSheet: (m: Message, kind: "text" | "web") => {
-                    this.sheetMsg = m;
-                    this.sheetKind = kind;
-                    this.sheetShow = true;
-                  },
-                  onShare: (m: Message) => {
-                    this.handleShareQAPair(m);
-                  },
+                  MessageBubble({
+                    message: msg,
+                    /* 分支变体信息：驱动 "< 当前 / 总数 >"；getVariantInfo 已缓存，二次调用 O(1) */
+                    variantCurrent: this.vm.getVariantInfo(msg).current,
+                    variantTotal: this.vm.getVariantInfo(msg).total,
+                    /* 是否激活链最后一条：仅最后一条显示「换个回答」（防止在历史消息上重新生成导致上下文混乱） */
+                    isLastMessage: index === this.vm.messageDataSource.totalCount() - 1,
+                    /* 正在编辑的用户消息 id：编辑中的消息禁止删除（点击直接 toast） */
+                    editingMessageId: this.vm.editingMessageId,
+                    /* 换个回答：覆盖当前 AI 回复 */
+                    onRegenerate: (m: Message) => {
+                      this.vm.regenerateMessage(m);
+                    },
+                    /* 生成新回复：保留旧回复生成新变体 */
+                    onCreateBranch: (m: Message) => {
+                      this.vm.createBranch(m);
+                    },
+                    /* 编辑：回填输入框（发送时创建新分支） */
+                    onEdit: (m: Message) => {
+                      this.vm.startEdit(m);
+                    },
+                    /* 切换分支：在变体间 ±1 循环 */
+                    onSwitchBranch: (m: Message, delta: number) => {
+                      this.vm.switchBranch(m, delta);
+                    },
+                    /* 删除：删除该消息及其后续所有分支（子树整体删除） */
+                    onDelete: (m: Message) => {
+                      this.vm.deleteMessage(m);
+                    },
+                    /* 继续生成：暂停态下从未完成处续写（传入被点击的消息，按消息定位任务） */
+                    onResume: (m: Message) => {
+                      this.vm.resumeStreaming(m);
+                    },
+                    /* 打开半模态面板（页面级统一管理）：记录目标消息并弹出 */
+                    onOpenSheet: (m: Message, kind: "text" | "web") => {
+                      this.sheetMsg = m;
+                      this.sheetKind = kind;
+                      this.sheetShow = true;
+                    },
+                    onShare: (m: Message) => {
+                      this.handleShareQAPair(m);
+                    },
+                  })
+                }.width("100%")
+                .onAreaChange((oldArea: Area, newArea: Area) => {
+                  /* 消息项高度变化（Markdown 异步渲染增高）→ 立即重新钉底；Area.height 运行时为 number，用 Number() 数值化求增量 */
+                  this.vm.onListItemHeightChanged(Number(newArea.height) - Number(oldArea.height));
                 })
-              }.width("100%")
-              .onAreaChange((oldArea: Area, newArea: Area) => {
-                /* 消息项高度变化（Markdown 异步渲染增高）→ 立即重新钉底；Area.height 运行时为 number，用 Number() 数值化求增量 */
-                this.vm.onListItemHeightChanged(Number(newArea.height) - Number(oldArea.height));
-              })
-            }.width("100%");
-          },
-          (msg: Message) => msg.id,
-        )
-      }
-      .height("100%")
-      /* 列表自上而下排布，超出屏幕后的钉底由 scrollToBottom() 的 scrollToIndex(END) 保证 */
-      .onAreaChange((oldValue: Area, newValue: Area) => {
-        /* 首帧布局完成（首次回调）→ 通知 ViewModel 开始钉底，避免"打开瞬间停留在列表顶部" */
-        this.vm.onListFirstLayout();
-        /* 可视区变矮 = 键盘弹出窗口被压缩 → 重新钉到底部 */
-        if (newValue.height < oldValue.height) {
-          this.vm.scrollToBottom();
+              }.width("100%");
+            },
+            (msg: Message) => msg.id,
+          )
         }
-      })
-      .onTouch((event: TouchEvent) => {
-        /* 手指按下列表 = 用户正在操作（滚动/长按/选择文本等） */
-        if (event.type === TouchType.Down) {
-          /* 生成期间用户触摸屏幕操作内容 → 标记"操作中"，完成生成时不自动滚到底 */
-          this.vm.markUserOperating(true);
-        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-          /* 手指抬起 → 拖动结束，恢复流式 UI 写入与自动跟随，并尝试放行挂起的思考块折叠 */
-          this.vm.onTouchReleased();
-        }
-      })
-      /* 用户主动滚动取消自动跟随；排除代码滚动（SCROLLER/SCROLLER_ANIM）与边缘回弹，避免打断自动钉底 */
-      .onWillScroll(
-        (scrollOffset: number, scrollState: ScrollState, scrollSource: ScrollSource) => {
-          /* 判定本次滚动是否来自用户手势（拖动/惯性/滚动条/其他输入） */
-          const isUserGesture = scrollSource === ScrollSource.DRAG || scrollSource === ScrollSource.FLING
-            || scrollSource === ScrollSource.OTHER_USER_INPUT
-            || scrollSource === ScrollSource.SCROLL_BAR
-            || scrollSource === ScrollSource.SCROLL_BAR_FLING;
-          /* 记录来源，供 onReachEnd 区分"用户滚回底部"与"代码滚动到底" */
-          this.vm.setLastScrollSource(isUserGesture);
-          /* 用户滚动手势（DRAG/FLING/滚动条等）期间暂停流式 UI 写入，避免底部高度变化与滚动竞争抖动 */
-          this.vm.setUserScrolling(isUserGesture);
-          /* 用户主动滚动 → 取消自动跟随（代码滚动 SCROLLER/SCROLLER_ANIM 不取消） */
-          if (isUserGesture) {
-            this.vm.setAtBottom(false);
+        .height("100%")
+        /* 列表自上而下排布，超出屏幕后的钉底由 scrollToBottom() 的 scrollToIndex(END) 保证 */
+        .onAreaChange((oldValue: Area, newValue: Area) => {
+          /* 首帧布局完成（首次回调）→ 通知 ViewModel 开始钉底，避免"打开瞬间停留在列表顶部" */
+          this.vm.onListFirstLayout();
+          /* 可视区变矮 = 键盘弹出窗口被压缩 → 重新钉到底部 */
+          if (newValue.height < oldValue.height) {
+            this.vm.scrollToBottom();
           }
-        },
-      )
-      /* 真正滚到列表底部边缘 → 恢复自动跟随（同时清除"操作中"标记与滚动操作状态） */
-      .onReachEnd(() => {
-        this.vm.handleReachEnd();
-      })
-      /* 滚动停止（含惯性）→ 恢复流式 UI 写入并放行挂起折叠；兜底 onTouch Up 可能被文本选择手势拦截 */
-      .onScrollStop(() => {
-        this.vm.handleScrollStop();
-      })
-      .width("100%")
-      .backgroundColor($r('app.color.page_bg'))
-      .edgeEffect(EdgeEffect.Spring)
-      /* 预加载上下各 10 条：缓解 Markdown 异步渲染的 item 高度突变与白块（气泡渲染较重，默认 1 不够） */
-      .cachedCount(10)
-      /* 保持可见内容位置不变：避免流式输出底部 item 长高时向上翻历史被顶跳 */
-      .maintainVisibleContentPosition(true)
+        })
+        .onTouch((event: TouchEvent) => {
+          /* 手指按下列表 = 用户正在操作（滚动/长按/选择文本等） */
+          if (event.type === TouchType.Down) {
+            /* 生成期间用户触摸屏幕操作内容 → 标记"操作中"，完成生成时不自动滚到底 */
+            this.vm.markUserOperating(true);
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            /* 手指抬起 → 拖动结束，恢复流式 UI 写入与自动跟随，并尝试放行挂起的思考块折叠 */
+            this.vm.onTouchReleased();
+          }
+        })
+        /* 用户主动滚动取消自动跟随；排除代码滚动（SCROLLER/SCROLLER_ANIM）与边缘回弹，避免打断自动钉底 */
+        .onWillScroll(
+          (scrollOffset: number, scrollState: ScrollState, scrollSource: ScrollSource) => {
+            /* 判定本次滚动是否来自用户手势（拖动/惯性/滚动条/其他输入） */
+            const isUserGesture = scrollSource === ScrollSource.DRAG || scrollSource === ScrollSource.FLING
+              || scrollSource === ScrollSource.OTHER_USER_INPUT
+              || scrollSource === ScrollSource.SCROLL_BAR
+              || scrollSource === ScrollSource.SCROLL_BAR_FLING;
+            /* 记录来源，供 onReachEnd 区分"用户滚回底部"与"代码滚动到底" */
+            this.vm.setLastScrollSource(isUserGesture);
+            /* 用户滚动手势（DRAG/FLING/滚动条等）期间暂停流式 UI 写入，避免底部高度变化与滚动竞争抖动 */
+            this.vm.setUserScrolling(isUserGesture);
+            /* 用户主动滚动 → 取消自动跟随（代码滚动 SCROLLER/SCROLLER_ANIM 不取消） */
+            if (isUserGesture) {
+              this.vm.setAtBottom(false);
+            }
+          },
+        )
+        /* 真正滚到列表底部边缘 → 恢复自动跟随（同时清除"操作中"标记与滚动操作状态） */
+        .onReachEnd(() => {
+          this.vm.handleReachEnd();
+        })
+        /* 滚动停止（含惯性）→ 恢复流式 UI 写入并放行挂起折叠；兜底 onTouch Up 可能被文本选择手势拦截 */
+        .onScrollStop(() => {
+          this.vm.handleScrollStop();
+        })
+        .width("100%")
+        .backgroundColor($r('app.color.page_bg'))
+        .edgeEffect(EdgeEffect.Spring)
+        /* 预加载上下各 10 条：缓解 Markdown 异步渲染的 item 高度突变与白块（气泡渲染较重，默认 1 不够） */
+        .cachedCount(10)
+        /* 保持可见内容位置不变：避免流式输出底部 item 长高时向上翻历史被顶跳 */
+        .maintainVisibleContentPosition(true)
 
-        /* 悬浮"回到底部"按钮：非底部且非编辑态时显示；编辑态隐藏，避免遮挡编辑中的消息 */
-        if (!this.vm.isAtBottom && this.vm.editingMessageId.length === 0) {
-          this.scrollToBottomFab();
+          /* 悬浮"回到底部"按钮：非底部且非编辑态时显示；编辑态隐藏，避免遮挡编辑中的消息 */
+          if (!this.vm.isAtBottom && this.vm.editingMessageId.length === 0) {
+            this.scrollToBottomFab();
+          }
         }
-      }
-      .layoutWeight(1)
-      .width("100%")
+        .layoutWeight(1)
+        .width("100%")
 
-      ChatInput({
+        ChatInput({
         modelName: this.vm.modelName,
         /* 底部导航条高度（vp）：输入区内容用其手动避让，避免被导航条遮挡 */
         navBarHeightVp: this.navBarHeightVp,
-        /* 编辑态：回填原内容到输入框（vm.startEdit 后 @Trace 变化驱动刷新） */
-        prefillText: this.vm.editingPrefill,
-        isEditing: this.vm.editingMessageId.length > 0,
-        /* 开关状态由 VM 持有（唯一真源）：发送/重新生成/新建分支读取当前值 */
-        webSearch: this.vm.webSearch,
-        thinkingEffort: this.vm.thinkingEffort,
-        /* 流式生成状态（驱动发送/暂停键与「继续生成」按钮） */
-        streamState: this.vm.streamState,
-        /* 开关切换 → 同步 VM 唯一真源（@Trace 回流刷新输入区 UI） */
-        onWebSearchChange: (webSearch: boolean) => {
-          this.vm.updateSearchOptions(webSearch, this.vm.thinkingEffort);
-        },
-        onThinkingChange: (effort: ThinkingEffort) => {
-          this.vm.updateSearchOptions(this.vm.webSearch, effort);
-        },
-        onChange: (text: string) => {
-          /* 编辑态由 ViewModel 内部识别：非编辑态 = 普通发送；编辑态 = 创建新分支并重新生成 */
-          this.vm.handleUserSend(text);
-        },
-        /* 生成中点击暂停键 → 中止流式请求，保留已生成内容 */
-        onPause: () => {
-          this.vm.pauseStreaming();
-        },
-        /* 编辑态点击顶部右侧 xmark → 退出编辑态并清空输入框（@Monitor 联动清空） */
-        onCancelEdit: () => {
-          this.vm.exitEditMode();
-        },
-        /* 输入框焦点变化：聚焦必弹键盘 → 同步驱动全局键盘标志（同步可靠信号，
-           弥补 keyboardHeightChange 冷启动首次弹键盘事件丢失的被动缺陷） */
-        onInputFocusChange: (hasFocus: boolean) => {
-          if (hasFocus) {
-            KeyboardBackHelper.onInputFocus();
-          }
-        },
-      })
+        /* 键盘弹出状态：弹出时导航条被遮挡，输入区收紧底部 margin */
+        keyboardUp: this.keyboardUp,
+          /* 编辑态：回填原内容到输入框（vm.startEdit 后 @Trace 变化驱动刷新） */
+          prefillText: this.vm.editingPrefill,
+          isEditing: this.vm.editingMessageId.length > 0,
+          /* 开关状态由 VM 持有（唯一真源）：发送/重新生成/新建分支读取当前值 */
+          webSearch: this.vm.webSearch,
+          thinkingEffort: this.vm.thinkingEffort,
+          /* 流式生成状态（驱动发送/暂停键与「继续生成」按钮） */
+          streamState: this.vm.streamState,
+          /* 开关切换 → 同步 VM 唯一真源（@Trace 回流刷新输入区 UI） */
+          onWebSearchChange: (webSearch: boolean) => {
+            this.vm.updateSearchOptions(webSearch, this.vm.thinkingEffort);
+          },
+          onThinkingChange: (effort: ThinkingEffort) => {
+            this.vm.updateSearchOptions(this.vm.webSearch, effort);
+          },
+          onChange: (text: string) => {
+            /* 编辑态由 ViewModel 内部识别：非编辑态 = 普通发送；编辑态 = 创建新分支并重新生成 */
+            this.vm.handleUserSend(text);
+          },
+          /* 生成中点击暂停键 → 中止流式请求，保留已生成内容 */
+          onPause: () => {
+            this.vm.pauseStreaming();
+          },
+          /* 编辑态点击顶部右侧 xmark → 退出编辑态并清空输入框（@Monitor 联动清空） */
+          onCancelEdit: () => {
+            this.vm.exitEditMode();
+          },
+          /* 输入框焦点变化：聚焦必弹键盘 → 同步驱动全局键盘标志（同步可靠信号，
+            弥补 keyboardHeightChange 冷启动首次弹键盘事件丢失的被动缺陷） */
+          onInputFocusChange: (hasFocus: boolean) => {
+            if (hasFocus) {
+              KeyboardBackHelper.onInputFocus();
+            }
+          },
+        })
 
-      /* Markdown 库预热：提前触发 lv-markdown-in worker 初始化，消除首次打开正文卡顿（Hidden 零尺寸不占布局） */
-      Markdown({
-        text: "**预热**",
-        mode: "text",
-        controller: this.mdPreloadController,
-      })
-        .visibility(Visibility.Hidden)
-        .width(0)
-        .height(0)
+        /* Markdown 库预热：提前触发 lv-markdown-in worker 初始化，消除首次打开正文卡顿（Hidden 零尺寸不占布局） */
+        Markdown({
+          text: "**预热**",
+          mode: "text",
+          controller: this.mdPreloadController,
+        })
+          .visibility(Visibility.Hidden)
+          .width(0)
+          .height(0)
 
-      /* 图片/PDF 导出隐藏层：页面级分段卡片渲染 + 截图（弹层内截图不可用，需在页面组件树中挂载） */
-      ExportCardLayer({
-        showLayer: this.exportShow,
-        cardData: this.shareCardData,
-        shareTitle: this.shareSheetTitle,
-        maxRounds: this.exportFormat === ShareFormat.IMAGE ? EXPORT_IMAGE_MAX_ROUNDS : EXPORT_PDF_MAX_ROUNDS,
-        onSegmentsReady: (segCount: number, segHeights: number[]) => {
-          this.doExport(this.exportFormat, segCount, segHeights);
-        },
-      })
-      /* 导出加载层：图片/PDF 生成期间显示 LoadingProgress（exportShow 置 false 自动卸载） */
-      if (this.exportShow) {
-        ExportLoading()
+        /* 图片/PDF 导出隐藏层：页面级分段卡片渲染 + 截图（弹层内截图不可用，需在页面组件树中挂载） */
+        ExportCardLayer({
+          showLayer: this.exportShow,
+          cardData: this.shareCardData,
+          shareTitle: this.shareSheetTitle,
+          maxRounds: this.exportFormat === ShareFormat.IMAGE ? EXPORT_IMAGE_MAX_ROUNDS : EXPORT_PDF_MAX_ROUNDS,
+          onSegmentsReady: (segCount: number, segHeights: number[]) => {
+            this.doExport(this.exportFormat, segCount, segHeights);
+          },
+        })
+        /* 导出加载层：图片/PDF 生成期间显示 LoadingProgress（exportShow 置 false 自动卸载） */
+        if (this.exportShow) {
+          ExportLoading()
+        }
       }
-    }
 
-    /* 从左向右滑 → 打开侧边栏 */
-    .gesture(
-      PanGesture({ direction: PanDirection.Right, distance: 40 }).onActionStart(() => {
-        this.pushSideBar();
-      }),
-    )
-    .width("100%")
-    .height("100%")
-    /**
-     * 半模态面板（「选择文本」/「xx个网页」共用，页面级统一管理）：
-     * 从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏；弹层生命周期与页面绑定，
-     * onDisappear 兜底复位状态，杜绝 item 级 bindSheet 残留遮罩拦截触摸
-     */
-    .bindSheet($$this.sheetShow, this.pageSheetContent(), {
-      height: this.pageSheetHeight(),
-      dragBar: false,
-      showClose: false,
-      backgroundColor: $r('app.color.dialog_bg'),
-      onDisappear: () => {
-        this.sheetShow = false;
-        this.sheetKind = "none";
-      },
-    });
+      /* 从左向右滑 → 打开侧边栏 */
+      .gesture(
+        PanGesture({ direction: PanDirection.Right, distance: 40 }).onActionStart(() => {
+          this.pushSideBar();
+        }),
+      )
+      .width("100%")
+      .height("100%")
+      /**
+       * 半模态面板（「选择文本」/「xx个网页」共用，页面级统一管理）：
+       * 从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏；弹层生命周期与页面绑定，
+       * onDisappear 兜底复位状态，杜绝 item 级 bindSheet 残留遮罩拦截触摸
+       */
+      .bindSheet($$this.sheetShow, this.pageSheetContent(), {
+        height: this.pageSheetHeight(),
+        dragBar: false,
+        showClose: false,
+        backgroundColor: $r('app.color.dialog_bg'),
+        onDisappear: () => {
+          this.sheetShow = false;
+          this.sheetKind = "none";
+        },
+      });
     }
+    .backgroundColor($r('app.color.page_bg'))
     .hideTitleBar(true)
     .onReady((context: NavDestinationContext) => {
       this.pathStack = context.pathStack;

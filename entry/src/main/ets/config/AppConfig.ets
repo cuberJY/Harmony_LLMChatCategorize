@@ -15,6 +15,7 @@ export interface ApiConfig {
   providerId: string; // 供应商标识（决定 API 地址与能力开关）
   model: string; // 当前供应商下选中的模型名（空串 = 使用供应商默认模型）
   apiKey: string; // API 密钥（Bearer Token）
+  systemPrompt: string; // 自定义系统指令（system 级，注入每次对话请求；空串 = 不注入）
 }
 
 /* Asset Store 中保存 API Key 的固定别名（全局唯一） */
@@ -23,6 +24,7 @@ const ASSET_LLM_KEY = "llm_api_key";
 /* Preferences 存储的 Key 常量 */
 const KEY_PROVIDER_ID = "api_provider_id";
 const KEY_MODEL_SELECTED = "api_selected_model"; // 设置页选择的模型名（非敏感项）
+const KEY_SYSTEM_PROMPT = "api_system_prompt"; // 自定义系统指令（非敏感项）
 /* 以下 Key 仅用于「旧版本数据迁移」，迁移成功后即删除，不再写入 */
 const KEY_API_KEY = "api_api_key"; // 旧版明文大模型 Key
 const KEY_BASE_URL = "api_base_url"; // 旧版 API 地址（已废弃）
@@ -41,6 +43,7 @@ export class AppConfig {
     providerId: DEFAULT_PROVIDER_ID,
     model: "",
     apiKey: "",
+    systemPrompt: "",
   };
 
   /* 私有构造函数，禁止外部直接 new */
@@ -76,6 +79,9 @@ export class AppConfig {
       /* 3. 加载选中的模型名（空串 = 使用供应商默认模型；getModel 会兜底校验） */
       const savedModel: string = (await this.prefs.get(KEY_MODEL_SELECTED, "")) as string;
       this.config.model = savedModel;
+      /* 3.5 加载自定义系统指令（空串 = 未设置，不注入请求） */
+      const savedPrompt: string = (await this.prefs.get(KEY_SYSTEM_PROMPT, "")) as string;
+      this.config.systemPrompt = savedPrompt;
       /* 4. 清理旧版配置残留（baseUrl / model / 博查搜索配置，已废弃） */
       await this.cleanupLegacyConfig();
       /* 5. 加载 API Key：优先从 Asset Store（密文）读取 */
@@ -141,6 +147,7 @@ export class AppConfig {
       providerId: this.config.providerId,
       model: this.config.model,
       apiKey: this.config.apiKey,
+      systemPrompt: this.config.systemPrompt,
     };
   }
 
@@ -150,6 +157,11 @@ export class AppConfig {
 
   getApiKey(): string {
     return this.config.apiKey;
+  }
+
+  /* 获取自定义系统指令（空串 = 未设置，Provider 不注入 instructions） */
+  getSystemPrompt(): string {
+    return this.config.systemPrompt;
   }
 
   /* 获取当前供应商预设（由 providerId 推导，必然存在） */
@@ -214,5 +226,29 @@ export class AppConfig {
       return false;
     }
     return true;
+  }
+
+  /**
+   * 更新自定义系统指令并持久化（非敏感项 → Preferences）
+   * 独立于 updateConfig：系统指令与供应商/Key/模型无关，可单独保存。
+   * UI 接入点（设置页）后续在此调用；当前保留接口、暂不改 UI。
+   * @param prompt 系统指令文本（空串 = 清除指令，不再注入）
+   * @returns 是否持久化成功（内存配置始终立即生效）
+   */
+  async updateSystemPrompt(prompt: string): Promise<boolean> {
+    /* 1. 内存配置立即生效（即使落盘失败也不影响本次会话） */
+    this.config.systemPrompt = prompt;
+    if (this.prefs === undefined) {
+      Logger.warn(`AppConfig save(systemPrompt) failed: preferences not initialized`);
+      return false;
+    }
+    try {
+      await this.prefs.put(KEY_SYSTEM_PROMPT, prompt);
+      await this.prefs.flush();
+      return true;
+    } catch (e) {
+      Logger.error(`AppConfig save(systemPrompt) failed: ${JSON.stringify(e)}`);
+      return false;
+    }
   }
 }

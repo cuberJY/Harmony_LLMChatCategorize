@@ -112,6 +112,16 @@ const TITLE_INSTRUCTION: string =
   "要求：不要出现markdown格式，不超过15个字符，尽量控制在4-10字，简短精炼。" +
   "直接输出标题本身，不要任何解释或前缀。";
 
+/**
+ * 联网搜索输出约束指令（system 级，仅在开启联网搜索时注入）
+ * 约束：DeepSeek 联网搜索时容易把"搜索过程描述"（如"我来搜索一下""根据搜索结果显示"）
+ * 直接输出为正文，导致用户看到"只有过程、没有答案"就 response.completed。
+ * 本指令要求模型只输出最终答案，过程文字不进正文。
+ */
+const WEB_SEARCH_INSTRUCTION: string =
+  "直接输出最终答案，不要在回答中描述搜索过程" +
+  "（例如：'我来搜索一下'、'根据搜索结果显示'、'搜索到以下信息'等过程性文字）。";
+
 /* SSE 单行解析结果 */
 interface SSEResult {
   kind: "none" | "chunk" | "reasoning" | "searchStart" | "searchEnd" | "searchQuery" | "searchBrowse"
@@ -536,6 +546,25 @@ export class DeepSeekProvider implements LLMProvider {
     }
 
     /**
+     * system 级指令注入（instructions，作为第一条 system 消息注入请求）：
+     *  - 自定义系统指令：AppConfig.systemPrompt（用户可配置；空串跳过）
+     *  - 联网搜索约束指令：WEB_SEARCH_INSTRUCTION（仅开启联网搜索时注入，
+     *    约束模型不把"搜索过程描述"输出为正文，直接给出最终答案）
+     * 两部分叠加、换行分隔；任一存在即注入（避免空 instructions 干扰模型）
+     */
+    const systemPrompt: string = AppConfig.getInstance().getSystemPrompt();
+    const instructionParts: string[] = [];
+    if (systemPrompt.trim().length > 0) {
+      instructionParts.push(systemPrompt.trim());
+    }
+    if (webSearch && preset.supportsWebSearch) {
+      instructionParts.push(WEB_SEARCH_INSTRUCTION);
+    }
+    if (instructionParts.length > 0) {
+      requestBodyObj.instructions = instructionParts.join("\n");
+    }
+
+    /**
      * 服务端联网搜索：开启且供应商支持时携带 web_search 工具，
      * 搜索结果由服务端自动注入供模型回答（本地不再调用搜索 API）
      */
@@ -544,11 +573,9 @@ export class DeepSeekProvider implements LLMProvider {
     }
 
     /**
-     * —— 预留字段启用说明（当前刻意不传，保持 auto 默认行为）——
-     * 1. instructions：需要给所有对话注入统一系统指令时启用
-     *    requestBodyObj.instructions = "始终使用中文回答";
-     * 2. tool_choice：需要强制模型使用搜索工具时启用（会强制搜索，可能多耗延迟与 token）
-     *    requestBodyObj.tool_choice = { type: "web_search" };
+     * 预留字段启用说明（当前刻意不传，保持 auto 默认行为）
+     *  tool_choice：需要强制模型使用搜索工具时启用（会强制搜索，可能多耗延迟与 token）
+     *  requestBodyObj.tool_choice = { type: "web_search" }
      */
 
     const requestBody = JSON.stringify(requestBodyObj);

@@ -39,6 +39,12 @@ const MAX_AUTO_RETRY: number = 2;
 const MAX_TITLE_LENGTH: number = 25;
 
 /**
+ * 标题自动生成的最大尝试次数：generateTitle 失败（网络/解析等）时保留待生成标记，
+ * 后续任意首轮终态事件会再次尝试；连续失败超过该次数后放弃（保留占位标题，用户可手动重命名）
+ */
+const MAX_TITLE_ATTEMPTS: number = 2;
+
+/**
  * 切换分支后的"锚点静默期"（ms）：从切换开始到补偿完成前抑制自动钉底，
  * 覆盖新变体 Markdown 异步渲染增高窗口，避免补偿滚动触发 onReachEnd 后又被渲染增高钉到底部
  */
@@ -101,6 +107,8 @@ export class ChatViewModel {
    * 不会因切走导致标记残留、标题永不生成
    */
   private pendingTitleConvId: string = "";
+  /* 标题生成尝试计数（convId -> 已尝试次数）：成功或放弃时清除，配合 MAX_TITLE_ATTEMPTS 限制反复失败 */
+  private titleAttempts: Map<string, number> = new Map();
   private isUserOperating: boolean = false; // 用户是否正在操作屏幕（操作中停止自动滚底）
   private lastScrollIsUserGesture: boolean = false; // 最近一次滚动是否来自用户手势（onWillScroll 更新，供 onReachEnd 区分用户滚回 vs 代码滚动）
   private isUserScrolling: boolean = false; // 用户是否正在滚动手势中（DRAG/FLING/滚动条等）；期间暂停流式 UI 写入，避免底部高度变化与滚动竞争抖动
@@ -189,6 +197,7 @@ export class ChatViewModel {
     this.currentConversationId = this.currentConversation.id;
     this.isFirstUserMsg = true;
     this.pendingTitleConvId = ""; // 新对话：等首条用户消息落库时再标记待生成标题
+    this.titleAttempts.clear(); // 新对话：清空标题生成尝试计数
     this.editingMessageId = "";
     this.editingPrefill = "";
     this.title = "新对话";
@@ -289,32 +298,30 @@ export class ChatViewModel {
   }
 
   /**
-   * 首轮 AI 回复完成后自动生成对话标题（覆盖截断占位）：
-   * 1. 从 DB 读取该对话首轮问答（最早的用户提问 + AI 回复）作为上下文，
-   *    不依赖当前激活链（流式期间切走对话时上下文依然正确）
-   * 2. 未配置 / 网络失败 / 解析失败 → 保留截断占位，不打扰用户
-   * 3. 落库前回读 DB 校验"标题仍是占位"，避免覆盖侧边栏手动重命名（防竞态）
-   * @param task 完成的首个流式任务（持有归属对话与 AI 消息）
+   * 首轮 AI 回复结束后自动生成对话标题（覆盖截断占位）：
+   * 1. 从"当前激活链"取首轮问答（激活链首条 user + 首条 assistant）作为上下文。
+   *    修复：不再按 DB 时间序取全量首条——分支一失败后分支二（新变体）完成时，
+   *    时间序首条可能是已熄灭的失败分支，导致标题概括错误；只取用户当前看到的激活链
+   * 2. 未配置 / 网络失败 / 解析失败 → 保留截断占位（由 maybeGenerateTitle 控制重试）
+   * 3. 落库前回读 DB 校验"标题仍是占位"，避免覆盖侧边栏手动重命名（防竞态）；
+   *    标题已被手动命名/对话已删除 → 视为"目标已达成"，清空待生成标记
+   * @param task 结束的首个流式任务（持有归属对话与 AI 消息）
    */
   private async generateConversationTitle(task: StreamTask): Promise<void> {
     const convId = task.conversationId;
     /* 触发时标题 = 截断占位（addMessage 首条用户消息写入）；作为"是否被重命名"的比对基线 */
     const placeholderTitle = task.targetConv.title;
-    /* 从 DB 读取首轮问答（消息按时间升序：首条 user + 首条 assistant），传给模型概括主题 */
+    /* assistant 上下文 = 完成任务的消息（内存最终态）：不依赖 DB 写入时序（updateMessage 异步），
+     * 也天然是激活链的完成分支——分支一失败后分支二（新变体）完成任务时取其内容概括，
+     * 而非按 DB 时间序取到已熄灭的失败分支 */
+    const aiMsg: Message | undefined = task.aiMsg;
+    /* user 上下文 = 激活链首条用户消息（从 DB 读，早已入库；编辑首轮提问时新变体已同步落库） */
     const msgs = await ConversationRepository.getInstance().getMessages(convId);
+    const userMsg: Message | undefined = msgs
+      .filter((m: Message) => m.conversationId === convId && m.isActive)
+      .sort((a: Message, b: Message) => a.createdAt - b.createdAt)
+      .find((m: Message) => m.isUser());
     const context: Message[] = [];
-    let userMsg: Message | undefined = undefined;
-    let aiMsg: Message | undefined = undefined;
-    for (const m of msgs) {
-      if (m.isUser() && userMsg === undefined) {
-        userMsg = m;
-      } else if (!m.isUser() && aiMsg === undefined) {
-        aiMsg = m;
-      }
-      if (userMsg !== undefined && aiMsg !== undefined) {
-        break;
-      }
-    }
     if (userMsg !== undefined) {
       context.push(userMsg);
     }
@@ -322,11 +329,11 @@ export class ChatViewModel {
       context.push(aiMsg);
     }
     if (context.length === 0) {
-      return; // 首轮问答不存在（异常场景）→ 保留占位
+      return; // 上下文缺失（异常场景）→ 保留占位，留待下次终态重试
     }
     const title = await LLMProviderFactory.create().generateTitle(context);
     if (title.length === 0) {
-      return; // 生成失败/空 → 保留占位
+      return; // 生成失败/空 → 保留占位（maybeGenerateTitle 计数控制重试次数）
     }
     const cleanTitle = this.normalizeTitle(title);
     if (cleanTitle.length === 0) {
@@ -335,14 +342,43 @@ export class ChatViewModel {
     /* 竞态防护：回读 DB，仅当标题仍为占位（未被手动重命名/对话未被删除）时才覆盖 */
     const fresh = await ConversationRepository.getInstance().getById(convId);
     if (fresh === undefined || fresh.title !== placeholderTitle) {
-      return; // 标题已被手动重命名/对话已删除 → 不覆盖
+      /* 对话已删除 / 标题已被手动重命名 → 无需再自动生成，清除待生成标记 */
+      this.pendingTitleConvId = "";
+      this.titleAttempts.delete(convId);
+      return;
     }
     fresh.title = cleanTitle;
     ConversationRepository.getInstance().update(fresh);
+    /* 标题已成功生成：清空待生成标记与尝试计数（后续分支完成不再触发，保持标题稳定） */
+    this.pendingTitleConvId = "";
+    this.titleAttempts.delete(convId);
     /* 当前正在展示该对话 → 同步标题栏（@Trace 驱动刷新） */
     if (this.currentConversationId === convId) {
       this.title = cleanTitle;
     }
+  }
+
+  /**
+   * 首轮回复结束（任意终态：完成 / 输出截断 / 报错 / 网络中断）时触发标题生成：
+   * - 仅当 pendingTitleConvId 命中该对话才处理（addMessage 首条用户消息时记录）
+   * - 生成成功或标题已定（被重命名 / 对话删除）后由 generateConversationTitle 清空标记
+   * - 失败保留标记，最多重试 MAX_TITLE_ATTEMPTS 次后放弃（占位标题保留，用户可手动重命名）
+   * @param task 已进入终态的首轮流式任务
+   */
+  private maybeGenerateTitle(task: StreamTask): void {
+    if (this.pendingTitleConvId !== task.conversationId) {
+      return; // 非首轮（标题已生成或已放弃）→ 不触发
+    }
+    const convId = task.conversationId;
+    const attempts = this.titleAttempts.get(convId) ?? 0;
+    if (attempts >= MAX_TITLE_ATTEMPTS) {
+      /* 连续失败超过上限：放弃自动生成，清空标记（避免后续每轮终态反复请求） */
+      this.pendingTitleConvId = "";
+      this.titleAttempts.delete(convId);
+      return;
+    }
+    this.titleAttempts.set(convId, attempts + 1);
+    this.generateConversationTitle(task);
   }
 
   /**
@@ -616,10 +652,7 @@ export class ChatViewModel {
          * 触发条件按"待生成标题的对话 id"匹配（addMessage 首条用户消息时记录），
          * 不依赖"当前对话"：流式期间即使切走，后台流完成后仍为该对话生成标题
          */
-        if (this.pendingTitleConvId === task.conversationId) {
-          this.pendingTitleConvId = ""; // 已触发，防止重复生成
-          this.generateConversationTitle(task);
-        }
+        this.maybeGenerateTitle(task);
         /* 页面已销毁：跳过滚动 */
         if (this.isDestroyed) return;
         /* 仅在用户仍停留在原对话时滚动到底部，避免误滚其他对话 */
@@ -651,6 +684,8 @@ export class ChatViewModel {
         this.refreshStreamState();
         /* 持久化已接收内容（继续生成时以此为基础） */
         ConversationRepository.getInstance().updateMessage(aiMsg);
+        /* 首轮回复被截断 → 也尝试生成标题（已有内容可为上下文），失败不阻塞流程 */
+        this.maybeGenerateTitle(task);
         /* 仅当该对话仍在前台展示时更新 UI 状态并提示（Toast 只显示一句文案，详情在气泡错误卡片） */
         if (this.isDestroyed) return;
         if (this.currentConversationId === task.conversationId) {
@@ -684,6 +719,8 @@ export class ChatViewModel {
         this.refreshStreamState();
         /* 错误消息也入库（含结构化错误信息），方便用户从历史中复盘 */
         ConversationRepository.getInstance().updateMessage(aiMsg);
+        /* 首轮回复报错 → 也尝试生成标题（上下文退化为仅用户提问），避免标题永久停留截断占位 */
+        this.maybeGenerateTitle(task);
         if (this.isDestroyed) return;
         if (this.currentConversationId === task.conversationId) {
           this.requestAutoFold(aiMsg); // 思考块折叠请求
@@ -723,6 +760,8 @@ export class ChatViewModel {
         this.syncBackgroundGuardCount(); // 不再有活跃网络请求，保活计数减一
         /* 持久化已接收内容（继续生成时以此为基础） */
         ConversationRepository.getInstance().updateMessage(aiMsg);
+        /* 首轮回复被中断 → 也尝试生成标题（已有内容可为上下文），失败不阻塞流程 */
+        this.maybeGenerateTitle(task);
         /* 仅当该对话仍在前台展示时更新 UI 状态并提示（Toast 只显示一句文案，详情在气泡错误卡片） */
         if (this.currentConversationId === task.conversationId) {
           this.requestAutoFold(aiMsg); // 思考块折叠请求
@@ -1192,6 +1231,23 @@ export class ChatViewModel {
     }
     /* 1. 创建新用户消息变体（同父、同分支组、序号 +1） */
     const newUserMsg = this.createAndPersist("user", newText, target.parentId);
+    /* 1.1 编辑的是首轮提问 → 对话主题可能改变：
+     *     - 标题仍是占位（未被侧边栏手动重命名/AI 正式标题覆盖）时，同步为新的提问截断占位
+     *     - 重置待生成标记，让新首轮回复完成时重新生成正式标题（正式/手动标题由生成流程的占位校验保护） */
+    const chainFirst = this.branchManager.getAll()
+      .filter((m: Message) => m.conversationId === sendConvId && m.isActive)
+      .sort((a: Message, b: Message) => a.createdAt - b.createdAt)
+      .find((m: Message) => m.isUser());
+    if (chainFirst !== undefined && chainFirst.id === target.id) {
+      const freshConv = await ConversationRepository.getInstance().getById(sendConvId);
+      if (freshConv !== undefined && freshConv.title === this.currentConversation.title) {
+        this.currentConversation.title =
+          newText.length > MAX_TITLE_LENGTH ? newText.substring(0, MAX_TITLE_LENGTH) + "..." : newText;
+        ConversationRepository.getInstance().update(this.currentConversation);
+      }
+      this.pendingTitleConvId = sendConvId; // 重置待生成标记
+      this.titleAttempts.delete(sendConvId); // 重置重试计数（全新提问，重新计数）
+    }
     /* 2. 熄灭旧用户消息及其后续链 */
     this.branchManager.deactivateBranchFrom(target);
     /* 3. 重建激活链（新用户消息成为链尾） */
