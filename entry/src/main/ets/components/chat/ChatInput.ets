@@ -94,6 +94,13 @@ export struct ChatInput {
   @Event onCancelEdit: () => void = () => {};
   /* 输入框焦点变化回调（@Event：聚焦=键盘将弹出，失焦=可能收起；父级据此驱动全局键盘标志） */
   @Event onInputFocusChange: (hasFocus: boolean) => void = (hasFocus: boolean) => {};
+  /**
+   * 容器实际高度变化回调（@Event：TextArea 多行增高/键盘态变化时上报）：
+   * 父级据此动态调整 List.contentEndOffset（"到底"判定位置）与 FAB 避让高度
+   */
+  @Event onHeightChange: (height: number) => void = (height: number) => {};
+  /* 上次上报的容器高度（vp，onAreaChange 防抖用，-1 表示尚未上报） */
+  private lastHeight: number = -1;
 
   build() {
     Column() {
@@ -315,12 +322,7 @@ export struct ChatInput {
       .alignItems(VerticalAlign.Center)
     }
     /* 容器样式 */
-    .width("96%")
-    /**
-     * 沉浸式：expandSafeArea 让白色背景向下延伸到底部导航条背后；
-     * 内容用显式 padding（导航条高度）避让手势条——safeAreaPadding 在固定高度组件上会失效
-     */
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+    .width("100%")
     .padding({
       left: $r('app.float.space_md'),
       right: $r('app.float.space_md'),
@@ -334,7 +336,15 @@ export struct ChatInput {
      * 底部 margin：收起键盘 = 导航条高度 + 16（避让手势条）；
      * 键盘弹出 = 仅 16（导航条已被键盘遮挡，避免输入框与键盘间出现多余空隙）
      */
-    .margin({ bottom: this.keyboardUp ? $r('app.float.space_md') : (this.navBarHeightVp + 16) })
+    .margin({ bottom: this.keyboardUp ? $r('app.float.space_sm') : (this.navBarHeightVp + 16) })
+    /* 容器高度变化（多行增高/键盘态）→ 上报父级，驱动 List.contentEndOffset 与 FAB 位置同步跟随 */
+    .onAreaChange((oldArea: Area, newArea: Area) => {
+      const h = Math.round(Number(newArea.height));
+      if (h !== this.lastHeight) {
+        this.lastHeight = h;
+        this.onHeightChange(h);
+      }
+    })
   }
 
   /**

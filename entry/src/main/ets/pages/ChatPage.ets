@@ -70,6 +70,11 @@ export struct ChatPage {
   @Local navBarHeightVp: number = 0;
   /* 键盘是否弹出（keyboardHeightChange 驱动）：弹出时导航条被键盘遮挡，输入区无需避让 → 传 ChatInput 动态收 margin */
   @Local keyboardUp: boolean = false;
+  /**
+   * ChatInput 悬浮容器实际高度（vp，组件 onAreaChange 上报，默认 140 先兜底首帧）：
+   * 驱动 List.contentEndOffset（"到底"判定位置 = ChatInput 上沿）与 FAB 避让
+   */
+  @Local chatInputHeightVp: number = 140;
 
   aboutToAppear(): void {
     /* 读取系统栏高度（标题栏/输入区内容避让用） */
@@ -149,7 +154,8 @@ export struct ChatPage {
     .border({ width: 1, color: $r('app.color.divider') })
     .margin({
       right: $r('app.float.space_xl'),
-      bottom: $r('app.float.space_xl')
+      /* 悬浮输入区遮挡底部：FAB 上移到 ChatInput 容器上方，避免被覆盖 */
+      bottom: this.chatInputHeightVp + 40
     })
     .onClick(() => {
       /* 强制滚动到最底部（绕过自动跟随守卫） */
@@ -220,84 +226,84 @@ export struct ChatPage {
 
         /* 消息列表区域（Stack 叠加右下角"回到底部"悬浮按钮） */
         Stack({ alignContent: Alignment.BottomEnd }) {
-        List({ scroller: this.vm.listScroller }) {
-          /* LazyForEach：懒加载只渲染可视区消息，减少渲染开销；@Trace 属性变化驱动 MessageBubble 自动更新 */
-          LazyForEach(
-            this.vm.messageDataSource,
-            (msg: Message, index: number) => {
-              ListItem() {
-                Column() {
-                  if (this.vm.shouldShowTimeDivider(index)) {
-                    Text(formatSmartTime(msg.createdAt))
-                      .fontSize($r('app.float.font_time')) // 11sp
-                      .fontColor($r('app.color.font_secondary'))
-                      .width("100%")
-                      .textAlign(TextAlign.Center)
-                      .padding({ top: $r('app.float.space_lg'), bottom: $r('app.float.space_xs') });
-                  }
+          List({ scroller: this.vm.listScroller }) {
+            /* LazyForEach：懒加载只渲染可视区消息，减少渲染开销；@Trace 属性变化驱动 MessageBubble 自动更新 */
+            LazyForEach(
+              this.vm.messageDataSource,
+              (msg: Message, index: number) => {
+                ListItem() {
+                  Column() {
+                    if (this.vm.shouldShowTimeDivider(index)) {
+                      Text(formatSmartTime(msg.createdAt))
+                        .fontSize($r('app.float.font_time')) // 11sp
+                        .fontColor($r('app.color.font_secondary'))
+                        .width("100%")
+                        .textAlign(TextAlign.Center)
+                        .padding({ top: $r('app.float.space_lg'), bottom: $r('app.float.space_xs') });
+                    }
 
-                  MessageBubble({
-                    message: msg,
-                    /* 分支变体信息：驱动 "< 当前 / 总数 >"；getVariantInfo 已缓存，二次调用 O(1) */
-                    variantCurrent: this.vm.getVariantInfo(msg).current,
-                    variantTotal: this.vm.getVariantInfo(msg).total,
-                    /* 是否激活链最后一条：仅最后一条显示「换个回答」（防止在历史消息上重新生成导致上下文混乱） */
-                    isLastMessage: index === this.vm.messageDataSource.totalCount() - 1,
-                    /* 正在编辑的用户消息 id：编辑中的消息禁止删除（点击直接 toast） */
-                    editingMessageId: this.vm.editingMessageId,
-                    /* 换个回答：覆盖当前 AI 回复 */
-                    onRegenerate: (m: Message) => {
-                      this.vm.regenerateMessage(m);
-                    },
-                    /* 生成新回复：保留旧回复生成新变体 */
-                    onCreateBranch: (m: Message) => {
-                      this.vm.createBranch(m);
-                    },
-                    /* 编辑：回填输入框（发送时创建新分支） */
-                    onEdit: (m: Message) => {
-                      this.vm.startEdit(m);
-                    },
-                    /* 切换分支：在变体间 ±1 循环 */
-                    onSwitchBranch: (m: Message, delta: number) => {
-                      this.vm.switchBranch(m, delta);
-                    },
-                    /* 删除：删除该消息及其后续所有分支（子树整体删除） */
-                    onDelete: (m: Message) => {
-                      this.vm.deleteMessage(m);
-                    },
-                    /* 继续生成：暂停态下从未完成处续写（传入被点击的消息，按消息定位任务） */
-                    onResume: (m: Message) => {
-                      this.vm.resumeStreaming(m);
-                    },
-                    /* 打开半模态面板（页面级统一管理）：记录目标消息并弹出 */
-                    onOpenSheet: (m: Message, kind: "text" | "web") => {
-                      this.sheetMsg = m;
-                      this.sheetKind = kind;
-                      this.sheetShow = true;
-                    },
-                    onShare: (m: Message) => {
-                      this.handleShareQAPair(m);
-                    },
+                    MessageBubble({
+                      message: msg,
+                      /* 分支变体信息：驱动 "< 当前 / 总数 >"；getVariantInfo 已缓存，二次调用 O(1) */
+                      variantCurrent: this.vm.getVariantInfo(msg).current,
+                      variantTotal: this.vm.getVariantInfo(msg).total,
+                      /* 是否激活链最后一条：仅最后一条显示「换个回答」（防止在历史消息上重新生成导致上下文混乱） */
+                      isLastMessage: index === this.vm.messageDataSource.totalCount() - 1,
+                      /* 正在编辑的用户消息 id：编辑中的消息禁止删除（点击直接 toast） */
+                      editingMessageId: this.vm.editingMessageId,
+                      /* 换个回答：覆盖当前 AI 回复 */
+                      onRegenerate: (m: Message) => {
+                        this.vm.regenerateMessage(m);
+                      },
+                      /* 生成新回复：保留旧回复生成新变体 */
+                      onCreateBranch: (m: Message) => {
+                        this.vm.createBranch(m);
+                      },
+                      /* 编辑：回填输入框（发送时创建新分支） */
+                      onEdit: (m: Message) => {
+                        this.vm.startEdit(m);
+                      },
+                      /* 切换分支：在变体间 ±1 循环 */
+                      onSwitchBranch: (m: Message, delta: number) => {
+                        this.vm.switchBranch(m, delta);
+                      },
+                      /* 删除：删除该消息及其后续所有分支（子树整体删除） */
+                      onDelete: (m: Message) => {
+                        this.vm.deleteMessage(m);
+                      },
+                      /* 继续生成：暂停态下从未完成处续写（传入被点击的消息，按消息定位任务） */
+                      onResume: (m: Message) => {
+                        this.vm.resumeStreaming(m);
+                      },
+                      /* 打开半模态面板（页面级统一管理）：记录目标消息并弹出 */
+                      onOpenSheet: (m: Message, kind: "text" | "web") => {
+                        this.sheetMsg = m;
+                        this.sheetKind = kind;
+                        this.sheetShow = true;
+                      },
+                      onShare: (m: Message) => {
+                        this.handleShareQAPair(m);
+                      },
+                    })
+                  }.width("100%")
+                  .onAreaChange((oldArea: Area, newArea: Area) => {
+                    /* 消息项高度变化（Markdown 异步渲染增高）→ 立即重新钉底；Area.height 运行时为 number，用 Number() 数值化求增量 */
+                    this.vm.onListItemHeightChanged(Number(newArea.height) - Number(oldArea.height));
                   })
-                }.width("100%")
-                .onAreaChange((oldArea: Area, newArea: Area) => {
-                  /* 消息项高度变化（Markdown 异步渲染增高）→ 立即重新钉底；Area.height 运行时为 number，用 Number() 数值化求增量 */
-                  this.vm.onListItemHeightChanged(Number(newArea.height) - Number(oldArea.height));
-                })
-              }.width("100%");
-            },
-            (msg: Message) => msg.id,
-          )
-        }
-        .height("100%")
-        /* 列表自上而下排布，超出屏幕后的钉底由 scrollToBottom() 的 scrollToIndex(END) 保证 */
-        .onAreaChange((oldValue: Area, newValue: Area) => {
-          /* 首帧布局完成（首次回调）→ 通知 ViewModel 开始钉底，避免"打开瞬间停留在列表顶部" */
-          this.vm.onListFirstLayout();
-          /* 可视区变矮 = 键盘弹出窗口被压缩 → 重新钉到底部 */
-          if (newValue.height < oldValue.height) {
-            this.vm.scrollToBottom();
+                }.width("100%");
+              },
+              (msg: Message) => msg.id,
+            )
           }
+          .height("100%")
+          /* 列表自上而下排布，超出屏幕后的钉底由 scrollToBottom() 的 scrollToIndex(END) 保证 */
+          .onAreaChange((oldValue: Area, newValue: Area) => {
+            /* 首帧布局完成（首次回调）→ 通知 ViewModel 开始钉底，避免"打开瞬间停留在列表顶部" */
+            this.vm.onListFirstLayout();
+            /* 可视区变矮 = 键盘弹出窗口被压缩 → 重新钉到底部 */
+            if (newValue.height < oldValue.height) {
+              this.vm.scrollToBottom();
+            }
         })
         .onTouch((event: TouchEvent) => {
           /* 手指按下列表 = 用户正在操作（滚动/长按/选择文本等） */
@@ -342,56 +348,76 @@ export struct ChatPage {
         .cachedCount(10)
         /* 保持可见内容位置不变：避免流式输出底部 item 长高时向上翻历史被顶跳 */
         .maintainVisibleContentPosition(true)
+        /**
+         * "到底"判定位置 = ChatInput 上沿（与 Column 布局时 List 底部 = ChatInput 顶部一致）：
+         * 末尾追加与其等高留白，最后消息可滚到悬浮输入区上方完整阅读，
+         * onReachEnd / 自动钉底都停在此处，滚动范围天然包含留白区
+         */
+        .contentEndOffset(this.chatInputHeightVp + 16)
 
           /* 悬浮"回到底部"按钮：非底部且非编辑态时显示；编辑态隐藏，避免遮挡编辑中的消息 */
           if (!this.vm.isAtBottom && this.vm.editingMessageId.length === 0) {
             this.scrollToBottomFab();
           }
+
+          /* 悬浮输入区：ChatInput 浮在消息列表底部，List 延展到屏幕底部；align(Bottom) 覆盖 Stack 默认 BottomEnd */
+          ChatInput({
+            modelName: this.vm.modelName,
+            /* 底部导航条高度（vp）：输入区内容用其手动避让，避免被导航条遮挡 */
+            navBarHeightVp: this.navBarHeightVp,
+            /* 键盘弹出状态：弹出时导航条被遮挡，输入区收紧底部 margin */
+            keyboardUp: this.keyboardUp,
+            /* 编辑态：回填原内容到输入框（vm.startEdit 后 @Trace 变化驱动刷新） */
+            prefillText: this.vm.editingPrefill,
+            isEditing: this.vm.editingMessageId.length > 0,
+            /* 开关状态由 VM 持有（唯一真源）：发送/重新生成/新建分支读取当前值 */
+            webSearch: this.vm.webSearch,
+            thinkingEffort: this.vm.thinkingEffort,
+            /* 流式生成状态（驱动发送/暂停键与「继续生成」按钮） */
+            streamState: this.vm.streamState,
+            /* 开关切换 → 同步 VM 唯一真源（@Trace 回流刷新输入区 UI） */
+            onWebSearchChange: (webSearch: boolean) => {
+              this.vm.updateSearchOptions(webSearch, this.vm.thinkingEffort);
+            },
+            onThinkingChange: (effort: ThinkingEffort) => {
+              this.vm.updateSearchOptions(this.vm.webSearch, effort);
+            },
+            onChange: (text: string) => {
+              /* 编辑态由 ViewModel 内部识别：非编辑态 = 普通发送；编辑态 = 创建新分支并重新生成 */
+              this.vm.handleUserSend(text);
+            },
+            /* 生成中点击暂停键 → 中止流式请求，保留已生成内容 */
+            onPause: () => {
+              this.vm.pauseStreaming();
+            },
+            /* 编辑态点击顶部右侧 xmark → 退出编辑态并清空输入框（@Monitor 联动清空） */
+            onCancelEdit: () => {
+              this.vm.exitEditMode();
+            },
+            /* 输入框焦点变化：聚焦必弹键盘 → 同步驱动全局键盘标志（同步可靠信号，
+              弥补 keyboardHeightChange 冷启动首次弹键盘事件丢失的被动缺陷） */
+            onInputFocusChange: (hasFocus: boolean) => {
+              if (hasFocus) {
+                KeyboardBackHelper.onInputFocus();
+              }
+            },
+            /* 容器高度变化（多行增高/键盘态）→ 驱动列表底部留白与 FAB 位置；已钉底时保持跟随 */
+            onHeightChange: (height: number) => {
+              this.chatInputHeightVp = height;
+              if (this.vm.isAtBottom) {
+                this.vm.scrollToBottom();
+              }
+            },
+          })
+            /* 悬浮于消息列表底部：Stack 默认 BottomEnd（右下角对齐）会使 ChatInput 偏右，
+               容器宽 96% + 左右对称 margin 各 2% → 水平居中（不动 Stack/FAB） */
+            .margin({
+              left: "2%",
+              right: "2%",
+            })
         }
         .layoutWeight(1)
         .width("100%")
-
-        ChatInput({
-        modelName: this.vm.modelName,
-        /* 底部导航条高度（vp）：输入区内容用其手动避让，避免被导航条遮挡 */
-        navBarHeightVp: this.navBarHeightVp,
-        /* 键盘弹出状态：弹出时导航条被遮挡，输入区收紧底部 margin */
-        keyboardUp: this.keyboardUp,
-          /* 编辑态：回填原内容到输入框（vm.startEdit 后 @Trace 变化驱动刷新） */
-          prefillText: this.vm.editingPrefill,
-          isEditing: this.vm.editingMessageId.length > 0,
-          /* 开关状态由 VM 持有（唯一真源）：发送/重新生成/新建分支读取当前值 */
-          webSearch: this.vm.webSearch,
-          thinkingEffort: this.vm.thinkingEffort,
-          /* 流式生成状态（驱动发送/暂停键与「继续生成」按钮） */
-          streamState: this.vm.streamState,
-          /* 开关切换 → 同步 VM 唯一真源（@Trace 回流刷新输入区 UI） */
-          onWebSearchChange: (webSearch: boolean) => {
-            this.vm.updateSearchOptions(webSearch, this.vm.thinkingEffort);
-          },
-          onThinkingChange: (effort: ThinkingEffort) => {
-            this.vm.updateSearchOptions(this.vm.webSearch, effort);
-          },
-          onChange: (text: string) => {
-            /* 编辑态由 ViewModel 内部识别：非编辑态 = 普通发送；编辑态 = 创建新分支并重新生成 */
-            this.vm.handleUserSend(text);
-          },
-          /* 生成中点击暂停键 → 中止流式请求，保留已生成内容 */
-          onPause: () => {
-            this.vm.pauseStreaming();
-          },
-          /* 编辑态点击顶部右侧 xmark → 退出编辑态并清空输入框（@Monitor 联动清空） */
-          onCancelEdit: () => {
-            this.vm.exitEditMode();
-          },
-          /* 输入框焦点变化：聚焦必弹键盘 → 同步驱动全局键盘标志（同步可靠信号，
-            弥补 keyboardHeightChange 冷启动首次弹键盘事件丢失的被动缺陷） */
-          onInputFocusChange: (hasFocus: boolean) => {
-            if (hasFocus) {
-              KeyboardBackHelper.onInputFocus();
-            }
-          },
-        })
 
         /* Markdown 库预热：提前触发 lv-markdown-in worker 初始化，消除首次打开正文卡顿（Hidden 零尺寸不占布局） */
         Markdown({
