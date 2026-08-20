@@ -27,6 +27,10 @@ import {
   SHARE_USER_BUBBLE_BG,
   SHARE_AI_BUBBLE_BG,
   SHARE_HINT_TEXT,
+  SHARE_INLINE_CODE_COLOR,
+  SHARE_INLINE_CODE_BG,
+  SHARE_QUOTE_TEXT_COLOR,
+  SHARE_QUOTE_BORDER_COLOR,
 } from '../../common/ShareStyle';
 
 /** 图片卡片单条消息（role + 内容：用户消息为纯文本，AI 消息为 Markdown 原文） */
@@ -81,10 +85,10 @@ export struct ShareSheetPanel {
       .setTextSize(BODY_FONT)
       .setTextLineHeight(22)
       .setTitleColor(SHARE_TEXT_PRIMARY)
-      .setInlineCodeColor('#0A59F7')
-      .setInlineCodeBackgroundColor('#F0F0F0')
-      .setQuoteTextColor('#666666')
-      .setQuoteBorderColor('#DDDDDD')
+      .setInlineCodeColor(SHARE_INLINE_CODE_COLOR)
+      .setInlineCodeBackgroundColor(SHARE_INLINE_CODE_BG)
+      .setQuoteTextColor(SHARE_QUOTE_TEXT_COLOR)
+      .setQuoteBorderColor(SHARE_QUOTE_BORDER_COLOR)
       .setCodeBlockTheme('light')
       .setMermaidTheme('light');
   }

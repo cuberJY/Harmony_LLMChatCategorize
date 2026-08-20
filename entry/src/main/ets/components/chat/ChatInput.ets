@@ -154,7 +154,7 @@ export struct ChatInput {
         .lineSpacing(LengthMetrics.px(this.inputLineSpacing)) // 行间距
         .constraintSize({ maxHeight: this.inputMaxHeight }) // 最大高度约束，触发滚动
         .placeholderColor($r('app.color.text_secondary'))
-        .backgroundColor($r('app.color.input_bg'))
+        .backgroundColor($r('app.color.chat_input_bg'))
         .borderWidth(0) // 去掉边框
         .padding({
           left: $r('app.float.space_xs'),
@@ -326,7 +326,7 @@ export struct ChatInput {
       top: $r('app.float.space_sm'),
       bottom: this.navBarHeightVp + 4, // 4 = space_xs，底部额外留出手势条空间
     })
-    .backgroundColor($r('app.color.input_bg'))
+    .backgroundColor($r('app.color.chat_input_bg'))
     .border({
       width: { top: 2 },
       color: { top: $r('app.color.divider') },

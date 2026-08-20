@@ -129,6 +129,22 @@
       "value": "48vp"
     },
     {
+      "name": "border_radius",
+      "value": "16vp"
+    },
+    {
+      "name": "dialog_radius",
+      "value": "32vp"
+    },
+    {
+      "name": "input_radius",
+      "value": "12vp"
+    },
+    {
+      "name": "input_height",
+      "value": "44vp"
+    },
+    {
       "name": "bubble_radius",
       "value": "12vp"
     },

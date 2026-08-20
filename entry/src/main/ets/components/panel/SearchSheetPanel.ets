@@ -30,7 +30,7 @@ export struct SearchSheetPanel {
           .fontColor($r('app.color.text_primary'))
           .placeholderColor($r('app.color.text_secondary')) // 占位符颜色
           .borderColor($r('app.color.input_border'))
-          .backgroundColor($r('app.color.input_search_bg'))
+          .backgroundColor($r('app.color.input_bg'))
           .padding({
             left: $r('app.float.space_md'),
             right: $r('app.float.space_md')

@@ -132,10 +132,10 @@ export struct SettingsPage {
               .optionFont({ size: $r('app.float.font_input') })
               .optionFontColor($r('app.color.text_primary'))
               .backgroundColor($r('app.color.page_bg'))
-              .borderRadius(10)
+              .borderRadius($r('app.float.input_radius'))
               .borderWidth(1)
               .borderColor($r('app.color.input_border'))
-              .height(44)
+              .height($r('app.float.input_height'))
               .width("100%")
               .onSelect((index: number) => {
                 /* 切换供应商 → 模型列表随之切换，重置为该供应商默认模型 */
@@ -169,10 +169,10 @@ export struct SettingsPage {
               .optionFont({ size: $r('app.float.font_input') })
               .optionFontColor($r('app.color.text_primary'))
               .backgroundColor($r('app.color.page_bg'))
-              .borderRadius(10)
+              .borderRadius($r('app.float.input_radius'))
               .borderWidth(1)
               .borderColor($r('app.color.input_border'))
-              .height(44)
+              .height($r('app.float.input_height'))
               .width("100%")
               .onSelect((index: number) => {
                 this.modelIndex = index;
@@ -190,7 +190,7 @@ export struct SettingsPage {
               .fontColor($r('app.color.text_primary'))
               .placeholderColor($r('app.color.text_secondary'))
               .backgroundColor($r('app.color.page_bg'))
-              .borderRadius(10)
+              .borderRadius($r('app.float.input_radius'))
               .borderWidth(1)
               .borderColor($r('app.color.input_border'))
               .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md') })
@@ -202,7 +202,7 @@ export struct SettingsPage {
 
             Button("保存")
               .width("100%")
-              .height(44)
+              .height($r('app.float.input_height'))
               .fontSize($r('app.float.font_button'))
               .fontColor(Color.White)
               .backgroundColor($r('app.color.primary'))

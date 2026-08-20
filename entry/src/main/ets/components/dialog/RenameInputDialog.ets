@@ -25,28 +25,34 @@ export struct RenameInputDialog {
   build() {
     Column({ space: $r('app.float.space_md') }) {
       Text(this.title)
-        .fontSize($r('app.float.font_body'))
+        .fontSize($r('app.float.font_title'))
         .fontWeight(700)
         .fontColor($r('app.color.text_primary'))
         .width("100%")
-        .textAlign(TextAlign.Start)
+        .textAlign(TextAlign.Center)
       TextInput({ placeholder: this.placeholder, text: this.inputValue })
         .defaultFocus(true)
         .fontSize($r('app.float.font_input'))
         .fontColor($r('app.color.text_primary'))
-        .backgroundColor($r('app.color.page_bg'))
-        .borderRadius(8)
+        .placeholderColor($r('app.color.text_secondary'))
+        .backgroundColor($r('app.color.input_bg'))
+        .borderRadius(20)
         .borderWidth(1)
+        .backgroundColor($r('app.color.page_bg'))
         .borderColor($r('app.color.input_border'))
-        .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
+        .padding({
+          top: $r('app.float.space_sm'),
+          bottom: $r('app.float.space_sm'),
+        })
         .width("100%")
+        .height(40)
         .onChange((value: string) => {
           this.inputValue = value;
         })
       Row() {
         Text("取消")
           .fontSize($r('app.float.font_button'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.primary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
           .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
@@ -70,8 +76,9 @@ export struct RenameInputDialog {
       }.width("100%")
     }
     .padding($r('app.float.space_lg'))
-    .width("85%")
-    .borderRadius(16)
+    .width("90%")
+    /* 弹出框按官方规范用超大圆角（32vp） */
+    .borderRadius($r('app.float.dialog_radius'))
     .backgroundColor($r('app.color.dialog_bg'));
   }
 }

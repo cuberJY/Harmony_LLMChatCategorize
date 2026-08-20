@@ -82,7 +82,8 @@ export struct FolderPickerDialog {
     /* 固定高度，超出可滚动 */
     .padding($r('app.float.space_lg'))
     .width("85%")
-    .borderRadius(16)
+    /* 弹出框按官方规范用超大圆角（32vp） */
+    .borderRadius($r('app.float.dialog_radius'))
     .backgroundColor($r('app.color.dialog_bg'));
   }
 }

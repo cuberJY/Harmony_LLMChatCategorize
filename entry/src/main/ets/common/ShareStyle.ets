@@ -23,3 +23,15 @@ export const SHARE_HINT_TEXT: string = '#999999';
 
 /** HTML 页面背景色（浅灰） */
 export const SHARE_PAGE_BG: string = '#F7F8FA';
+
+/** 行内代码文字色（品牌蓝） */
+export const SHARE_INLINE_CODE_COLOR: string = '#0A59F7';
+
+/** 行内代码背景色（浅灰） */
+export const SHARE_INLINE_CODE_BG: string = '#F0F0F0';
+
+/** 引用块文字色（灰） */
+export const SHARE_QUOTE_TEXT_COLOR: string = '#666666';
+
+/** 引用块边框色（浅灰） */
+export const SHARE_QUOTE_BORDER_COLOR: string = '#DDDDDD';

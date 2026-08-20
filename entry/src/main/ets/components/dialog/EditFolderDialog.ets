@@ -32,9 +32,9 @@ export struct EditFolderDialog {
     Column() {
       /* 色块本体 */
       Row()
-        .width(28)
-        .height(28)
-        .borderRadius(14)
+        .width(24)
+        .height(24)
+        .borderRadius(12)
         .backgroundColor(color)
     }
     .width(36)
@@ -55,52 +55,48 @@ export struct EditFolderDialog {
     Column({ space: $r('app.float.space_md') }) {
       /* 标题 */
       Text(this.title)
-        .fontSize($r('app.float.font_body'))
+        .fontSize($r('app.float.font_title'))
         .fontWeight(700)
         .fontColor($r('app.color.text_primary'))
         .width("100%")
-        .textAlign(TextAlign.Start)
+        .textAlign(TextAlign.Center)
 
+      /* 颜色选择区，8个色块横向排列 */
+      Row() {
+        ForEach(FOLDER_COLORS, (color: string) => {
+          this.colorChip(color)
+        }, (color: string) => color)
+      }
+      .padding({ top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
+      .width("100%")
+      .justifyContent(FlexAlign.Center)
+    
       /* 名称输入 */
       TextInput({ placeholder: "请输入文件夹名称", text: this.inputValue })
         .defaultFocus(true)
         .fontSize($r('app.float.font_input'))
         .fontColor($r('app.color.text_primary'))
-        .backgroundColor($r('app.color.page_bg'))
-        .borderRadius(8)
+        .placeholderColor($r('app.color.text_secondary'))
+        .backgroundColor($r('app.color.input_bg'))
+        .borderRadius(20)
         .borderWidth(1)
+        .backgroundColor($r('app.color.page_bg'))
         .borderColor($r('app.color.input_border'))
-        .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
+        .padding({
+          top: $r('app.float.space_sm'),
+          bottom: $r('app.float.space_sm'),
+        })
         .width("100%")
+        .height(40)
         .onChange((value: string) => {
           this.inputValue = value;
         })
-
-      /* 颜色选择区 */
-      Text("图标颜色")
-        .fontSize($r('app.float.font_body'))
-        .fontColor($r('app.color.text_primary'))
-        .width("100%")
-        .textAlign(TextAlign.Start)
-
-      /* 8 个色块横向排列（超出可横向滚动） */
-      Scroll() {
-        Row({ space: $r('app.float.space_xs') }) {
-          ForEach(FOLDER_COLORS, (color: string) => {
-            this.colorChip(color)
-          }, (color: string) => color)
-        }
-        .padding({ top: $r('app.float.space_xs'), bottom: $r('app.float.space_xs') })
-      }
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
-      .width("100%")
 
       /* 按钮区 */
       Row() {
         Text("取消")
           .fontSize($r('app.float.font_button'))
-          .fontColor($r('app.color.text_secondary'))
+          .fontColor($r('app.color.primary'))
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
           .padding({ top: $r('app.float.space_md'), bottom: $r('app.float.space_xs') })
@@ -124,8 +120,9 @@ export struct EditFolderDialog {
       }.width("100%")
     }
     .padding($r('app.float.space_lg'))
-    .width("85%")
-    .borderRadius(16)
+    .width("90%")
+    /* 弹出框按官方规范用超大圆角（32vp） */
+    .borderRadius($r('app.float.dialog_radius'))
     .backgroundColor($r('app.color.dialog_bg'));
   }
 }

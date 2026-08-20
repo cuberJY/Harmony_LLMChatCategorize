@@ -73,7 +73,7 @@
       "value": "#2D65F8"
     },
     {
-      "name": "input_bg",
+      "name": "chat_input_bg",
       "value": "#121212"
     },
     {
@@ -85,7 +85,7 @@
       "value": "#171717"
     },
     {
-      "name": "input_search_bg",
+      "name": "input_bg",
       "value": "#282828"
     },
     {
