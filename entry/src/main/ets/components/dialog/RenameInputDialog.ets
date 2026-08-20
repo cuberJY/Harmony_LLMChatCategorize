@@ -38,7 +38,6 @@ export struct RenameInputDialog {
         .backgroundColor($r('app.color.input_bg'))
         .borderRadius(20)
         .borderWidth(1)
-        .backgroundColor($r('app.color.page_bg'))
         .borderColor($r('app.color.input_border'))
         .padding({
           top: $r('app.float.space_sm'),
