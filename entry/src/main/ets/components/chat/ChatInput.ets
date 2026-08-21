@@ -104,6 +104,7 @@ export struct ChatInput {
 
   build() {
     Column() {
+      Column() {
       /* 1. 顶部信息行：左侧模型名称/编辑提示，右侧「取消编辑」按钮（仅编辑态显示） */
       Row() {
         Text(
@@ -320,31 +321,43 @@ export struct ChatInput {
       }
       .width("100%")
       .alignItems(VerticalAlign.Center)
-    }
-    /* 容器样式 */
-    .width("100%")
-    .padding({
-      left: $r('app.float.space_md'),
-      right: $r('app.float.space_md'),
-      top: $r('app.float.space_md'),
-      bottom: $r('app.float.space_md'),
-    })
-    .backgroundColor($r('app.color.chat_input_bg'))
-    .borderRadius(32)
-    .border({ width: 2, color: $r('app.color.divider') })
-    /**
-     * 底部 margin：收起键盘 = 导航条高度 + 16（避让手势条）；
-     * 键盘弹出 = 仅 16（导航条已被键盘遮挡，避免输入框与键盘间出现多余空隙）
-     */
-    .margin({ bottom: this.keyboardUp ? $r('app.float.space_sm') : (this.navBarHeightVp + 16) })
-    /* 容器高度变化（多行增高/键盘态）→ 上报父级，驱动 List.contentEndOffset 与 FAB 位置同步跟随 */
-    .onAreaChange((oldArea: Area, newArea: Area) => {
-      const h = Math.round(Number(newArea.height));
-      if (h !== this.lastHeight) {
-        this.lastHeight = h;
-        this.onHeightChange(h);
       }
-    })
+      /* 容器样式（圆角白底悬浮胶囊）；容器高度变化（多行增高）→ 上报父级，
+         驱动 List.contentEndOffset 与 FAB 位置同步跟随（不含下方渐变遮罩区） */
+      .width("96%")
+      .padding({
+        left: $r('app.float.space_md'),
+        right: $r('app.float.space_md'),
+        top: $r('app.float.space_md'),
+        bottom: $r('app.float.space_sm'),
+      })
+      .backgroundColor($r('app.color.chat_input_bg'))
+      .borderRadius(32)
+      .border({ width: 2, color: $r('app.color.divider') })
+      .margin({
+        left: "2%",
+        right: "2%",
+      })
+      .onAreaChange((oldArea: Area, newArea: Area) => {
+        const h = Math.round(Number(newArea.height));
+        if (h !== this.lastHeight) {
+          this.lastHeight = h;
+          this.onHeightChange(h);
+        }
+      })
+
+      /* 底部渐变遮罩（导航条避让区）：shadow_up → shadow_down，
+         气泡滑入导航条区域时被遮罩盖住/融入背景，不再显眼；
+         键盘弹出时导航条已被键盘遮挡 → 仅保留 16 间距 */
+      Column()
+        .width("100%")
+        .height(this.keyboardUp ? $r('app.float.space_sm') : (this.navBarHeightVp + 16))
+        .linearGradient({
+          angle: 180,
+          colors: [[$r('app.color.shadow_up'), 0], [$r('app.color.shadow_down'), 1]]
+        })
+    }
+    .width("100%")
   }
 
   /**

@@ -57,6 +57,14 @@
       "value": "#121212"
     },
     {
+      "name": "shadow_up",
+      "value": "#80171717"
+    },
+    {
+      "name": "shadow_down",
+      "value": "#CB171717"
+    },
+    {
       "name": "input_border",
       "value": "#3A3A3C"
     },

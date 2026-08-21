@@ -154,8 +154,8 @@ export struct ChatPage {
     .border({ width: 1, color: $r('app.color.divider') })
     .margin({
       right: $r('app.float.space_xl'),
-      /* 悬浮输入区遮挡底部：FAB 上移到 ChatInput 容器上方，避免被覆盖 */
-      bottom: this.chatInputHeightVp + 40
+      /* 悬浮输入区遮挡底部：FAB 上移到 ChatInput 容器 + 底部渐变遮罩上方，避免被覆盖 */
+      bottom: this.chatInputHeightVp + (this.keyboardUp ? 8 : (this.navBarHeightVp + 16)) + 40
     })
     .onClick(() => {
       /* 强制滚动到最底部（绕过自动跟随守卫） */
@@ -409,12 +409,6 @@ export struct ChatPage {
               }
             },
           })
-            /* 悬浮于消息列表底部：Stack 默认 BottomEnd（右下角对齐）会使 ChatInput 偏右，
-               容器宽 96% + 左右对称 margin 各 2% → 水平居中（不动 Stack/FAB） */
-            .margin({
-              left: "2%",
-              right: "2%",
-            })
         }
         .layoutWeight(1)
         .width("100%")
