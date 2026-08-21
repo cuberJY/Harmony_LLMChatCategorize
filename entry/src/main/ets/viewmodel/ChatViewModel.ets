@@ -14,12 +14,12 @@ import { common } from "@kit.AbilityKit";
 import { DatabaseHelper } from "../database/DatabaseHelper";
 import { ConversationRepository } from "../database/ConversationRepository";
 import { Conversation } from "../model/Conversation";
-import { Message } from "../model/Message";
+import { Message, ImageAttachment } from "../model/Message";
 import { StreamCallbacks } from "../service/provider/LLMProvider";
 import { StreamTask } from "../service/StreamTask";
 import { LLMProviderFactory } from "../service/LLMProviderFactory";
 import { AppConfig } from "../config/AppConfig";
-import { ThinkingEffort, DEFAULT_THINKING_EFFORT } from "../config/ModelPresets";
+import { ThinkingEffort, DEFAULT_THINKING_EFFORT, isVisionModel } from "../config/ModelPresets";
 import { showToast } from "../common/Utils";
 import { LLMError, ErrorCode, errorMessageResource } from "../service/LLMError";
 import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
@@ -88,6 +88,8 @@ export class ChatViewModel {
    * - paused：已暂停（用户点暂停键或网络异常中断）→ 显示「继续生成」按钮
    */
   @Trace streamState: "idle" | "streaming" | "paused" = "idle";
+  /* 当前模型是否支持图片输入（驱动 ChatInput 选图按钮显隐；onPageShow 与模型切换时刷新） */
+  @Trace supportsVision: boolean = false;
 
   /* 供页面 build 绑定的对象 */
 
@@ -172,6 +174,7 @@ export class ChatViewModel {
    */
   onPageShow(): void {
     this.modelName = AppConfig.getInstance().getModel();
+    this.supportsVision = isVisionModel(AppConfig.getInstance().getModel());
     this.syncTitleFromDb();
     this.verifyCurrentConversation();
   }
@@ -420,8 +423,9 @@ export class ChatViewModel {
    * （ChatInput 切换时已通过 updateSearchOptions 同步到本 VM，唯一真源）
    *
    * @param text 用户输入文本
+   * @param images 图片附件列表（仅视觉模型支持；默认空）
    */
-  async handleUserSend(text: string): Promise<void> {
+  async handleUserSend(text: string, images: ImageAttachment[] = []): Promise<void> {
     /* 等待数据库初始化完成，确保首条消息正常入库 */
     await this.dbInitPromise;
     if (this.isDestroyed) return; // 页面已销毁，中止本次发送
@@ -431,6 +435,12 @@ export class ChatViewModel {
     /* 连发限制按"对话"粒度判断（放在 await 之后，避免快速连点两次双双通过检查） */
     if (this.isStreamingFor(sendConvId)) {
       showToast($r("app.string.streaming_busy"));
+      return;
+    }
+
+    /* 图片消息仅视觉模型支持：当前模型非视觉模型时拦截（编辑保留原图路径由 editUserMessage 二次校验） */
+    if (images.length > 0 && !isVisionModel(AppConfig.getInstance().getModel())) {
+      showToast($r("app.string.vision_required"));
       return;
     }
 
@@ -444,7 +454,7 @@ export class ChatViewModel {
 
     /* 1. 创建用户消息（parent = 激活链尾，根消息为空串） */
     const tail = this.messageDataSource.getData(this.messageDataSource.totalCount() - 1);
-    const userMsg = this.addMessage("user", text, tail !== undefined ? tail.id : "");
+    const userMsg = this.addMessage("user", text, tail !== undefined ? tail.id : "", images);
     this.scrollToBottom();
 
     /* 2. 创建 AI 占位消息（parent = 刚发送的用户消息），保留引用用于流式填充 */
@@ -1086,9 +1096,11 @@ export class ChatViewModel {
    * @param role 消息角色
    * @param content 消息正文
    * @param parentId 父消息 id（分支链锚点；根用户消息传 ""）
+   * @param images 图片附件列表（仅用户消息有值；默认空）
    */
-  private addMessage(role: "user" | "assistant", content: string, parentId: string): Message {
+  private addMessage(role: "user" | "assistant", content: string, parentId: string, images: ImageAttachment[] = []): Message {
     const msg = new Message(this.currentConversationId, role, content);
+    msg.images = images;
     /**
      * 修复(partial 占位)：AI 占位消息必须以 partial 状态入库——若进程在首个 2.5s 节流落库前被杀，
      * DB 里 complete 的空消息无法被恢复逻辑识别为「可继续生成」
@@ -1119,8 +1131,11 @@ export class ChatViewModel {
         this.isFirstUserMsg = false;
         /* 记录待生成标题的对话：首轮 AI 回复完成后（onComplete）触发标题生成并清空 */
         this.pendingTitleConvId = this.currentConversationId;
+        /* 标题占位：正文优先（截断）；纯图片消息用「图片」占位，避免空标题 */
         this.currentConversation.title =
-          content.length > MAX_TITLE_LENGTH ? content.substring(0, MAX_TITLE_LENGTH) + "..." : content;
+          content.length > 0
+            ? (content.length > MAX_TITLE_LENGTH ? content.substring(0, MAX_TITLE_LENGTH) + "..." : content)
+            : (images.length > 0 ? "[图片]" : "");
         this.currentConversation.updatedAt = msg.createdAt;
         ConversationRepository.getInstance().insert(this.currentConversation);
       }
@@ -1133,8 +1148,9 @@ export class ChatViewModel {
    * 创建消息并持久化但不入列（分支变体创建场景）
    * 与 addMessage 的唯一区别：不入激活列表，由后续 rebuildActiveChain 统一重建入列
    */
-  private createAndPersist(role: "user" | "assistant", content: string, parentId: string): Message {
+  private createAndPersist(role: "user" | "assistant", content: string, parentId: string, images: ImageAttachment[] = []): Message {
     const msg = new Message(this.currentConversationId, role, content);
+    msg.images = images;
     /* 修复(partial 占位)：AI 占位消息以 partial 状态入库，避免空内容被误判为已完成的完整回复 */
     if (role === "assistant") {
       msg.generationStatus = "partial";
@@ -1225,12 +1241,17 @@ export class ChatViewModel {
     const sendConvId = this.currentConversationId;
     const target = this.branchManager.getById(editTargetId);
     if (target === undefined || !target.isUser()) return; // 目标必须是用户消息
+    /* 编辑保留原图：被编辑消息带图且当前模型非视觉模型时拦截（正常发图路径已在 handleUserSend 校验） */
+    if (target.images.length > 0 && !isVisionModel(AppConfig.getInstance().getModel())) {
+      showToast($r("app.string.vision_required"));
+      return;
+    }
     if (this.isStreamingFor(sendConvId)) {
       showToast($r("app.string.streaming_busy"));
       return;
     }
-    /* 1. 创建新用户消息变体（同父、同分支组、序号 +1） */
-    const newUserMsg = this.createAndPersist("user", newText, target.parentId);
+    /* 1. 创建新用户消息变体（同父、同分支组、序号 +1；编辑保留原图、仅可改文本） */
+    const newUserMsg = this.createAndPersist("user", newText, target.parentId, target.images);
     /* 1.1 编辑的是首轮提问 → 对话主题可能改变：
      *     - 标题仍是占位（未被侧边栏手动重命名/AI 正式标题覆盖）时，同步为新的提问截断占位
      *     - 重置待生成标记，让新首轮回复完成时重新生成正式标题（正式/手动标题由生成流程的占位校验保护） */
@@ -1241,8 +1262,11 @@ export class ChatViewModel {
     if (chainFirst !== undefined && chainFirst.id === target.id) {
       const freshConv = await ConversationRepository.getInstance().getById(sendConvId);
       if (freshConv !== undefined && freshConv.title === this.currentConversation.title) {
+        /* 标题占位：正文优先（截断）；纯图片消息用「图片」占位，避免空标题 */
         this.currentConversation.title =
-          newText.length > MAX_TITLE_LENGTH ? newText.substring(0, MAX_TITLE_LENGTH) + "..." : newText;
+          newText.length > 0
+            ? (newText.length > MAX_TITLE_LENGTH ? newText.substring(0, MAX_TITLE_LENGTH) + "..." : newText)
+            : (target.images.length > 0 ? "[图片]" : "");
         ConversationRepository.getInstance().update(this.currentConversation);
       }
       this.pendingTitleConvId = sendConvId; // 重置待生成标记

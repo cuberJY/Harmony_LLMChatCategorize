@@ -89,7 +89,7 @@ ChatCategorize/
 
 ### 2. LLM Provider — Factory Pattern
 - `LLMProvider` abstract interface + `DeepSeekProvider` implementation (Responses API, SSE streaming); the factory dispatches by providerId, and adding a provider only needs a preset
-- Requests carry `reasoning.effort` (thinking strength) and `tools.web_search`; unified error model; `response.incomplete` enters the resumable state
+- Requests carry `reasoning.effort` (thinking strength) and `tools.web_search`; vision models support image input (`input_image` content blocks, Base64 inline); unified error model; `response.incomplete` enters the resumable state
 
 ### 3. Web Search
 - Executed by the DeepSeek server; search terms and browsed pages are written into the thinking sequence in real time, browsed pages are persisted structurally, and the "x pages" sheet opens the system browser
@@ -129,7 +129,7 @@ ChatCategorize/
 
 | Model           | Description                                                        |
 | --------------- | ------------------------------------------------------------------ |
-| `Message`       | A single message (@Observed), with thinking / search / generation state and branch fields |
+| `Message`       | A single message (@Observed), with thinking / search / generation state, image attachments and branch fields |
 | `Conversation`  | A conversation, optionally owned by a folder                        |
 | `Category`      | Folder/category (@Observed), multi-level nesting + icon color       |
 

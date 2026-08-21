@@ -89,7 +89,7 @@ ChatCategorize/
 
 ### 2. LLM Provider — 工厂模式
 - `LLMProvider` 抽象接口 + `DeepSeekProvider` 实现（Responses API，SSE 流式）；工厂按 providerId 分发，新增供应商只需追加预设
-- 请求携带 `reasoning.effort`（思考强度）与 `tools.web_search`（联网搜索）；统一错误模型，`response.incomplete` 进入可续写态
+- 请求携带 `reasoning.effort`（思考强度）与 `tools.web_search`（联网搜索）；视觉模型支持图片输入（`input_image` 内容块，Base64 内联）；统一错误模型，`response.incomplete` 进入可续写态
 
 ### 3. 联网搜索
 - 由 DeepSeek 服务端执行；搜索词与浏览记录实时写入思考序列，浏览记录结构化持久化，「x 个网页」面板可调系统浏览器

@@ -3,7 +3,7 @@
  * - 用户消息：右对齐，浅蓝背景
  * - AI 消息：左对齐，白色背景
  */
-import { Message } from "../../model/Message";
+import { Message, ImageAttachment } from "../../model/Message";
 import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../common/AppConstants";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.AbilityKit';
@@ -125,6 +125,8 @@ export struct MessageBubble {
    */
   @Event onOpenSheet: (msg: Message, kind: "text" | "web") => void = () => {};
   @Event onShare: (msg: Message) => void = () => {}; // 「更多」菜单-分享
+  /* 图片全屏预览（页面级统一管理）：点击用户消息图片缩略图时上报消息与下标，ChatPage 弹出预览层 */
+  @Event onImagePreview: (msg: Message, index: number) => void = () => {};
 
   /* 非响应式成员（普通成员即可，无需观察） */
   private mdController: MarkdownController = new MarkdownController(); // lv-markdown-in 样式/拦截控制器
@@ -601,11 +603,21 @@ export struct MessageBubble {
 
   @Builder
   bubbleContent(fontColor: ResourceColor, bgColor: ResourceColor) {
-    /* 用户消息：保持纯文本渲染（气泡宽度自适应） */
+    /* 用户消息：图片网格 + 正文（气泡宽度自适应；图片位于上方，正文保留纯文本渲染） */
     if (this.message.isUser()) {
-      Text(this.message.content)
-        .fontSize($r('app.float.font_body'))
-        .fontColor(fontColor)
+      /* 图片附件：多图自动换行缩略图，点击全屏预览 */
+      if (this.message.images.length > 0) {
+        this.userImagesGrid()
+      }
+      /* 有正文才渲染文本（纯图片消息不显示空文本占位；图片在上方时正文加顶距） */
+      if (this.message.content.length > 0) {
+        Text(this.message.content)
+          .fontSize($r('app.float.font_body'))
+          .fontColor(fontColor)
+          .copyOption(CopyOptions.LocalDevice)
+          .margin({
+            top: this.message.images.length > 0 ? $r('app.float.space_sm') : 0,
+          })
         .padding({
           left: $r('app.float.bubble_padding_h'),
           right: $r('app.float.bubble_padding_h'),
@@ -615,9 +627,9 @@ export struct MessageBubble {
         .borderRadius($r('app.float.bubble_radius'))
         .backgroundColor(bgColor)
         .constraintSize({
-          maxWidth: `${(this.message.isUser() ? BUBBLE_MAX_WIDTH_RATIO_USER : BUBBLE_MAX_WIDTH_RATIO_AI) * 100}%`,
+          maxWidth: `${BUBBLE_MAX_WIDTH_RATIO_USER * 100}%`,
         })
-        .copyOption(CopyOptions.LocalDevice)
+      }
     } else if (this.message.content.length > 0) {
       /** 
        * AI 消息（lv-markdown-in 原生渲染）：
@@ -659,6 +671,37 @@ export struct MessageBubble {
       }
       /* 若 reasoning 非空（有推理内容），推理块标题本身会显示"思考中…"，这里留空避免重复 */
     }
+  }
+
+  /**
+   * 用户消息图片网格（最多 9 张）：
+   * Flex 自动换行 + 固定尺寸正方形缩略图（Base64 data URL 渲染），点击上报全屏预览
+   */
+  @Builder
+  userImagesGrid() {
+    Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
+      ForEach(
+        this.message.images,
+        (img: ImageAttachment, idx: number) => {
+          Image('data:' + img.mimeType + ';base64,' + img.data)
+            .width(72)
+            .height(72)
+            .borderRadius($r('app.float.bubble_radius'))
+            .objectFit(ImageFit.Cover)
+            .backgroundColor($r('app.color.divider'))
+            .alignSelf(ItemAlign.End)
+            .margin({
+              left: $r('app.float.space_xs'),
+              bottom: $r('app.float.space_xxs')
+            })
+            .onClick(() => {
+              this.onImagePreview(this.message, idx);
+            })
+        },
+        (img: ImageAttachment) => img.id,
+      )
+    }
+    .width('100%')
   }
 
   @Builder

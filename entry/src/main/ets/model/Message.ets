@@ -4,6 +4,20 @@ import { LLMError } from "../service/LLMError";
 /* 消息角色类型 */
 export type MessageRole = "user" | "assistant" | "system";
 
+/**
+ * 用户消息携带的图片附件（视觉模型理解）
+ * @param id      附件唯一标识（生成 id，用于列表 key / 删除定位）
+ * @param mimeType MIME 类型（image/jpeg | image/png | image/webp | image/gif；判断缩略图/原图展示）
+ * @param data    图片数据（Base64 编码，data URL 形式供 Image 组件直接渲染）
+ * @param name    文件名（拍照时系统生成的临时文件名，展示用）
+ */
+export interface ImageAttachment {
+  id: string;
+  mimeType: string;
+  data: string;
+  name: string;
+}
+
 /* 思考过程中浏览过的网页（服务端 web_search 的 open_page 动作；结构化记录供「xx个网页」面板展示） */
 export interface WebPage {
   url: string; // 网页完整 URL（点击可打开）
@@ -34,6 +48,7 @@ export class Message {
   @Trace conversationId: string = ""; // 所属对话 ID（外键）
   @Trace role: MessageRole = "user"; // 消息角色：用户 or AI
   @Trace content: string = ""; // 消息正文（AI 消息可能包含 Markdown）
+  @Trace images: ImageAttachment[] = []; // 图片附件列表（仅用户消息有值；@Trace 驱动气泡缩略图渲染）
   @Trace reasoning: string = ""; // AI 思考内容（仅 assistant 有值）
   @Trace searchedWebs: WebPage[] = []; // 思考过程中浏览过的网页（open_page 动作；@Trace 驱动「xx个网页」按钮数量实时刷新）
   @Trace generationStatus: "complete" | "partial" = "complete"; // 生成状态（持久化）：complete 完整 / partial 未完成

@@ -137,8 +137,8 @@
       "value": "32vp"
     },
     {
-      "name": "input_radius",
-      "value": "12vp"
+      "name": "setting_select_radius",
+      "value": "16vp"
     },
     {
       "name": "input_height",

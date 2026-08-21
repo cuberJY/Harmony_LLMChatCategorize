@@ -9,7 +9,7 @@ import buffer from "@ohos.buffer";
 import { http } from "@kit.NetworkKit";
 import { Message } from "../../model/Message";
 import { AppConfig } from "../../config/AppConfig";
-import { ThinkingEffort } from "../../config/ModelPresets";
+import { ThinkingEffort, isVisionModel } from "../../config/ModelPresets";
 import { AbortHandle, LLMProvider, StreamCallbacks } from "./LLMProvider";
 import { LLMError, ErrorCode, buildError } from "../LLMError";
 
@@ -22,10 +22,22 @@ const PROVIDER_NAME = "deepseek";
  */
 const STREAM_IDLE_TIMEOUT_MS: number = 90 * 1000;
 
+/* 消息正文内容块（Responses API：图片仅支持 input_image 块，且只能出现在 user 消息） */
+interface ApiInputTextBlock {
+  type: "input_text"; // 文本块
+  text: string;
+}
+interface ApiInputImageBlock {
+  type: "input_image"; // 图片块（Base64 data URL 或外部 http(s) URL）
+  image_url: string;
+  detail?: string; // low / high / original / auto（不传默认 auto ≈ original）
+}
+type ApiContentBlock = ApiInputTextBlock | ApiInputImageBlock;
+
 /* API 请求中的消息格式（Responses API 的 input item：message 类型） */
 interface ApiMessage {
   role: string;
-  content: string;
+  content: string | ApiContentBlock[];
 }
 
 /* 工具（服务端 web_search） */
@@ -261,6 +273,37 @@ export class DeepSeekProvider implements LLMProvider {
   }
 
   /**
+   * 构造单条消息的 Responses API content（字符串或内容块数组）
+   * 带图 user 消息 → 内容块数组：[图片块...(按发送顺序) + 文本块]；
+   * 无图消息（含全部 assistant / system 消息）→ 保持纯字符串（兼容旧行为）。
+   * 注意：图片仅支持出现在 user 消息（system/assistant 带图返回 400），非 user 消息的图片被忽略
+   * @param msg 消息对象
+   * @returns content 字段值
+   */
+  private buildApiContent(msg: Message): string | ApiContentBlock[] {
+    if (msg.images.length === 0) {
+      return msg.content;
+    }
+    const blocks: ApiContentBlock[] = [];
+    if (msg.role === "user") {
+      for (const img of msg.images) {
+        /* data URL 内联图片：格式由 data: 前缀中的 MIME 决定（服务端按内容判断，非文件名） */
+        blocks.push({
+          type: "input_image",
+          image_url: `data:${img.mimeType};base64,${img.data}`,
+          detail: "auto", // 自动选择细节级别（当前等价 original）
+        });
+      }
+    }
+    /* 文本块：正文非空才追加（纯发图无文字时不带空文本块，避免冗余）；
+       若无任何图片块（非 user 消息）则必须补文本块，保证 content 非空 */
+    if (msg.content.length > 0 || blocks.length === 0) {
+      blocks.push({ type: "input_text", text: msg.content });
+    }
+    return blocks;
+  }
+
+  /**
    * 发送流式对话请求（Responses API）
    * @param messages 历史消息列表（包含用户和 AI 的完整对话）
    * @param callbacks 流式回调（含服务端搜索状态回调与网络中断回调）
@@ -280,6 +323,17 @@ export class DeepSeekProvider implements LLMProvider {
       callbacks.onError(buildError(
         ErrorCode.CFG_NOT_CONFIGURED, "API key not configured", undefined, PROVIDER_NAME));
       /* 请求从未真正发起，返回空操作的中止句柄（幂等安全） */
+      return new StreamAbortHandle((): void => {});
+    }
+    /**
+     * 视觉模型兜底：请求包含图片但当前模型不支持视觉（如 deepseek-v4-flash）时直接拦截。
+     * 正常路径下 VM 已在发图前校验拦截，此处为防御性兜底（历史图片消息重新生成等场景）
+     */
+    const hasImages: boolean = messages.some((msg: Message) => msg.images.length > 0);
+    if (hasImages && !isVisionModel(AppConfig.getInstance().getModel())) {
+      callbacks.onError(buildError(
+        ErrorCode.REQ_INVALID, "current model does not support image, please switch to vision model",
+        undefined, PROVIDER_NAME));
       return new StreamAbortHandle((): void => {});
     }
     const preset = AppConfig.getInstance().getPreset();
@@ -523,7 +577,7 @@ export class DeepSeekProvider implements LLMProvider {
 
     /* 3. 构造请求体（Responses API 格式） */
     const apiMessages: ApiMessage[] = messages.map((msg: Message): ApiMessage => {
-      return { role: msg.role, content: msg.content };
+      return { role: msg.role, content: this.buildApiContent(msg) };
     });
 
     const requestBodyObj: ResponsesRequestBody = {

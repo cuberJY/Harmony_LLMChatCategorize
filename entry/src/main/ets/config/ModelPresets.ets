@@ -63,6 +63,8 @@ export function thinkingLevelLabel(effort: string): string {
  * @param apiStyle        API 风格："responses"（Responses API）| "chat"（Chat Completions，预留）
  * @param supportsWebSearch 是否支持服务端联网搜索（web_search 工具）
  * @param supportsReasoning 是否支持思考模式（reasoning.effort）
+ * @param supportsVision 是否提供视觉模型（图片理解；visionModels 为空则视为不支持）
+ * @param visionModels 该供应商支持视觉（图片理解）的模型名列表（判断发图能力用）
  */
 export interface ModelPreset {
   id: string;
@@ -73,6 +75,8 @@ export interface ModelPreset {
   apiStyle: string;
   supportsWebSearch: boolean;
   supportsReasoning: boolean;
+  supportsVision: boolean;
+  visionModels: string[];
 }
 
 /* 当前支持的供应商列表（未来多模型在此追加） */
@@ -81,11 +85,13 @@ export const MODEL_PRESETS: ModelPreset[] = [
     id: "deepseek",
     providerName: "DeepSeek",
     defaultModel: "deepseek-v4-flash",
-    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
+    models: ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp"],
     endpoint: "https://api.deepseek.com/responses",
     apiStyle: "responses",
     supportsWebSearch: true,
     supportsReasoning: true,
+    supportsVision: true,
+    visionModels: ["deepseek-v4-flash-vision-exp"],
   },
 ];
 
@@ -100,4 +106,19 @@ export const DEFAULT_PROVIDER_ID: string = "deepseek";
 export function getModelPreset(providerId: string): ModelPreset {
   const preset = MODEL_PRESETS.find((p: ModelPreset) => p.id === providerId);
   return preset !== undefined ? preset : MODEL_PRESETS[0];
+}
+
+/**
+ * 判断指定模型名是否支持视觉（图片理解）
+ * 匹配全部预设的 visionModels 列表（模型名全局唯一，无需区分供应商）
+ * @param modelName 模型名（AppConfig.getModel() 返回值）
+ * @returns true = 支持视觉，可发送图片
+ */
+export function isVisionModel(modelName: string): boolean {
+  for (const preset of MODEL_PRESETS) {
+    if (preset.visionModels.indexOf(modelName) >= 0) {
+      return true;
+    }
+  }
+  return false;
 }

@@ -4,7 +4,7 @@
  */
 
 import { relationalStore } from "@kit.ArkData";
-import { Message, WebPage, ContentSnippet } from "../model/Message";
+import { Message, WebPage, ContentSnippet, ImageAttachment } from "../model/Message";
 import { DatabaseHelper } from "./DatabaseHelper";
 import { Logger } from "../common/Logger";
 import { errorToJson, jsonToError } from "../service/LLMError";
@@ -35,6 +35,7 @@ export class MessageDao {
         conversation_id: msg.conversationId,
         role: msg.role,
         content: msg.content,
+        images: JSON.stringify(msg.images),
         reasoning: msg.reasoning,
         searched_webs: JSON.stringify(msg.searchedWebs),
         generation_status: msg.generationStatus,
@@ -60,6 +61,7 @@ export class MessageDao {
     try {
       const values: relationalStore.ValuesBucket = {
         content: msg.content,
+        images: JSON.stringify(msg.images),
         reasoning: msg.reasoning,
         searched_webs: JSON.stringify(msg.searchedWebs),
         generation_status: msg.generationStatus,
@@ -276,6 +278,15 @@ export class MessageDao {
       msg.conversationId = rs.getString(rs.getColumnIndex("conversation_id"));
       msg.role = rs.getString(rs.getColumnIndex("role")) as "user" | "assistant" | "system";
       msg.content = rs.getString(rs.getColumnIndex("content"));
+      /* 图片附件（旧库迁移前可能缺失，读取失败则保持空列表） */
+      try {
+        const rawImages = rs.getString(rs.getColumnIndex("images"));
+        if (rawImages.length > 0) {
+          msg.images = JSON.parse(rawImages) as ImageAttachment[];
+        }
+      } catch (e) {
+        /* 旧库无该列或 JSON 非法：保持空列表 */
+      }
       msg.reasoning = rs.getString(rs.getColumnIndex("reasoning"));
       /* 思考过程中浏览过的网页（旧库迁移前可能缺失，读取失败则保持空列表） */
       try {
