@@ -3,7 +3,7 @@
  * - 用户消息：右对齐，浅蓝背景
  * - AI 消息：左对齐，白色背景
  */
-import { Message, ImageAttachment } from "../../model/Message";
+import { Message, ImageAttachment, FileAttachment } from "../../model/Message";
 import { BUBBLE_MAX_WIDTH_RATIO_USER, BUBBLE_MAX_WIDTH_RATIO_AI } from "../../common/AppConstants";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.AbilityKit';
@@ -11,6 +11,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { SymbolGlyphModifier } from '@kit.ArkUI';
 import { showDeleteConfirm, showToast, stripMarkdown } from "../../common/Utils";
 import { MessageErrorCard } from "./MessageErrorCard";
+import { FileCard } from "./FileCard";
 
 /**
  * 思考过程块（渲染用）：
@@ -603,20 +604,24 @@ export struct MessageBubble {
 
   @Builder
   bubbleContent(fontColor: ResourceColor, bgColor: ResourceColor) {
-    /* 用户消息：图片网格 + 正文（气泡宽度自适应；图片位于上方，正文保留纯文本渲染） */
+    /* 用户消息：图片/文件卡片 + 正文（气泡宽度自适应；卡片位于上方，正文保留纯文本渲染） */
     if (this.message.isUser()) {
       /* 图片附件：多图自动换行缩略图，点击全屏预览 */
       if (this.message.images.length > 0) {
         this.userImagesGrid()
       }
-      /* 有正文才渲染文本（纯图片消息不显示空文本占位；图片在上方时正文加顶距） */
+      /* 文件附件：与图片同位置右对齐卡片（样式与输入框预览条一致，点击暂无动作） */
+      if (this.message.files.length > 0) {
+        this.userFilesGrid()
+      }
+      /* 有正文才渲染文本（纯图片/纯文件消息不显示空文本占位；附件在上方时正文加顶距） */
       if (this.message.content.length > 0) {
         Text(this.message.content)
           .fontSize($r('app.float.font_body'))
           .fontColor(fontColor)
           .copyOption(CopyOptions.LocalDevice)
           .margin({
-            top: this.message.images.length > 0 ? $r('app.float.space_sm') : 0,
+            top: (this.message.images.length > 0 || this.message.files.length > 0) ? $r('app.float.space_xs') : 0,
           })
         .padding({
           left: $r('app.float.bubble_padding_h'),
@@ -695,13 +700,35 @@ export struct MessageBubble {
             .alignSelf(ItemAlign.End)
             .margin({
               left: $r('app.float.space_xs'),
-              bottom: $r('app.float.space_xxs')
+              top: $r('app.float.space_xs')
             })
             .onClick(() => {
               this.onImagePreview(this.message, idx);
             })
         },
         (img: ImageAttachment) => img.id,
+      )
+    }
+    .width('100%')
+  }
+
+  /**
+   * 用户消息文件卡片（右对齐，与图片网格同位置）：
+   * 复用 FileCard 组件，样式与输入框预览条一致（图标 | 文件名+后缀 / 大小）
+   */
+  @Builder
+  userFilesGrid() {
+    Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.End }) {
+      ForEach(
+        this.message.files,
+        (file: FileAttachment) => {
+          FileCard({ file: file, showRemove: false })
+            .margin({
+              left: $r('app.float.space_xs'),
+              top: $r('app.float.space_xs')
+            })
+        },
+        (file: FileAttachment) => file.id,
       )
     }
     .width('100%')

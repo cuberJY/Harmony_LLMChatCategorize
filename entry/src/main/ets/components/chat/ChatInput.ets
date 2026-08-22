@@ -25,9 +25,11 @@ import { LengthMetrics } from "@kit.ArkUI";
 import { inputMethod } from "@kit.IMEKit";
 import { common } from "@kit.AbilityKit";
 import { ThinkingEffort, ThinkingLevel, THINKING_LEVELS, thinkingLevelLabel, DEFAULT_THINKING_EFFORT } from "../../config/ModelPresets";
-import { ImageAttachment } from "../../model/Message";
+import { ImageAttachment, FileAttachment } from "../../model/Message";
 import { ImageUtil } from "../../service/ImageUtil";
+import { FileParser } from "../../service/FileParser";
 import { showToast } from "../../common/Utils";
+import { FileCard } from "./FileCard";
 
 /** 单条消息图片附件上限 */
 const MAX_IMAGES: number = 9;
@@ -37,6 +39,8 @@ export struct ChatInput {
   @Local inputText: string = "";
   /* 发送前已选图片附件（预览展示；发送成功后清空） */
   @Local images: ImageAttachment[] = [];
+  /* 发送前已选文件附件（预览展示；发送成功后清空。单文件：再次选择即替换） */
+  @Local files: FileAttachment[] = [];
   /* 输入框行高与行间距（用于精确计算最大高度） */
   private inputLineHeight: number = 22; // 行高，需 >= 输入字号（15fp）
   private inputLineSpacing: number = 0; // 行间距
@@ -53,7 +57,7 @@ export struct ChatInput {
 
   /* 发送/暂停按钮是否可用：生成中恒可用（暂停键）；否则输入框有内容才可点（发送键） */
   private isSendButtonEnabled(): boolean {
-    return this.streamState === "streaming" || this.inputText.trim().length > 0 || this.images.length > 0;
+    return this.streamState === "streaming" || this.inputText.trim().length > 0 || this.images.length > 0 || this.files.length > 0;
   }
 
   /* 模型名称（由父组件传入） */
@@ -62,6 +66,8 @@ export struct ChatInput {
   @Param prefillText: string = "";
   /* 编辑态预填图片（点击用户消息「编辑」后回填到预览条，编辑时可增删改；与 prefillText 联动回填） */
   @Param prefillImages: ImageAttachment[] = [];
+  /* 编辑态预填文件（点击用户消息「编辑」后回填到预览条；与 prefillText/prefillImages 联动回填） */
+  @Param prefillFiles: FileAttachment[] = [];
   /* 是否处于编辑态（编辑消息中，显示提示文案） */
   @Param isEditing: boolean = false;
   /* 思考强度（由 ViewModel 传入，唯一真源；none 关闭 / low 轻量 / high 深度 / max 极限） */
@@ -83,13 +89,14 @@ export struct ChatInput {
   /* 当前模型是否支持图片输入（由 ViewModel 传入）：false 时隐藏选图按钮，不能发图 */
   @Param supportsVision: boolean = false;
 
-  /* 监听 prefillText / prefillImages 变化：回填内容到输入框（@Monitor 是 V2 监听 @Param 变化的机制）。
-     两个都监听：纯图片消息 content 为空（prefillText 不变）时，靠 prefillImages 变化仍能触发回填 */
-  @Monitor('prefillText', 'prefillImages')
+  /* 监听 prefillText / prefillImages / prefillFiles 变化：回填内容到输入框（@Monitor 是 V2 监听 @Param 变化的机制）。
+     三个都监听：纯图片/纯文件消息 content 为空（prefillText 不变）时，靠 prefillImages / prefillFiles 变化仍能触发回填 */
+  @Monitor('prefillText', 'prefillImages', 'prefillFiles')
   onPrefillChanged(): void {
-    if (this.prefillText.length > 0 || this.prefillImages.length > 0) {
+    if (this.prefillText.length > 0 || this.prefillImages.length > 0 || this.prefillFiles.length > 0) {
       this.inputText = this.prefillText;
       this.images = this.prefillImages; // 编辑态回填原图（编辑时可增删改）
+      this.files = this.prefillFiles; // 编辑态回填原文件（编辑时可增删改）
       /* 编辑回填后自动弹出输入法：先清焦点再请求焦点（确保已聚焦时也能重新弹起键盘） */
       const focus = this.getUIContext().getFocusController();
       focus.clearFocus();
@@ -97,9 +104,10 @@ export struct ChatInput {
         focus.requestFocus('chat_input');
       }, 0);
     } else {
-      /* 编辑态取消/新建对话（prefillText/prefillImages 被清空）→ 同步清空输入框与图片 */
+      /* 编辑态取消/新建对话（prefill 被清空）→ 同步清空输入框与图片文件 */
       this.inputText = "";
       this.images = [];
+      this.files = [];
     }
   }
 
@@ -107,8 +115,8 @@ export struct ChatInput {
   @Event onWebSearchChange: (webSearch: boolean) => void = (webSearch: boolean) => {};
   /* 思考强度档位选择回调（@Event：底部面板点选时上报新档位，由父级更新 VM 唯一真源） */
   @Event onThinkingChange: (effort: ThinkingEffort) => void = (effort: ThinkingEffort) => {};
-  /* 发送回调（@Event：上报文本与本次选图；开关状态由父级 VM 读取） */
-  @Event onChange: (text: string, images: ImageAttachment[]) => void = (text: string, images: ImageAttachment[]) => {};
+  /* 发送回调（@Event：上报文本、本次选图与本次文件；开关状态由父级 VM 读取） */
+  @Event onChange: (text: string, images: ImageAttachment[], files: FileAttachment[]) => void = (text: string, images: ImageAttachment[], files: FileAttachment[]) => {};
   /* 暂停生成回调（生成中点击暂停键时触发，由 VM 中止流式请求） */
   @Event onPause: () => void = () => {};
   /* 取消编辑回调（编辑态点击顶部右侧 xmark 时触发，由 VM 退出编辑态并清空输入框） */
@@ -152,14 +160,40 @@ export struct ChatInput {
     this.images = this.images.filter((img: ImageAttachment) => img.id !== id);
   }
 
+  /**
+   * 选择单个文件并解析为附件（系统文档选择器 DocumentViewPicker，免权限）
+   * 单文件：再次选择直接替换已有文件；pdf 需视觉模型（选择即校验，避免白选）
+   */
+  private async pickFiles(): Promise<void> {
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    try {
+      const file = await FileParser.getInstance().pickAndParse(context);
+      if (file !== null) {
+        /* pdf 页面图走视觉通道：非视觉模型下直接拦截（txt/md 走文本通道，所有模型可用） */
+        if (file.pageImages.length > 0 && !this.supportsVision) {
+          showToast($r("app.string.vision_required"));
+          return;
+        }
+        this.files = [file]; // 单文件：新选替换旧文件
+      }
+    } catch (e) {
+      showToast($r('app.string.file_parse_failed', (e as Error).message));
+    }
+  }
+
+  /* 删除已选文件（预览条右上角 x） */
+  private removeFile(id: string): void {
+    this.files = this.files.filter((f: FileAttachment) => f.id !== id);
+  }
+
   build() {
     Column() {
       /* 中间包裹层：图片预览条 + 输入区悬浮胶囊。
          onAreaChange 挂在本层上报总高（预览条 + 胶囊），父级据此计算 List "到底"判定位置，
          避免图片预览条展开时遮挡最后一条消息 */
       Column() {
-        /* 图片预览条（已选图片横向缩略图 + 右上角删除；发送成功后清空隐藏） */
-        if (this.images.length > 0) {
+        /* 附件预览条（已选图片/文件横向展示 + 右上角删除；发送成功后清空隐藏） */
+        if (this.images.length > 0 || this.files.length > 0) {
           Scroll() {
             Row({ space: 8 }) {
               ForEach(
@@ -168,9 +202,9 @@ export struct ChatInput {
                   Stack({ alignContent: Alignment.TopEnd }) {
                     /* 缩略图：Base64 data URL 直接渲染（Image 组件原生支持） */
                     Image('data:' + img.mimeType + ';base64,' + img.data)
-                      .width(60)
-                      .height(60)
-                      .borderRadius(10)
+                      .width(64)
+                      .height(64)
+                      .borderRadius($r('app.float.bubble_radius'))
                       .objectFit(ImageFit.Cover)
                       .backgroundColor($r('app.color.divider'))
                     /* 右上角删除按钮：深色半透明圆底 + 白色 x，点击删除该图 */
@@ -184,13 +218,27 @@ export struct ChatInput {
                     .height(18)
                     .type(ButtonType.Circle)
                     .backgroundColor('#CC000000')
-                    .margin({ top: 2, right: 2 })
+                    .margin({ top: $r('app.float.space_xxs'), right: $r('app.float.space_xxs') })
                     .onClick(() => {
                       this.removeImage(img.id);
                     })
                   }
                 },
                 (img: ImageAttachment) => img.id,
+              )
+              /* 文件卡片：与图片同位置混排，右侧同样带删除按钮（样式见 FileCard） */
+              ForEach(
+                this.files,
+                (file: FileAttachment) => {
+                  FileCard({
+                    file: file,
+                    showRemove: true,
+                    onRemove: () => {
+                      this.removeFile(file.id);
+                    },
+                  })
+                },
+                (file: FileAttachment) => file.id,
               )
             }
             .alignItems(VerticalAlign.Top)
@@ -204,7 +252,7 @@ export struct ChatInput {
           .margin({
             left: $r('app.float.space_md'),
             right: $r('app.float.space_md'),
-            bottom: $r('app.float.space_xxs'),
+            bottom: $r('app.float.space_xs'),
           })
         }
         Column() {
@@ -388,22 +436,21 @@ export struct ChatInput {
           }
           .layoutWeight(1) // 占据左侧空间，把发送按钮推到最右
 
-          /* 右侧：选图按钮（仅视觉模型显示；普通态与编辑态均可点击，弹出相册/拍照菜单） */
-          if (this.supportsVision) {
-            Button() {
-              SymbolGlyph($r("sys.symbol.plus"))
-                .fontSize($r('app.float.font_icon_lg'))
-                .fontWeight(800)
-                .fontColor([$r('app.color.operation_icon')])
-            }
-            .width(30)
-            .height(30)
-            .type(ButtonType.Circle)
-            .backgroundColor($r('app.color.chat_input_bg')) // 背景与输入区一致
-            .border({ width: 2, color: $r('app.color.operation_icon') })
-            .margin({ right: $r('app.float.space_sm') })
-            .bindMenu(this.imageMenuBuilder())
+          /* 右侧：添加附件按钮（所有模型显示；视觉模型菜单含 相册/拍照/文件，非视觉模型仅 文件）。
+             普通态与编辑态均可点击，弹出附件来源菜单 */
+          Button() {
+            SymbolGlyph($r("sys.symbol.plus"))
+              .fontSize($r('app.float.font_icon_lg'))
+              .fontWeight(800)
+              .fontColor([$r('app.color.operation_icon')])
           }
+          .width(30)
+          .height(30)
+          .type(ButtonType.Circle)
+          .backgroundColor($r('app.color.chat_input_bg')) // 背景与输入区一致
+          .border({ width: 2, color: $r('app.color.operation_icon') })
+          .margin({ right: $r('app.float.space_sm') })
+          .bindMenu(this.imageMenuBuilder())
 
           /* 右侧：发送 / 暂停按钮（生成中显示暂停键，点击暂停；普通态显示发送键） */
           Button() {
@@ -426,19 +473,21 @@ export struct ChatInput {
           .backgroundColor(
             this.isSendButtonEnabled() ? $r('app.color.brand') : $r('app.color.send_btn_disabled'),
           )
-          .enabled(this.isSendButtonEnabled()) // 生成中恒可点（暂停键）；否则有内容或有图才可点（发送键）
+          .enabled(this.isSendButtonEnabled()) // 生成中恒可点（暂停键）；否则有内容或有图或有文件才可点（发送键）
           .onClick(() => {
             if (this.streamState === "streaming") {
               /* 生成中：暂停（中止流式请求，保留已生成内容） */
               this.onPause();
-            } else if ((this.inputText.trim().length > 0 || this.images.length > 0) && this.onChange) {
-              /* 普通态：发送文本 + 已选图片（开关状态由父级 VM 读取（唯一真源），这里仅上报） */
+            } else if ((this.inputText.trim().length > 0 || this.images.length > 0 || this.files.length > 0) && this.onChange) {
+              /* 普通态：发送文本 + 已选图片 + 已选文件（开关状态由父级 VM 读取（唯一真源），这里仅上报） */
               inputMethod.getController().stopInput(); // 发送后自动收起输入法键盘
               const text = this.inputText.trim();
               const imgs = this.images;
+              const files = this.files;
               this.inputText = ""; // 发送后清空输入框
               this.images = []; // 发送后清空已选图片
-              this.onChange(text, imgs);
+              this.files = []; // 发送后清空已选文件
+              this.onChange(text, imgs, files);
             }
           })
         }
@@ -487,19 +536,25 @@ export struct ChatInput {
   }
 
   /**
-   * 图片来源选择菜单（选图按钮 bindMenu 内容）
-   * 提供「从相册选择」与「拍照」两个入口
+   * 附件来源选择菜单（添加按钮 bindMenu 内容）
+   * 视觉模型：相册 / 拍照 / 文件；非视觉模型：仅 文件（txt/md 走文本通道，pdf 需视觉模型）
    */
   @Builder
   imageMenuBuilder() {
     Menu() {
-      MenuItem({ content: "相册" })
+      if (this.supportsVision) {
+        MenuItem({ content: "相册" })
+          .onChange(() => {
+            this.pickImages("gallery");
+          })
+        MenuItem({ content: "拍照" })
+          .onChange(() => {
+            this.pickImages("camera");
+          })
+      }
+      MenuItem({ content: "文件" })
         .onChange(() => {
-          this.pickImages("gallery");
-        })
-      MenuItem({ content: "拍照" })
-        .onChange(() => {
-          this.pickImages("camera");
+          this.pickFiles();
         })
     }
   }

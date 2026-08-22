@@ -41,6 +41,14 @@
       "value": "17fp"
     },
     {
+      "name": "font_file_name",
+      "value": "14fp"
+    },
+    {
+      "name": "font_file_size",
+      "value": "10fp"
+    },
+    {
       "name": "font_h1",
       "value": "24fp"
     },
@@ -71,6 +79,10 @@
     {
       "name": "font_toggle",
       "value": "16fp"
+    },
+    {
+      "name": "font_icon_xs",
+      "value": "8fp"
     },
     {
       "name": "font_icon_sm",

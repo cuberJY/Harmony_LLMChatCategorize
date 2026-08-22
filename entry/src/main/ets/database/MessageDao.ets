@@ -4,7 +4,7 @@
  */
 
 import { relationalStore } from "@kit.ArkData";
-import { Message, WebPage, ContentSnippet, ImageAttachment } from "../model/Message";
+import { Message, WebPage, ContentSnippet, ImageAttachment, FileAttachment } from "../model/Message";
 import { DatabaseHelper } from "./DatabaseHelper";
 import { Logger } from "../common/Logger";
 import { errorToJson, jsonToError } from "../service/LLMError";
@@ -36,6 +36,7 @@ export class MessageDao {
         role: msg.role,
         content: msg.content,
         images: JSON.stringify(msg.images),
+        files: JSON.stringify(msg.files),
         reasoning: msg.reasoning,
         searched_webs: JSON.stringify(msg.searchedWebs),
         generation_status: msg.generationStatus,
@@ -62,6 +63,7 @@ export class MessageDao {
       const values: relationalStore.ValuesBucket = {
         content: msg.content,
         images: JSON.stringify(msg.images),
+        files: JSON.stringify(msg.files),
         reasoning: msg.reasoning,
         searched_webs: JSON.stringify(msg.searchedWebs),
         generation_status: msg.generationStatus,
@@ -283,6 +285,15 @@ export class MessageDao {
         const rawImages = rs.getString(rs.getColumnIndex("images"));
         if (rawImages.length > 0) {
           msg.images = JSON.parse(rawImages) as ImageAttachment[];
+        }
+      } catch (e) {
+        /* 旧库无该列或 JSON 非法：保持空列表 */
+      }
+      /* 文件附件（旧库迁移前可能缺失，读取失败则保持空列表） */
+      try {
+        const rawFiles = rs.getString(rs.getColumnIndex("files"));
+        if (rawFiles.length > 0) {
+          msg.files = JSON.parse(rawFiles) as FileAttachment[];
         }
       } catch (e) {
         /* 旧库无该列或 JSON 非法：保持空列表 */

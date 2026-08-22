@@ -18,6 +18,28 @@ export interface ImageAttachment {
   name: string;
 }
 
+/**
+ * 用户消息携带的文件附件（txt / md / pdf，内容供 AI 理解）
+ * 解析规则（FileParser 产出）：
+ *   - txt / md：textContent 为文件原文（UTF-8），pageImages 为空 → 发送时走 input_text 文本通道
+ *   - pdf：textContent 为空（API 20 无 getTextContent），pageImages 为页面渲染图 Base64
+ *     → 发送时逐页走 input_image 视觉通道（仅视觉模型可用）
+ * @param id          附件唯一标识（生成 id，用于列表 key / 删除定位）
+ * @param name        文件名（含后缀，展示用）
+ * @param ext         小写扩展名（txt | md | pdf；决定图标颜色与解析方式）
+ * @param size        文件大小（字节，卡片展示小字）
+ * @param textContent 提取的文本（txt/md 原文；pdf 为空串）
+ * @param pageImages  PDF 页渲染图 Base64 列表（仅 pdf 有值，可含多页）
+ */
+export interface FileAttachment {
+  id: string;
+  name: string;
+  ext: string;
+  size: number;
+  textContent: string;
+  pageImages: string[];
+}
+
 /* 思考过程中浏览过的网页（服务端 web_search 的 open_page 动作；结构化记录供「xx个网页」面板展示） */
 export interface WebPage {
   url: string; // 网页完整 URL（点击可打开）
@@ -49,6 +71,7 @@ export class Message {
   @Trace role: MessageRole = "user"; // 消息角色：用户 or AI
   @Trace content: string = ""; // 消息正文（AI 消息可能包含 Markdown）
   @Trace images: ImageAttachment[] = []; // 图片附件列表（仅用户消息有值；@Trace 驱动气泡缩略图渲染）
+  @Trace files: FileAttachment[] = []; // 文件附件列表（仅用户消息有值；@Trace 驱动气泡文件卡片渲染）
   @Trace reasoning: string = ""; // AI 思考内容（仅 assistant 有值）
   @Trace searchedWebs: WebPage[] = []; // 思考过程中浏览过的网页（open_page 动作；@Trace 驱动「xx个网页」按钮数量实时刷新）
   @Trace generationStatus: "complete" | "partial" = "complete"; // 生成状态（持久化）：complete 完整 / partial 未完成

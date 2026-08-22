@@ -1,7 +1,7 @@
 import { common } from "@kit.AbilityKit";
 import { window } from "@kit.ArkUI";
 import { inputMethod } from "@kit.IMEKit";
-import { Message, ImageAttachment } from "../model/Message";
+import { Message, ImageAttachment, FileAttachment } from "../model/Message";
 import { Conversation, ConversationSelection } from "../model/Conversation";
 import { SideBarParams } from "../model/SideBarParams";
 import { MessageBubble } from "../components/chat/MessageBubble";
@@ -381,9 +381,10 @@ export struct ChatPage {
             navBarHeightVp: this.navBarHeightVp,
             /* 键盘弹出状态：弹出时导航条被遮挡，输入区收紧底部 margin */
             keyboardUp: this.keyboardUp,
-            /* 编辑态：回填原内容+原图到输入框（vm.startEdit 后 @Trace 变化驱动刷新） */
+            /* 编辑态：回填原内容+原图+原文件到输入框（vm.startEdit 后 @Trace 变化驱动刷新） */
             prefillText: this.vm.editingPrefill,
             prefillImages: this.vm.editingPrefillImages,
+            prefillFiles: this.vm.editingPrefillFiles,
             isEditing: this.vm.editingMessageId.length > 0,
             /* 开关状态由 VM 持有（唯一真源）：发送/重新生成/新建分支读取当前值 */
             webSearch: this.vm.webSearch,
@@ -399,9 +400,9 @@ export struct ChatPage {
             onThinkingChange: (effort: ThinkingEffort) => {
               this.vm.updateSearchOptions(this.vm.webSearch, effort);
             },
-            onChange: (text: string, images: ImageAttachment[]) => {
-              /* 编辑态由 ViewModel 内部识别：非编辑态 = 普通发送；编辑态 = 创建新分支并重新生成（保留原图） */
-              this.vm.handleUserSend(text, images);
+            onChange: (text: string, images: ImageAttachment[], files: FileAttachment[]) => {
+              /* 编辑态由 ViewModel 内部识别：非编辑态 = 普通发送；编辑态 = 创建新分支并重新生成（保留原图/原文件） */
+              this.vm.handleUserSend(text, images, files);
             },
             /* 生成中点击暂停键 → 中止流式请求，保留已生成内容 */
             onPause: () => {

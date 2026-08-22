@@ -98,6 +98,20 @@ export function showToast(message: string | Resource, bottom: number = 160): voi
 }
 
 /**
+ * 文件大小格式化（字节 → 可读文本）
+ * < 1KB 显示 B；< 1MB 显示 KB；其余显示 MB（保留 1 位小数）
+ */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/**
  * 统一的"删除"二次确认弹窗
  * 标题 + 说明 + 取消/删除（红色），确认后执行回调
  * @param uiContext 页面 UIContext（调用处传 this.getUIContext()）

@@ -14,7 +14,7 @@ import { common } from "@kit.AbilityKit";
 import { DatabaseHelper } from "../database/DatabaseHelper";
 import { ConversationRepository } from "../database/ConversationRepository";
 import { Conversation } from "../model/Conversation";
-import { Message, ImageAttachment } from "../model/Message";
+import { Message, ImageAttachment, FileAttachment } from "../model/Message";
 import { StreamCallbacks } from "../service/provider/LLMProvider";
 import { StreamTask } from "../service/StreamTask";
 import { LLMProviderFactory } from "../service/LLMProviderFactory";
@@ -76,6 +76,8 @@ export class ChatViewModel {
   @Trace editingPrefill: string = "";
   /* 编辑态：回填到底部输入框的原始图片（编辑时可增删改；纯文本模型下带图消息禁止编辑） */
   @Trace editingPrefillImages: ImageAttachment[] = [];
+  /* 编辑态：回填到底部输入框的原始文件（编辑时可增删改；纯文本模型下带 pdf 的消息禁止编辑） */
+  @Trace editingPrefillFiles: FileAttachment[] = [];
   /**
    * 底部输入区开关状态（唯一真源：发送 / 重新生成 / 新建分支共用）
    * ChatInput 切换时通过 updateSearchOptions 实时同步，
@@ -428,8 +430,9 @@ export class ChatViewModel {
    *
    * @param text 用户输入文本
    * @param images 图片附件列表（仅视觉模型支持；默认空）
+   * @param files 文件附件列表（单文件；txt/md 走文本通道所有模型可用，pdf 页面图仅视觉模型；默认空）
    */
-  async handleUserSend(text: string, images: ImageAttachment[] = []): Promise<void> {
+  async handleUserSend(text: string, images: ImageAttachment[] = [], files: FileAttachment[] = []): Promise<void> {
     /* 等待数据库初始化完成，确保首条消息正常入库 */
     await this.dbInitPromise;
     if (this.isDestroyed) return; // 页面已销毁，中止本次发送
@@ -442,23 +445,25 @@ export class ChatViewModel {
       return;
     }
 
-    /* 图片消息仅视觉模型支持：当前模型非视觉模型时拦截（编辑保留原图路径由 editUserMessage 二次校验） */
-    if (images.length > 0 && !isVisionModel(AppConfig.getInstance().getModel())) {
+    /* 图片/pdf 消息仅视觉模型支持：当前模型非视觉模型时拦截（编辑保留原路径由 editUserMessage 二次校验）。
+       txt/md 文件走文本通道（pageImages 为空），所有模型可用 */
+    const hasVisual: boolean = images.length > 0 || files.some((f: FileAttachment) => f.pageImages.length > 0);
+    if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
       showToast($r("app.string.vision_required"));
       return;
     }
 
-    /* 编辑态：该次发送在被编辑的用户消息处创建新变体分支并重新生成（图片用编辑后的结果） */
+    /* 编辑态：该次发送在被编辑的用户消息处创建新变体分支并重新生成（图片/文件用编辑后的结果） */
     if (this.editingMessageId.length > 0) {
       const editTargetId = this.editingMessageId;
       this.exitEditMode();
-      await this.editUserMessage(editTargetId, text, this.webSearch, this.thinkingEffort, images);
+      await this.editUserMessage(editTargetId, text, this.webSearch, this.thinkingEffort, images, files);
       return;
     }
 
     /* 1. 创建用户消息（parent = 激活链尾，根消息为空串） */
     const tail = this.messageDataSource.getData(this.messageDataSource.totalCount() - 1);
-    const userMsg = this.addMessage("user", text, tail !== undefined ? tail.id : "", images);
+    const userMsg = this.addMessage("user", text, tail !== undefined ? tail.id : "", images, files);
     this.scrollToBottom();
 
     /* 2. 创建 AI 占位消息（parent = 刚发送的用户消息），保留引用用于流式填充 */
@@ -1101,10 +1106,12 @@ export class ChatViewModel {
    * @param content 消息正文
    * @param parentId 父消息 id（分支链锚点；根用户消息传 ""）
    * @param images 图片附件列表（仅用户消息有值；默认空）
+   * @param files 文件附件列表（仅用户消息有值；默认空）
    */
-  private addMessage(role: "user" | "assistant", content: string, parentId: string, images: ImageAttachment[] = []): Message {
+  private addMessage(role: "user" | "assistant", content: string, parentId: string, images: ImageAttachment[] = [], files: FileAttachment[] = []): Message {
     const msg = new Message(this.currentConversationId, role, content);
     msg.images = images;
+    msg.files = files;
     /**
      * 修复(partial 占位)：AI 占位消息必须以 partial 状态入库——若进程在首个 2.5s 节流落库前被杀，
      * DB 里 complete 的空消息无法被恢复逻辑识别为「可继续生成」
@@ -1135,11 +1142,11 @@ export class ChatViewModel {
         this.isFirstUserMsg = false;
         /* 记录待生成标题的对话：首轮 AI 回复完成后（onComplete）触发标题生成并清空 */
         this.pendingTitleConvId = this.currentConversationId;
-        /* 标题占位：正文优先（截断）；纯图片消息用「图片」占位，避免空标题 */
+        /* 标题占位：正文优先（截断）；纯图片/纯文件消息用占位，避免空标题 */
         this.currentConversation.title =
           content.length > 0
             ? (content.length > MAX_TITLE_LENGTH ? content.substring(0, MAX_TITLE_LENGTH) + "..." : content)
-            : (images.length > 0 ? "[图片]" : "");
+            : (images.length > 0 ? "[图片]" : (files.length > 0 ? "[文件]" : ""));
         this.currentConversation.updatedAt = msg.createdAt;
         ConversationRepository.getInstance().insert(this.currentConversation);
       }
@@ -1152,9 +1159,10 @@ export class ChatViewModel {
    * 创建消息并持久化但不入列（分支变体创建场景）
    * 与 addMessage 的唯一区别：不入激活列表，由后续 rebuildActiveChain 统一重建入列
    */
-  private createAndPersist(role: "user" | "assistant", content: string, parentId: string, images: ImageAttachment[] = []): Message {
+  private createAndPersist(role: "user" | "assistant", content: string, parentId: string, images: ImageAttachment[] = [], files: FileAttachment[] = []): Message {
     const msg = new Message(this.currentConversationId, role, content);
     msg.images = images;
+    msg.files = files;
     /* 修复(partial 占位)：AI 占位消息以 partial 状态入库，避免空内容被误判为已完成的完整回复 */
     if (role === "assistant") {
       msg.generationStatus = "partial";
@@ -1242,13 +1250,15 @@ export class ChatViewModel {
     webSearch: boolean,
     thinkingEffort: ThinkingEffort,
     images: ImageAttachment[] = [],
+    files: FileAttachment[] = [],
   ): Promise<void> {
     const sendConvId = this.currentConversationId;
     const target = this.branchManager.getById(editTargetId);
     if (target === undefined || !target.isUser()) return; // 目标必须是用户消息
-    /* 兜底拦截：编辑后仍带图且当前模型非视觉模型时拦截（正常路径已在 handleUserSend 校验；
+    /* 兜底拦截：编辑后仍带图/pdf 且当前模型非视觉模型时拦截（正常路径已在 handleUserSend 校验；
        编辑态进入时的禁止拦截见 startEdit） */
-    if (images.length > 0 && !isVisionModel(AppConfig.getInstance().getModel())) {
+    const hasVisual: boolean = images.length > 0 || files.some((f: FileAttachment) => f.pageImages.length > 0);
+    if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
       showToast($r("app.string.vision_required"));
       return;
     }
@@ -1256,8 +1266,8 @@ export class ChatViewModel {
       showToast($r("app.string.streaming_busy"));
       return;
     }
-    /* 1. 创建新用户消息变体（同父、同分支组、序号 +1；用编辑后的图片与文本） */
-    const newUserMsg = this.createAndPersist("user", newText, target.parentId, images);
+    /* 1. 创建新用户消息变体（同父、同分支组、序号 +1；用编辑后的图片、文件与文本） */
+    const newUserMsg = this.createAndPersist("user", newText, target.parentId, images, files);
     /* 1.1 编辑的是首轮提问 → 对话主题可能改变：
      *     - 标题仍是占位（未被侧边栏手动重命名/AI 正式标题覆盖）时，同步为新的提问截断占位
      *     - 重置待生成标记，让新首轮回复完成时重新生成正式标题（正式/手动标题由生成流程的占位校验保护） */
@@ -1268,11 +1278,11 @@ export class ChatViewModel {
     if (chainFirst !== undefined && chainFirst.id === target.id) {
       const freshConv = await ConversationRepository.getInstance().getById(sendConvId);
       if (freshConv !== undefined && freshConv.title === this.currentConversation.title) {
-        /* 标题占位：正文优先（截断）；纯图片消息用「图片」占位，避免空标题 */
+        /* 标题占位：正文优先（截断）；纯图片/纯文件消息用占位，避免空标题 */
         this.currentConversation.title =
           newText.length > 0
             ? (newText.length > MAX_TITLE_LENGTH ? newText.substring(0, MAX_TITLE_LENGTH) + "..." : newText)
-            : (images.length > 0 ? "[图片]" : "");
+            : (images.length > 0 ? "[图片]" : (files.length > 0 ? "[文件]" : ""));
         ConversationRepository.getInstance().update(this.currentConversation);
       }
       this.pendingTitleConvId = sendConvId; // 重置待生成标记
@@ -1294,12 +1304,14 @@ export class ChatViewModel {
     await this.startStreamReply(sendConvId, targetConv, aiMsg, context, webSearch, thinkingEffort, newText);
   }
 
-  /* 用户消息「编辑」：进入编辑态（内容+图片回填输入框），发送时创建新分支 */
+  /* 用户消息「编辑」：进入编辑态（内容+图片+文件回填输入框），发送时创建新分支 */
   startEdit(msg: Message): void {
     if (msg.isStreaming) return; // 流式中不可编辑
-    /* 方式 B：纯文本模型下禁止编辑带图消息（无法新增/保留图片，直接拒绝进入编辑态）
-       视觉模型下可自由增删改图片（编辑发送路径由 handleUserSend 二次校验） */
-    if (msg.images.length > 0 && !isVisionModel(AppConfig.getInstance().getModel())) {
+    /* 方式 B：纯文本模型下禁止编辑带图/带 pdf 消息（无法新增/保留，直接拒绝进入编辑态）；
+       视觉模型下可自由增删改图片/pdf（编辑发送路径由 handleUserSend 二次校验）。
+       txt/md 文件走文本通道，纯文本模型下可正常编辑 */
+    const hasVisual: boolean = msg.images.length > 0 || msg.files.some((f: FileAttachment) => f.pageImages.length > 0);
+    if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
       showToast($r("app.string.vision_required"));
       return;
     }
@@ -1307,6 +1319,7 @@ export class ChatViewModel {
     this.editingMessageId = msg.id;
     this.editingPrefill = msg.content;
     this.editingPrefillImages = msg.images;
+    this.editingPrefillFiles = msg.files;
   }
 
   /**
@@ -1341,6 +1354,7 @@ export class ChatViewModel {
     this.editingMessageId = "";
     this.editingPrefill = "";
     this.editingPrefillImages = [];
+    this.editingPrefillFiles = [];
   }
 
   /* 切换分支：在当前消息的分支组内按 delta(±1) 切换变体，并整条链重建 */

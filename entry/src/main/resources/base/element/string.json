@@ -211,6 +211,10 @@
     {
       "name": "image_limit_reached",
       "value": "单条消息最多发送 9 张图片"
+    },
+    {
+      "name": "file_parse_failed",
+      "value": "文件解析失败：%s"
     }
   ]
 }

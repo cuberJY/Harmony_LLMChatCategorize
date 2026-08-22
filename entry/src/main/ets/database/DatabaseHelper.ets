@@ -65,6 +65,7 @@ export class DatabaseHelper {
       role TEXT NOT NULL,                -- 消息角色：user / assistant / system
       content TEXT NOT NULL DEFAULT '',  -- 消息正文
       images TEXT NOT NULL DEFAULT '[]', -- 图片附件（ImageAttachment[] JSON 序列化，空数组 = 无图；仅用户消息有值）
+      files TEXT NOT NULL DEFAULT '[]', -- 文件附件（FileAttachment[] JSON 序列化，空数组 = 无文件；仅用户消息有值）
       reasoning TEXT NOT NULL DEFAULT '',-- AI 思考内容（仅 assistant 有值）
       searched_webs TEXT NOT NULL DEFAULT '', -- 思考过程中浏览过的网页（WebPage[] JSON 序列化，空串 = 无）
       generation_status TEXT NOT NULL DEFAULT 'complete', -- 生成状态：complete 完整 / partial 未完成（中断/暂停/进程终止）
@@ -134,6 +135,7 @@ export class DatabaseHelper {
       const newCols: string[] = [
         "reasoning TEXT NOT NULL DEFAULT ''",
         "images TEXT NOT NULL DEFAULT '[]'",
+        "files TEXT NOT NULL DEFAULT '[]'",
         "parent_id TEXT NOT NULL DEFAULT ''",
         "branch_group_id TEXT NOT NULL DEFAULT ''",
         "variant_index INTEGER NOT NULL DEFAULT 0",

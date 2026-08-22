@@ -7,7 +7,7 @@
 
 import buffer from "@ohos.buffer";
 import { http } from "@kit.NetworkKit";
-import { Message } from "../../model/Message";
+import { Message, FileAttachment } from "../../model/Message";
 import { AppConfig } from "../../config/AppConfig";
 import { ThinkingEffort, isVisionModel } from "../../config/ModelPresets";
 import { AbortHandle, LLMProvider, StreamCallbacks } from "./LLMProvider";
@@ -33,6 +33,12 @@ interface ApiInputImageBlock {
   detail?: string; // low / high / original / auto（不传默认 auto ≈ original）
 }
 type ApiContentBlock = ApiInputTextBlock | ApiInputImageBlock;
+
+/* txt/md 文件原文（拼入文本块时带文件名标注，帮助 AI 区分来源） */
+interface TextFileContent {
+  name: string;
+  text: string;
+}
 
 /* API 请求中的消息格式（Responses API 的 input item：message 类型） */
 interface ApiMessage {
@@ -281,7 +287,18 @@ export class DeepSeekProvider implements LLMProvider {
    * @returns content 字段值
    */
   private buildApiContent(msg: Message): string | ApiContentBlock[] {
-    if (msg.images.length === 0) {
+    /* 文件内容归类：pdf → 页面图（pageImages）走视觉通道；txt/md → 原文（textContent）拼入文本块 */
+    const pdfPages: string[] = [];
+    const textFileContents: TextFileContent[] = [];
+    for (const file of msg.files) {
+      for (const b64 of file.pageImages) {
+        pdfPages.push(b64);
+      }
+      if (file.textContent.length > 0) {
+        textFileContents.push({ name: file.name, text: file.textContent });
+      }
+    }
+    if (msg.images.length === 0 && pdfPages.length === 0 && textFileContents.length === 0) {
       return msg.content;
     }
     const blocks: ApiContentBlock[] = [];
@@ -294,11 +311,25 @@ export class DeepSeekProvider implements LLMProvider {
           detail: "auto", // 自动选择细节级别（当前等价 original）
         });
       }
+      /* PDF 页面图：逐页作为 input_image 块（与普通图片同理，data: 前缀 MIME 即 image/jpeg） */
+      for (const b64 of pdfPages) {
+        blocks.push({
+          type: "input_image",
+          image_url: `data:image/jpeg;base64,${b64}`,
+          detail: "auto",
+        });
+      }
     }
-    /* 文本块：正文非空才追加（纯发图无文字时不带空文本块，避免冗余）；
-       若无任何图片块（非 user 消息）则必须补文本块，保证 content 非空 */
-    if (msg.content.length > 0 || blocks.length === 0) {
-      blocks.push({ type: "input_text", text: msg.content });
+    /* 文本块：正文 + txt/md 文件原文（带文件名标注，帮助 AI 区分来源）；
+       正文非空或仅文本文件才追加；若无任何图片/pdf 块（非 user 消息）则必须补文本块保证 content 非空 */
+    let text: string = msg.content;
+    for (const item of textFileContents) {
+      text = text.length > 0
+        ? `${text}\n\n【文件 ${item.name} 内容】\n${item.text}`
+        : `【文件 ${item.name} 内容】\n${item.text}`;
+    }
+    if (text.length > 0 || blocks.length === 0) {
+      blocks.push({ type: "input_text", text: text });
     }
     return blocks;
   }
@@ -326,13 +357,14 @@ export class DeepSeekProvider implements LLMProvider {
       return new StreamAbortHandle((): void => {});
     }
     /**
-     * 视觉模型兜底：请求包含图片但当前模型不支持视觉（如 deepseek-v4-flash）时直接拦截。
-     * 正常路径下 VM 已在发图前校验拦截，此处为防御性兜底（历史图片消息重新生成等场景）
+     * 视觉模型兜底：请求包含图片或 pdf 页面图但当前模型不支持视觉时直接拦截。
+     * 正常路径下 VM 已在发图/发 pdf 前校验拦截，此处为防御性兜底（历史消息重新生成等场景）
      */
-    const hasImages: boolean = messages.some((msg: Message) => msg.images.length > 0);
+    const hasImages: boolean = messages.some((msg: Message) =>
+      msg.images.length > 0 || msg.files.some((f: FileAttachment) => f.pageImages.length > 0));
     if (hasImages && !isVisionModel(AppConfig.getInstance().getModel())) {
       callbacks.onError(buildError(
-        ErrorCode.REQ_INVALID, "current model does not support image, please switch to vision model",
+        ErrorCode.REQ_INVALID, "current model does not support image/pdf, please switch to vision model",
         undefined, PROVIDER_NAME));
       return new StreamAbortHandle((): void => {});
     }
