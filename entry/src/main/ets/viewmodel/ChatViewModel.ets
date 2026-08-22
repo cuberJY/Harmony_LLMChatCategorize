@@ -74,6 +74,8 @@ export class ChatViewModel {
   @Trace editingMessageId: string = "";
   /* 编辑态：回填到底部输入框的原始内容 */
   @Trace editingPrefill: string = "";
+  /* 编辑态：回填到底部输入框的原始图片（编辑时可增删改；纯文本模型下带图消息禁止编辑） */
+  @Trace editingPrefillImages: ImageAttachment[] = [];
   /**
    * 底部输入区开关状态（唯一真源：发送 / 重新生成 / 新建分支共用）
    * ChatInput 切换时通过 updateSearchOptions 实时同步，
@@ -203,6 +205,7 @@ export class ChatViewModel {
     this.titleAttempts.clear(); // 新对话：清空标题生成尝试计数
     this.editingMessageId = "";
     this.editingPrefill = "";
+    this.editingPrefillImages = [];
     this.title = "新对话";
     this.resetScrollFollow(); // 新对话 → 恢复自动跟随
     this.pendingActiveChainPersist = false; // 新对话无未落库的分支切换
@@ -227,6 +230,7 @@ export class ChatViewModel {
     this.pendingTitleConvId = ""; // 历史对话已有回复，不触发标题生成
     this.editingMessageId = "";
     this.editingPrefill = "";
+    this.editingPrefillImages = [];
     this.pendingActiveChainPersist = false; // 切换对话丢弃上个对话的脏标记
     this.pendingAutoFold = []; // 清空上个对话挂起的折叠请求
     this.pendingFocusIndex = -1; // 切换对话放弃上次未执行的搜索定位
@@ -444,11 +448,11 @@ export class ChatViewModel {
       return;
     }
 
-    /* 编辑态：该次发送在被编辑的用户消息处创建新变体分支并重新生成 */
+    /* 编辑态：该次发送在被编辑的用户消息处创建新变体分支并重新生成（图片用编辑后的结果） */
     if (this.editingMessageId.length > 0) {
       const editTargetId = this.editingMessageId;
       this.exitEditMode();
-      await this.editUserMessage(editTargetId, text, this.webSearch, this.thinkingEffort);
+      await this.editUserMessage(editTargetId, text, this.webSearch, this.thinkingEffort, images);
       return;
     }
 
@@ -1237,12 +1241,14 @@ export class ChatViewModel {
     newText: string,
     webSearch: boolean,
     thinkingEffort: ThinkingEffort,
+    images: ImageAttachment[] = [],
   ): Promise<void> {
     const sendConvId = this.currentConversationId;
     const target = this.branchManager.getById(editTargetId);
     if (target === undefined || !target.isUser()) return; // 目标必须是用户消息
-    /* 编辑保留原图：被编辑消息带图且当前模型非视觉模型时拦截（正常发图路径已在 handleUserSend 校验） */
-    if (target.images.length > 0 && !isVisionModel(AppConfig.getInstance().getModel())) {
+    /* 兜底拦截：编辑后仍带图且当前模型非视觉模型时拦截（正常路径已在 handleUserSend 校验；
+       编辑态进入时的禁止拦截见 startEdit） */
+    if (images.length > 0 && !isVisionModel(AppConfig.getInstance().getModel())) {
       showToast($r("app.string.vision_required"));
       return;
     }
@@ -1250,8 +1256,8 @@ export class ChatViewModel {
       showToast($r("app.string.streaming_busy"));
       return;
     }
-    /* 1. 创建新用户消息变体（同父、同分支组、序号 +1；编辑保留原图、仅可改文本） */
-    const newUserMsg = this.createAndPersist("user", newText, target.parentId, target.images);
+    /* 1. 创建新用户消息变体（同父、同分支组、序号 +1；用编辑后的图片与文本） */
+    const newUserMsg = this.createAndPersist("user", newText, target.parentId, images);
     /* 1.1 编辑的是首轮提问 → 对话主题可能改变：
      *     - 标题仍是占位（未被侧边栏手动重命名/AI 正式标题覆盖）时，同步为新的提问截断占位
      *     - 重置待生成标记，让新首轮回复完成时重新生成正式标题（正式/手动标题由生成流程的占位校验保护） */
@@ -1266,7 +1272,7 @@ export class ChatViewModel {
         this.currentConversation.title =
           newText.length > 0
             ? (newText.length > MAX_TITLE_LENGTH ? newText.substring(0, MAX_TITLE_LENGTH) + "..." : newText)
-            : (target.images.length > 0 ? "[图片]" : "");
+            : (images.length > 0 ? "[图片]" : "");
         ConversationRepository.getInstance().update(this.currentConversation);
       }
       this.pendingTitleConvId = sendConvId; // 重置待生成标记
@@ -1288,12 +1294,19 @@ export class ChatViewModel {
     await this.startStreamReply(sendConvId, targetConv, aiMsg, context, webSearch, thinkingEffort, newText);
   }
 
-  /* 用户消息「编辑」：进入编辑态（内容回填输入框），发送时创建新分支 */
+  /* 用户消息「编辑」：进入编辑态（内容+图片回填输入框），发送时创建新分支 */
   startEdit(msg: Message): void {
     if (msg.isStreaming) return; // 流式中不可编辑
+    /* 方式 B：纯文本模型下禁止编辑带图消息（无法新增/保留图片，直接拒绝进入编辑态）
+       视觉模型下可自由增删改图片（编辑发送路径由 handleUserSend 二次校验） */
+    if (msg.images.length > 0 && !isVisionModel(AppConfig.getInstance().getModel())) {
+      showToast($r("app.string.vision_required"));
+      return;
+    }
     this.resetScrollFollow(); // 进入编辑态 → 恢复自动跟随（用户即将输入/阅读输入区）
     this.editingMessageId = msg.id;
     this.editingPrefill = msg.content;
+    this.editingPrefillImages = msg.images;
   }
 
   /**
@@ -1327,6 +1340,7 @@ export class ChatViewModel {
   exitEditMode(): void {
     this.editingMessageId = "";
     this.editingPrefill = "";
+    this.editingPrefillImages = [];
   }
 
   /* 切换分支：在当前消息的分支组内按 delta(±1) 切换变体，并整条链重建 */

@@ -689,6 +689,9 @@ export struct MessageBubble {
             .borderRadius($r('app.float.bubble_radius'))
             .objectFit(ImageFit.Cover)
             .backgroundColor($r('app.color.divider'))
+            /* 共享元素转场：与 PreviewPage 全屏图同 id（preview_+img.id），点击放大衔接
+               Navigation 环境下用 geometryTransition（sharedTransition 仅 router 路由生效） */
+            .geometryTransition('preview_' + img.id)
             .alignSelf(ItemAlign.End)
             .margin({
               left: $r('app.float.space_xs'),

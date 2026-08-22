@@ -60,6 +60,8 @@ export struct ChatInput {
   @Param modelName: string = "";
   /* 编辑态预填文本（点击用户消息「编辑」后回填到输入框；非空即触发回填） */
   @Param prefillText: string = "";
+  /* 编辑态预填图片（点击用户消息「编辑」后回填到预览条，编辑时可增删改；与 prefillText 联动回填） */
+  @Param prefillImages: ImageAttachment[] = [];
   /* 是否处于编辑态（编辑消息中，显示提示文案） */
   @Param isEditing: boolean = false;
   /* 思考强度（由 ViewModel 传入，唯一真源；none 关闭 / low 轻量 / high 深度 / max 极限） */
@@ -81,11 +83,13 @@ export struct ChatInput {
   /* 当前模型是否支持图片输入（由 ViewModel 传入）：false 时隐藏选图按钮，不能发图 */
   @Param supportsVision: boolean = false;
 
-  /* 监听 prefillText 变化：回填内容到输入框（@Monitor 是 V2 监听 @Param 变化的机制） */
-  @Monitor('prefillText')
+  /* 监听 prefillText / prefillImages 变化：回填内容到输入框（@Monitor 是 V2 监听 @Param 变化的机制）。
+     两个都监听：纯图片消息 content 为空（prefillText 不变）时，靠 prefillImages 变化仍能触发回填 */
+  @Monitor('prefillText', 'prefillImages')
   onPrefillChanged(): void {
-    if (this.prefillText.length > 0) {
+    if (this.prefillText.length > 0 || this.prefillImages.length > 0) {
       this.inputText = this.prefillText;
+      this.images = this.prefillImages; // 编辑态回填原图（编辑时可增删改）
       /* 编辑回填后自动弹出输入法：先清焦点再请求焦点（确保已聚焦时也能重新弹起键盘） */
       const focus = this.getUIContext().getFocusController();
       focus.clearFocus();
@@ -93,8 +97,9 @@ export struct ChatInput {
         focus.requestFocus('chat_input');
       }, 0);
     } else {
-      /* 编辑态取消/新建对话（prefillText 被清空）→ 同步清空输入框 */
+      /* 编辑态取消/新建对话（prefillText/prefillImages 被清空）→ 同步清空输入框与图片 */
       this.inputText = "";
+      this.images = [];
     }
   }
 
@@ -383,8 +388,8 @@ export struct ChatInput {
           }
           .layoutWeight(1) // 占据左侧空间，把发送按钮推到最右
 
-          /* 右侧：选图按钮（仅视觉模型且非编辑态显示；点击弹出相册/拍照菜单） */
-          if (this.supportsVision && !this.isEditing) {
+          /* 右侧：选图按钮（仅视觉模型显示；普通态与编辑态均可点击，弹出相册/拍照菜单） */
+          if (this.supportsVision) {
             Button() {
               SymbolGlyph($r("sys.symbol.plus"))
                 .fontSize($r('app.float.font_icon_lg'))

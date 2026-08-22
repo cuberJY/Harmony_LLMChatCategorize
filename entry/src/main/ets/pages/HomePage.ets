@@ -21,6 +21,7 @@ import { ChatPage } from "./ChatPage";
 import { SideBarPage } from "./SideBarPage";
 import { FolderPage } from "./FolderPage";
 import { SettingsPage } from "./SettingsPage";
+import { PreviewPage, PreviewParams } from "./PreviewPage";
 /* FolderPage 路由参数（pushPathByName 的第二个参数） */
 import { FolderParams } from "../model/FolderParams";
 /* SideBarPage 路由参数 */
@@ -85,6 +86,12 @@ struct HomePage {
       })
     } else if (name === "SettingsPage") {
       SettingsPage()
+    } else if (name === "PreviewPage") {
+      /* 图片全屏预览：路由参数注入图片列表与起始页码（ChatPage pushPathByName 传入） */
+      PreviewPage({
+        images: (param as PreviewParams).images,
+        startIndex: (param as PreviewParams).index,
+      })
     }
   }
 
@@ -103,13 +110,18 @@ struct HomePage {
     .customNavContentTransition(
       (from: NavContentInfo, to: NavContentInfo, operation: NavigationOperation) => {
         /**
-         * 仅处理「ChatPage ↔ SideBarPage」之间的转场；
+         * 仅处理「ChatPage ↔ SideBarPage」与「ChatPage ↔ PreviewPage」之间的转场：
+         * - SideBarPage：抽屉式平移覆盖在 ChatPage 上
+         * - PreviewPage：淡入淡出遮罩覆盖在 ChatPage 上（ChatPage 保持静止，不产生默认左移）
          * 其余页面（文件夹 / 设置）返回 undefined，走系统默认转场动画
          */
         const isChatSide =
           (from.name === "ChatPage" && to.name === "SideBarPage") ||
           (from.name === "SideBarPage" && to.name === "ChatPage");
-        if (from.index === -1 || to.index === -1 || !isChatSide) {
+        const isPreview =
+          (from.name === "ChatPage" && to.name === "PreviewPage") ||
+          (from.name === "PreviewPage" && to.name === "ChatPage");
+        if (from.index === -1 || to.index === -1 || (!isChatSide && !isPreview)) {
           return undefined;
         }
         return {
@@ -124,8 +136,10 @@ struct HomePage {
               return;
             }
             const isPush = operation === NavigationOperation.PUSH;
-            /* 打开侧边栏（滑入覆盖）用较慢时长，让用户看清侧边栏内容；关闭（滑出）保持原速 */
-            const transitionDuration = isPush ? 250 : 150;
+            /* 时长：预览（淡入 / 淡出）；侧边栏（滑入 / 滑出） */
+            const transitionDuration = isPreview ? (isPush ? 300 : 100) : (isPush ? 250 : 150);
+            /* 预览淡入淡出，侧边栏曲线 */
+            const transitionCurve = isPreview ? (isPush ? Curve.EaseIn : Curve.Sharp) : Curve.EaseOut;
             /* 幂等收尾：确保 finishTransition 只被调用一次（onFinish 与兜底定时器可能同时触发） */
             let finished = false;
             const finish = (): void => {
@@ -150,7 +164,7 @@ struct HomePage {
             /* 2. animateTo 驱动页面状态变化：从初始位置动画到目标位置 */
             this.getUIContext().animateTo({
               duration: transitionDuration,
-              curve: Curve.EaseOut,
+              curve: transitionCurve,
               onFinish: finish,
             }, () => {
               fromParam.finish(isPush, true);

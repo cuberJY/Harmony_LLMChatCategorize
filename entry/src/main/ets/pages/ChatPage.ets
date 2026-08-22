@@ -11,6 +11,7 @@ import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { showToast, KeyboardBackHelper, SafeAreaHelper } from "../common/Utils";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";
+import { PreviewParams } from "./PreviewPage";
 import { ThinkingEffort } from "../config/ModelPresets";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { ShareSheetPanel, ShareCardData, ShareCardItem } from "../components/panel/ShareSheetPanel";
@@ -75,9 +76,6 @@ export struct ChatPage {
    * 驱动 List.contentEndOffset（"到底"判定位置 = ChatInput 上沿）与 FAB 避让
    */
   @Local chatInputHeightVp: number = 140;
-  /* 图片全屏预览状态（页面级统一管理）：message=null 关闭；index=当前 Swiper 页（点击缩略图时上报） */
-  @Local imagePreviewMsg: Message | null = null;
-  @Local imagePreviewIndex: number = 0;
 
   aboutToAppear(): void {
     /* 读取系统栏高度（标题栏/输入区内容避让用） */
@@ -287,11 +285,18 @@ export struct ChatPage {
                       onShare: (m: Message) => {
                         this.handleShareQAPair(m);
                       },
-                      /* 点击用户消息图片 → 打开全屏预览（页面级统一管理）；预览打开前收起键盘 */
+                      /* 点击用户消息图片 → 打开全屏预览（独立路由页：预览页在栈上，手势/物理返回都弹栈回本页） */
                       onImagePreview: (m: Message, index: number) => {
                         inputMethod.getController().stopInput();
-                        this.imagePreviewMsg = m;
-                        this.imagePreviewIndex = index;
+                        const params: PreviewParams = {
+                          images: m.images,
+                          index: index,
+                        };
+                        /* 官方 geometryTransition 共享转场：路由跳转包在 animateTo 内提供元素过渡动画上下文；
+                           不关 animated，让 customNavContentTransition 的淡入淡出继续接管页面级动画 */
+                        this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
+                          this.pathStack.pushPathByName("PreviewPage", params);
+                        });
                       },
                     })
                   }.width("100%")
@@ -376,8 +381,9 @@ export struct ChatPage {
             navBarHeightVp: this.navBarHeightVp,
             /* 键盘弹出状态：弹出时导航条被遮挡，输入区收紧底部 margin */
             keyboardUp: this.keyboardUp,
-            /* 编辑态：回填原内容到输入框（vm.startEdit 后 @Trace 变化驱动刷新） */
+            /* 编辑态：回填原内容+原图到输入框（vm.startEdit 后 @Trace 变化驱动刷新） */
             prefillText: this.vm.editingPrefill,
+            prefillImages: this.vm.editingPrefillImages,
             isEditing: this.vm.editingMessageId.length > 0,
             /* 开关状态由 VM 持有（唯一真源）：发送/重新生成/新建分支读取当前值 */
             webSearch: this.vm.webSearch,
@@ -473,11 +479,6 @@ export struct ChatPage {
           this.sheetKind = "none";
         },
       });
-
-      /* 图片全屏预览层（页面级统一管理）：深色遮罩 + Swiper 滑动浏览；点击任意处/返回键关闭 */
-      if (this.imagePreviewMsg !== null) {
-        this.imagePreviewOverlay()
-      }
     }
     .backgroundColor($r('app.color.page_bg'))
     .hideTitleBar(true)
@@ -505,11 +506,6 @@ export struct ChatPage {
     .onBackPressed(() => {
       /* 导出加载期间：拦截返回键，避免导出中断或退出应用后分享弹窗错位 */
       if (this.exportShow) {
-        return true;
-      }
-      /* 图片全屏预览打开：先关闭预览（不退出应用/不取消编辑） */
-      if (this.imagePreviewMsg !== null) {
-        this.imagePreviewMsg = null;
         return true;
       }
       const backUp = this.isKeyboardUp();
@@ -560,81 +556,6 @@ export struct ChatPage {
         onClose: () => { this.sheetShow = false; },
       });
     }
-  }
-
-  /**
-   * 图片全屏预览层（页面级统一管理）：
-   * 深色半透明遮罩 + Swiper 全屏滑动浏览 + 右上角页码；点击任意处关闭（预览层在页面主 Column 中 absolute 定位覆盖全屏）
-   */
-  @Builder
-  imagePreviewOverlay() {
-    Stack({ alignContent: Alignment.Center }) {
-      /* 深色遮罩背景（点击关闭预览） */
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('#88000000')
-        .onClick(() => {
-          this.imagePreviewMsg = null;
-        })
-      /* Swiper 图片浏览：Base64 data URL 直接渲染，Contain 完整展示 */
-      Swiper() {
-        ForEach(
-          this.imagePreviewMsg!.images,
-          (img: ImageAttachment) => {
-            Image('data:' + img.mimeType + ';base64,' + img.data)
-              .width('100%')
-              .height('100%')
-              .objectFit(ImageFit.Contain)
-              .onClick(() => {
-                this.imagePreviewMsg = null;
-              })
-          },
-          (img: ImageAttachment) => img.id,
-        )
-      }
-      .index(this.imagePreviewIndex)
-      .onChange((idx: number) => {
-        this.imagePreviewIndex = idx;
-      })
-      .width('100%')
-      .height('100%')
-      .indicator(false)
-      .backgroundColor(Color.Transparent)
-      /* 右上角关闭按钮 */
-      Row() {
-        SymbolGlyph($r("sys.symbol.xmark"))
-          .fontSize($r('app.float.font_icon_xl'))
-          .fontWeight(700)
-          .fontColor([Color.White])
-      }
-      .width(40)
-      .height(40) 
-      .justifyContent(FlexAlign.Center)
-      .borderRadius(24)
-      .backgroundColor($r('app.color.toggle_bg_inactive'))
-      .position({ x: '84%', y: 64 })
-      .onClick(() => {
-        this.imagePreviewMsg = null;
-      })
-      /* 页码指示（右下角）：当前页 / 总页数 */
-      Text(`${this.imagePreviewIndex + 1} / ${this.imagePreviewMsg!.images.length}`)
-        .fontSize($r('app.float.font_body'))
-        .fontColor($r('app.color.font_primary'))
-        .padding({
-          left: $r('app.float.space_sm'),
-          right: $r('app.float.space_sm'),
-          top: $r('app.float.space_xxs'),
-          bottom: $r('app.float.space_xxs'),
-        })
-        .borderRadius($r('app.float.space_sm'))
-        .backgroundColor('#66000000')
-        .position({ x: '45%', y: '90%' })
-    }
-    .width('100%')
-    .height('100%')
-    .position({ x: 0, y: 0 })
-    .zIndex(99)
   }
 
   /* 「选择文本」面板：居中标题 + 右上角关闭，正文为 Markdown 源码可长按复制（与上提前 item 级面板完全一致） */
