@@ -35,7 +35,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Smart scroll** — auto-pin while generating, pause on manual scroll, "back to bottom" button
 - **Markdown rendering** — native rendering + performance optimizations + dark-mode support
 - **Text interaction** — long-press copy, code-block copy, raw-text viewer
-- **Image input** — With vision models, send photos from gallery or camera (auto-compressed, up to 9 per message); tap any message image for a fullscreen preview (pinch / double-tap zoom, pan, swipe-down to close, gallery-like); add or remove images when editing a message
+- **Image input** — With vision models, send photos from gallery or camera (auto-compressed, up to 9 per message); tap any message image for a fullscreen preview; add or remove images when editing a message
 - **Share** — one-tap share of messages / conversations as plain text, Markdown, HTML, a long image, or PDF; AI replies keep their rich formatting; long conversations are exported per Q&A round into a long image / multi-page PDF
 
 ## Quick Start
@@ -50,13 +50,12 @@ Fill in the in-app "Settings" page (no code changes, persisted after save):
 
 | Field     | Description                                               |
 | --------- | --------------------------------------------------------- |
-| Provider  | Dropdown, defaults to DeepSeek (presets in ModelPresets)  |
+| Provider  | Dropdown; currently only DeepSeek is supported (presets in ModelPresets) |
 | API Key   | LLM secret (password input, encrypted storage)            |
 | Model     | Dropdown of the provider's models; empty uses the default |
 
 - Endpoint / models / capability flags are derived from code presets (`ModelPresets.ets`) and shown read-only
-- Web search is provided by the DeepSeek server; no separate search key is needed
-- ⚠️ Chat is blocked with a prompt to visit Settings until configured
+- Web search is provided by the DeepSeek server
 
 ## Project Structure
 
