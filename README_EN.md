@@ -37,7 +37,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Markdown rendering** — native rendering + performance optimizations + dark-mode support
 - **Text interaction** — long-press copy, code-block copy, raw-text viewer
 - **Image input** — With vision models, send photos from gallery or camera (auto-compressed, up to 9 per message); tap any message image for a fullscreen preview; add or remove images when editing a message
-- **File input** — Send txt / md / pdf / docx / pptx / xlsx attachments (picked via the system document picker, no storage permission needed); txt/md/docx/pptx/xlsx are extracted to text and work with every model (Office via OOXML parsing to Markdown), while PDFs are rendered page-by-page into images and require a vision model; one file ≤20MB, PDF ≤100 pages, text ≤30k chars; file cards shown in message bubbles, and files can be added/removed when editing a message
+- **File input** — Send txt / md / pdf / docx / pptx / xlsx attachments; content is auto-extracted for the AI to understand (see Core Design for details)
 - **Share** — one-tap share of messages / conversations as plain text, Markdown, HTML, a long image, or PDF; AI replies keep their rich formatting; long conversations are exported per Q&A round into a long image / multi-page PDF
 
 ## Quick Start
@@ -130,6 +130,7 @@ ChatCategorize/
 ### 12. File Attachment Parsing — FileParser
 - `service/FileParser.ets` wraps the system document picker (DocumentViewPicker, no storage permission) and parsing: txt/md are read as UTF-8 text (truncated); docx/pptx/xlsx are extracted to Markdown text by `service/OoxmlParser.ets` (@ohos/jszip unzip + XmlPullParser streaming OOXML XML — docx paragraphs / headings / tables, pptx per-slide text, xlsx per-sheet tables with sharedStrings); since API 20 lacks `getTextContent`, PDFs are rendered page-by-page via PDF Kit into PixelMap → JPEG Base64 (≤100 pages; total Base64 capped at 12MB to protect the request body)
 - Files are dispatched by channel in `DeepSeekProvider.buildApiContent`: txt/md/Office extracted text is merged into the `input_text` block with a `【File xx content】` marker (works on every model); PDF pages become per-page `input_image` vision blocks (vision models only, with fallback guards at pick / send / edit / provider layers)
+- Limits & UX: one file ≤20MB; extracted text (txt/md/docx/pptx/xlsx) truncated at 30k chars; file cards shown in message bubbles, and files can be added/removed when editing a message
 
 ## Data Models
 

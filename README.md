@@ -37,7 +37,7 @@
 - **Markdown 渲染** — 原生渲染 + 性能优化 + 深色模式
 - **文本交互** — 长按复制、代码块复制、原文查看
 - **图片输入** — 视觉模型下支持相册选图与拍照发送（自动压缩，最多 9 张），消息图片可全屏预览，编辑消息可增删图片
-- **文件输入** — 支持发送 txt / md / pdf / docx / pptx / xlsx 文件（系统文档选择器免权限选文件）；txt/md/docx/pptx/xlsx 提取为文本走文本通道（所有模型可用，Office 经 OOXML 解析为 Markdown），PDF 逐页渲染为图片走视觉通道（仅视觉模型支持）；单文件 ≤20MB、PDF ≤100 页、文本 ≤3 万字符；消息气泡内展示文件卡片，编辑消息可增删文件
+- **文件输入** — 支持发送 txt / md / pdf / docx / pptx / xlsx 附件，AI 自动提取内容理解（解析细节见核心设计）
 - **分享** — 消息 / 对话一键分享：纯文本、Markdown、HTML、长图、PDF 五格式，AI 回复富文本原样呈现；长对话按轮分段导出为长图 / 多页 PDF
 
 ## 快速开始
@@ -130,6 +130,7 @@ ChatCategorize/
 ### 12. 文件附件解析 — FileParser
 - `service/FileParser.ets` 单例封装系统文档选择器（DocumentViewPicker 免存储权限）与文件解析：txt/md 直接读取 UTF-8 文本（超长截断）；docx/pptx/xlsx 经 `service/OoxmlParser.ets`（@ohos/jszip 解包 + XmlPullParser 流式解析 OOXML XML）提取为 Markdown 文本（docx 段落 / 标题 / 表格、pptx 逐页文本、xlsx 逐工作表表格含 sharedStrings 还原）；pdf 因 API 20 无 `getTextContent`，经 PDF Kit 逐页渲染为 PixelMap → JPEG Base64（≤100 页，页面 Base64 总量 ≤12MB 保护请求体）
 - 发送按通道分发（`DeepSeekProvider.buildApiContent`）：txt/md/Office 提取文本以「【文件 xx 内容】」标注拼入 `input_text` 文本块（所有模型可用）；PDF 页面图逐页作为 `input_image` 视觉块（仅视觉模型，选择 / 发送 / 编辑 / Provider 四层兜底拦截）
+- 约束与交互：单文件 ≤20MB；提取文本（txt/md/docx/pptx/xlsx）≤3 万字符截断；文件卡片展示在消息气泡内，编辑消息可增删文件
 
 ## 数据模型
 
