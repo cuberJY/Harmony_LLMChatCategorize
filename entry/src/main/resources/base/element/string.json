@@ -93,6 +93,10 @@
       "value": "请求参数无效，请检查模型配置"
     },
     {
+      "name": "error_file_parse_failed",
+      "value": "文件解析失败，请检查模型和文件后重试"
+    },
+    {
       "name": "error_srv_error",
       "value": "模型服务暂时不可用，请稍后重试"
     },

@@ -168,13 +168,11 @@ export struct ChatInput {
   private async pickFiles(): Promise<void> {
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     try {
-      const file = await FileParser.getInstance().pickAndParse(context);
+      /* 阶段1 延迟解析：选择时仅持久化源文件（pickAndSave），不解析内容。
+         pdf 视觉模型校验与内容解析统一在发送阶段（ViewModel.parseForSend）完成，
+         txt/md 走文本通道所有模型可用 */
+      const file = await FileParser.getInstance().pickAndSave(context);
       if (file !== null) {
-        /* pdf 页面图走视觉通道：非视觉模型下直接拦截（txt/md 走文本通道，所有模型可用） */
-        if (file.pageImages.length > 0 && !this.supportsVision) {
-          showToast($r("app.string.vision_required"));
-          return;
-        }
         this.files = [file]; // 单文件：新选替换旧文件
       }
     } catch (e) {

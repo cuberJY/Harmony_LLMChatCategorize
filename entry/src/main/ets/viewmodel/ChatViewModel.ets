@@ -21,8 +21,9 @@ import { LLMProviderFactory } from "../service/LLMProviderFactory";
 import { AppConfig } from "../config/AppConfig";
 import { ThinkingEffort, DEFAULT_THINKING_EFFORT, isVisionModel } from "../config/ModelPresets";
 import { showToast } from "../common/Utils";
-import { LLMError, ErrorCode, errorMessageResource } from "../service/LLMError";
+import { LLMError, ErrorCode, errorMessageResource, buildError } from "../service/LLMError";
 import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
+import { FileParser } from "../service/FileParser";
 import { MessageDataSource } from "./MessageDataSource";
 import { BranchChainManager, VariantInfo } from "./BranchChainManager";
 
@@ -445,15 +446,8 @@ export class ChatViewModel {
       return;
     }
 
-    /* 图片/pdf 消息仅视觉模型支持：当前模型非视觉模型时拦截（编辑保留原路径由 editUserMessage 二次校验）。
-       txt/md 文件走文本通道（pageImages 为空），所有模型可用 */
-    const hasVisual: boolean = images.length > 0 || files.some((f: FileAttachment) => f.pageImages.length > 0);
-    if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
-      showToast($r("app.string.vision_required"));
-      return;
-    }
-
-    /* 编辑态：该次发送在被编辑的用户消息处创建新变体分支并重新生成（图片/文件用编辑后的结果） */
+    /* 编辑态：该次发送在被编辑的用户消息处创建新变体分支并重新生成（图片/文件用编辑后的结果）。
+       文件解析在 editUserMessage 内部占位创建之后进行（同样显示「文件解析中」） */
     if (this.editingMessageId.length > 0) {
       const editTargetId = this.editingMessageId;
       this.exitEditMode();
@@ -466,18 +460,59 @@ export class ChatViewModel {
     const userMsg = this.addMessage("user", text, tail !== undefined ? tail.id : "", images, files);
     this.scrollToBottom();
 
-    /* 2. 创建 AI 占位消息（parent = 刚发送的用户消息），保留引用用于流式填充 */
+    /* 2. 创建 AI 占位消息（parent = 刚发送的用户消息），保留引用用于流式填充。
+       先进入「文件解析中」状态（isParsing=true）：解析耗时（尤其 pdf 逐页渲染）期间
+       气泡立即显示解析进度，解析完成后才转「思考中」 */
     const aiMsg = this.addMessage("assistant", "", userMsg.id);
-    aiMsg.isThinking = true;
     aiMsg.isStreaming = true;
-    aiMsg.thinkingStartTime = Date.now();
+    if (files.length > 0) {
+      aiMsg.isParsing = true;
+    }
+    this.scrollToBottom(); // 占位已入列 → 立即滚动到底，让「文件解析中…」状态立即可见
 
-    /* 3. 构造历史上下文（不含最后一条空 AI 消息），并捕获目标对话 */
+    /* 3. 延迟解析：发送时才解析文件内容（txt/md/xlsx 读文本；pdf 渲染页面图）。
+       逐个 await，期间 AI 气泡显示「文件解析中…」；
+       失败 → AI 占位保留并转为错误卡片（不删除消息），其余流程终止 */
+    if (files.length > 0) {
+      try {
+        for (const f of files) {
+          await FileParser.getInstance().parseForSend(f);
+        }
+      } catch (e) {
+        aiMsg.isParsing = false;
+        aiMsg.isStreaming = false;
+        aiMsg.error = buildError(ErrorCode.FILE_PARSE_FAILED, (e as Error).message, undefined, "local");
+        return;
+      }
+    }
+
+    /* 4. 解析后重算视觉：pdf 页面图（pageImages 非空）与图片一样走视觉模型；
+       txt/md 走文本通道（pageImages 为空），所有模型可用。
+       不通过 → AI 占位转为错误卡片（保留用户消息） */
+    const hasVisual: boolean = images.length > 0 || files.some((f: FileAttachment) => f.pageImages.length > 0);
+    if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
+      aiMsg.isParsing = false;
+      aiMsg.isStreaming = false;
+      aiMsg.error = buildError(ErrorCode.FILE_PARSE_FAILED, "当前模型不支持解析PDF文件，请切换模型后重试", undefined, "local");
+      return;
+    }
+
+    /* 5. 解析完成 → 转为思考态。
+       解析结果（textContent/pageImages）修改发生在 addMessage 之后，须补写落库，
+       保证重启后文件内容可恢复（历史重解析依赖此数据） */
+    aiMsg.isParsing = false;
+    aiMsg.isThinking = true;
+    aiMsg.thinkingStartTime = Date.now();
+    if (files.length > 0) {
+      ConversationRepository.getInstance().updateMessage(userMsg);
+    }
+
+    /* 6. 构造历史上下文（不含最后一条空 AI 消息），并捕获目标对话 */
     /* 捕获当前对话：流式期间可能切换/新建对话，onComplete 只更新捕获对象，不污染其他对话 */
     const targetConv = this.currentConversation;
     const context: Message[] = this.messageDataSource.getAll().slice(0, -1);
 
-    /* 4. 发起流式回复（任务登记 + 可选搜索 + 回调 + 调用 LLM） */
+    /* 7. 发起流式回复（任务登记 + 可选搜索 + 回调 + 调用 LLM） */
     this.startStreamReply(sendConvId, targetConv, aiMsg, context, this.webSearch, this.thinkingEffort, text);
   }
 
@@ -1255,13 +1290,8 @@ export class ChatViewModel {
     const sendConvId = this.currentConversationId;
     const target = this.branchManager.getById(editTargetId);
     if (target === undefined || !target.isUser()) return; // 目标必须是用户消息
-    /* 兜底拦截：编辑后仍带图/pdf 且当前模型非视觉模型时拦截（正常路径已在 handleUserSend 校验；
-       编辑态进入时的禁止拦截见 startEdit） */
-    const hasVisual: boolean = images.length > 0 || files.some((f: FileAttachment) => f.pageImages.length > 0);
-    if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
-      showToast($r("app.string.vision_required"));
-      return;
-    }
+    /* 编辑路径的视觉/文件校验延迟到占位创建后的解析阶段（见下方步骤 5/6）：
+       编辑回填的文件可能未解析（新增文件），需先解析再判定 pageImages */
     if (this.isStreamingFor(sendConvId)) {
       showToast($r("app.string.streaming_busy"));
       return;
@@ -1292,13 +1322,48 @@ export class ChatViewModel {
     this.branchManager.deactivateBranchFrom(target);
     /* 3. 重建激活链（新用户消息成为链尾） */
     await this.rebuildActiveChain(newUserMsg.id);
-    /* 4. 创建 AI 占位（parent = 新用户消息）并入列 */
+    /* 4. 创建 AI 占位（parent = 新用户消息）并入列。
+       先进入「文件解析中」状态（isParsing=true）：编辑新增/更换的文件需要先解析再生成 */
     const aiMsg = this.createAndPersist("assistant", "", newUserMsg.id);
-    aiMsg.isThinking = true;
     aiMsg.isStreaming = true;
-    aiMsg.thinkingStartTime = Date.now();
+    if (files.length > 0) {
+      aiMsg.isParsing = true;
+    }
     this.reloadActiveList();
-    /* 5. 构造上下文并发起流式回复 */
+
+    /* 5. 延迟解析：编辑回填的文件可能未解析（新增文件），先逐文件解析；
+       失败 → AI 占位保留并转为错误卡片（不删除分支），其余流程终止 */
+    if (files.length > 0) {
+      try {
+        for (const f of files) {
+          await FileParser.getInstance().parseForSend(f);
+        }
+      } catch (e) {
+        aiMsg.isParsing = false;
+        aiMsg.isStreaming = false;
+        aiMsg.error = buildError(ErrorCode.FILE_PARSE_FAILED, (e as Error).message, undefined, "local");
+        return;
+      }
+    }
+
+    /* 6. 解析后重算视觉：pdf 页面图（pageImages 非空）与图片一样走视觉模型；
+       不通过 → AI 占位转为错误卡片（保留新分支） */
+    const hasVisual: boolean = images.length > 0 || files.some((f: FileAttachment) => f.pageImages.length > 0);
+    if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
+      aiMsg.isParsing = false;
+      aiMsg.isStreaming = false;
+      aiMsg.error = buildError(ErrorCode.FILE_PARSE_FAILED, "当前模型不支持解析PDF文件，请切换模型后重试", undefined, "local");
+      return;
+    }
+
+    /* 7. 解析完成 → 转为思考态，构造上下文并发起流式回复。
+       解析结果修改发生在 createAndPersist 之后，须补写落库（保证重启后文件内容可恢复） */
+    aiMsg.isParsing = false;
+    aiMsg.isThinking = true;
+    aiMsg.thinkingStartTime = Date.now();
+    if (files.length > 0) {
+      ConversationRepository.getInstance().updateMessage(newUserMsg);
+    }
     const context = this.buildContextBefore(aiMsg.id);
     const targetConv = this.currentConversation;
     await this.startStreamReply(sendConvId, targetConv, aiMsg, context, webSearch, thinkingEffort, newText);

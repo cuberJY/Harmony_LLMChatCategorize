@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office Parser 阶段0验证</title>
+  <!-- 引入已打包的浏览器版本库 -->
+  <script src="./deck-ir.bundle.js"></script>
+  <script src="./docx-preview.bundle.js"></script>
+</head>
+<body>
+<script>
+  (function () {
+    // 页面就绪后主动自检：确认两个库的全局 API 是否暴露
+    function report(reportObj) {
+      // 把结果写入 window.OfficeParserReady，ArkTS 侧可 runJavaScript 读取
+      window.OfficeParserReady = reportObj;
+      document.getElementById('status').textContent = JSON.stringify(reportObj);
+    }
+
+    function base64ToBytes(base64) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) { bytes[i] = binary.charCodeAt(i); }
+      return bytes;
+    }
+
+    function extensionOf(name) {
+      const i = name.lastIndexOf('.');
+      return i >= 0 ? name.substring(i).toLowerCase() : '';
+    }
+
+    // —— 与 ArkTS 通信的 Bridge（模式同 chatcube）——
+    window.OfficeParserBridge = {
+      // 解析 pptx/deck-ir：入参 {fileName, base64} → Promise resolve HTML 片段
+      parsePptx: function (payload) {
+        const bytes = base64ToBytes(payload.base64);
+        return OfficeParser.parsePptx(bytes.buffer).then(function (parsed) {
+          // parsed = { slideSize, slides: [{html, warnings}], media }
+          return JSON.stringify({ ok: true, slideSize: parsed.slideSize, slides: parsed.slides });
+        });
+      },
+      // 渲染 docx/docx-preview：入参 {base64} → Promise resolve 重排后的 body.innerHTML
+      renderDocx: function (payload) {
+        const bytes = base64ToBytes(payload.base64);
+        const container = document.getElementById('docx-container');
+        // 先清空，避免上次内容残留
+        container.innerHTML = '';
+        return OfficeParserDocx.renderAsync(bytes, container, container, {
+          inWrapper: true,
+          breakPage: true,
+          ignoreWidth: true // 忽略固定宽度，便于整页截图
+        }).then(function () {
+          return JSON.stringify({ ok: true, html: container.innerHTML });
+        });
+      },
+      markReady: function () {
+        report({ ready: true, parsePptx: typeof OfficeParser.parsePptx, renderAsync: typeof OfficeParserDocx.renderAsync });
+        return 'ok';
+      }
+    };
+
+    // 若通过 script 标签方式验证（本 HTML 直接打开），可手动调用 markReady
+    report({ ready: false, note: 'call window.OfficeParserBridge.markReady() once libs loaded' });
+  })();
+</script>
+<div id="status" style="white-space:pre-wrap;font:12px monospace;">loading...</div>
+<div id="docx-container"></div>
+</body>
+</html>

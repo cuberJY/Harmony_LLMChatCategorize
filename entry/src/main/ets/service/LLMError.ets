@@ -52,6 +52,7 @@ export enum ErrorCode {
   NET_REQUEST_FAILED = "NET_REQUEST_FAILED", // 未收到任何内容时的请求失败
   EMPTY_RESPONSE = "EMPTY_RESPONSE",         // 流正常结束但无有效数据
   EMPTY_ANSWER = "EMPTY_ANSWER",             // completed 但无正文（联网搜索后模型空回复，可继续生成）
+  FILE_PARSE_FAILED = "FILE_PARSE_FAILED",   // 发送前文件附件解析失败（txt/md 读取失败 / pdf 渲染失败 / 非视觉模型解析 pdf 被拦）
   UNKNOWN = "UNKNOWN",                       // 兜底
 }
 
@@ -69,6 +70,8 @@ function categoryOf(code: ErrorCode): ErrorCategory {
     case ErrorCode.CTX_OVERFLOW:
       return "context";
     case ErrorCode.REQ_INVALID:
+      return "client";
+    case ErrorCode.FILE_PARSE_FAILED:
       return "client";
     case ErrorCode.OUT_TRUNCATED:
     case ErrorCode.EMPTY_ANSWER:
@@ -97,8 +100,9 @@ function retryableOf(code: ErrorCode): boolean {
     case ErrorCode.UNKNOWN:
       return true;
     case ErrorCode.REQ_INVALID:
+    case ErrorCode.FILE_PARSE_FAILED:
     case ErrorCode.INSUFFICIENT_BALANCE:
-      return false; // 请求非法 / 余额不足：重试无法解决（余额不足重复请求只会再次失败）
+      return false; // 请求非法 / 文件解析失败 / 余额不足：重试无法解决（余额不足重复请求只会再次失败）
     default:
       return false;
   }
@@ -146,6 +150,8 @@ export function errorMessageResource(code: string): Resource {
       return $r("app.string.error_ctx_overflow");
     case ErrorCode.REQ_INVALID:
       return $r("app.string.error_req_invalid");
+    case ErrorCode.FILE_PARSE_FAILED:
+      return $r("app.string.error_file_parse_failed");
     case ErrorCode.SRV_ERROR:
       return $r("app.string.error_srv_error");
     case ErrorCode.OUT_TRUNCATED:

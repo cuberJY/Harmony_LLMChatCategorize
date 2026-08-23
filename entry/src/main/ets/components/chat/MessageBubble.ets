@@ -94,10 +94,10 @@ export struct MessageBubble {
   }
 
   /**
-   * 监听思考/搜索状态切换：消息处于任一状态时启动点号动画定时器，全部结束时停止。
-   * （isThinking/isSearching 互斥，任一为 true 即说明仍在思考或搜索过程中）
+   * 监听思考/搜索/文件解析状态切换：消息处于任一状态时启动点号动画定时器，全部结束时停止。
+   * （isThinking/isSearching/isParsing 互斥，任一为 true 即说明仍在过程中）
    */
-  @Monitor('message.isThinking', 'message.isSearching')
+  @Monitor('message.isThinking', 'message.isSearching', 'message.isParsing')
   onStatusChanged(): void {
     this.syncStatusDotTimer();
   }
@@ -389,7 +389,7 @@ export struct MessageBubble {
    *  - 定时器仅在思考/搜索期间运行（@Monitor 与 aboutToAppear/Disappear 同步启停），避免空转
    */
   private syncStatusDotTimer(): void {
-    if (this.message.isSearching || this.message.isThinking) {
+    if (this.message.isSearching || this.message.isThinking || this.message.isParsing) {
       this.startStatusDotTimer();
     } else {
       this.stopStatusDotTimer();
@@ -665,13 +665,15 @@ export struct MessageBubble {
       });
     } else {
       /**
-       * AI 消息、正文为空：显示阶段状态（优先级：搜索 > 失败 > 思考中）
+       * AI 消息、正文为空：显示阶段状态（优先级：搜索 > 失败 > 文件解析中 > 思考中）
        * 搜索细节（正在搜索/正在浏览）已写入 reasoning 时由过程块展示，这里仅在过程为空时显示扫描线提示，避免重复
        */
       if (this.message.isSearching && this.message.reasoning.length === 0) {
         this.statusHint("正在搜索", true);
       } else if (this.message.searchFailed) {
         this.statusHint("联网搜索失败，使用普通模式回答");
+      } else if (this.message.isParsing) {
+        this.statusHint("文件解析中", true);
       } else if (this.message.isThinking && this.message.reasoning.length === 0) {
         this.statusHint("思考中", true);
       }

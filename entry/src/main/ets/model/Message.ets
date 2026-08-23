@@ -28,6 +28,8 @@ export interface ImageAttachment {
  * @param name        文件名（含后缀，展示用）
  * @param ext         小写扩展名（txt | md | pdf；决定图标颜色与解析方式）
  * @param size        文件大小（字节，卡片展示小字）
+ * @param localPath   源文件在应用沙箱内的持久路径（filesDir/attachments/ 下；空串=未持久化。
+ *                    阶段1延迟解析：选中文件时仅拷贝源文件到此路径，解析结果在发送时填充）
  * @param textContent 提取的文本（txt/md 原文；pdf 为空串）
  * @param pageImages  PDF 页渲染图 Base64 列表（仅 pdf 有值，可含多页）
  */
@@ -36,6 +38,7 @@ export interface FileAttachment {
   name: string;
   ext: string;
   size: number;
+  localPath: string;
   textContent: string;
   pageImages: string[];
 }
@@ -79,6 +82,7 @@ export class Message {
   @Trace error: LLMError | undefined = undefined; // 生成终止时的统一错误信息（结构化存储，独立于正文；进程重启后从库恢复展示）
   @Trace isThinking: boolean = false; // 是否正在思考中（用于 UI 状态）
   @Trace isSearching: boolean = false; // 是否正在联网搜索（用于 UI 状态）
+  @Trace isParsing: boolean = false; // 是否正在解析文件附件（仅内存态，不持久化；解析中气泡显示「文件解析中…」）
   @Trace searchFailed: boolean = false; // 联网搜索是否失败（已降级普通模式）
   @Trace isStreaming: boolean = false; // 是否正在流式输出（UI 据此保持渲染，Markdown 组件由 content 增量自动重绘）
   @Trace isPaused: boolean = false; // 是否已暂停生成（暂停态时气泡操作栏右上角显示「继续生成」；仅内存状态，不持久化）

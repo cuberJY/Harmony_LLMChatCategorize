@@ -6,6 +6,7 @@
  *  - PDF：红底白字 "PDF"
  *  - TXT：浅灰底深灰字 "TXT"
  *  - MD：深灰底白字 "MD"
+ *  - XLSX/XLS：绿底白字 "XLSX"
  *
  * showRemove=true（预览条场景）：卡片右上角显示删除按钮，点击触发 onRemove
  */
@@ -23,7 +24,7 @@ interface FileIconStyle {
 @ComponentV2
 export struct FileCard {
   /* 文件附件数据（由父级传入，@Param 变化自动刷新） */
-  @Param file: FileAttachment = { id: "", name: "", ext: "", size: 0, textContent: "", pageImages: [] };
+  @Param file: FileAttachment = { id: "", name: "", ext: "", size: 0, localPath: "", textContent: "", pageImages: [] };
   /* 是否显示删除按钮（预览条 true / 气泡 false） */
   @Param showRemove: boolean = false;
   /* 删除回调（showRemove=true 时点击触发） */
@@ -36,6 +37,9 @@ export struct FileCard {
     }
     if (ext === "md") {
       return { bg: "#4A4A52", text: "MD", color: Color.White }; // 深灰底白字
+    }
+    if (ext === "xlsx" || ext === "xls") {
+      return { bg: "#3FA067", text: "XLSX", color: Color.White }; // 绿底白字
     }
     return { bg: "#E9E9EC", text: "TXT", color: "#3A3A40" }; // 浅灰底深灰字（默认 txt）
   }
