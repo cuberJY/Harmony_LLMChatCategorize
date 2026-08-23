@@ -22,6 +22,8 @@ import { ExportCardLayer, EXPORT_CARD_WIDTH, EXPORT_IMAGE_MAX_ROUNDS, EXPORT_PDF
 import { ExportLoading } from "../components/export/ExportLoading";
 import { PdfExporter } from "../service/PdfExporter";
 import { ImageMerger, IMAGE_MERGE_MAX_HEIGHT } from "../service/ImageMerger";
+import { OfficeHtmlParser } from "../service/OfficeHtmlParser";
+import { Logger } from "../common/Logger";
 
 /**
  * 状态管理 V2 结构：
@@ -84,6 +86,10 @@ export struct ChatPage {
     /* 初始化数据库（页面级 UIAbilityContext） */
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.vm.aboutToAppear(context);
+    /* 注入 Web 截图执行器：闭包延迟取 UIContext（渲染发生在组件挂载后），供 OfficeHtmlParser 逐页截图 */
+    OfficeHtmlParser.getInstance().setScreenshotExecutor((id: string): Promise<image.PixelMap> => {
+      return this.getUIContext().getComponentSnapshot().get(id);
+    });
     /* 注入正文生成阶段的平滑跟随动画：思考阶段即时钉底，正文阶段用 200ms EaseOut 过渡保留顺滑 */
     this.vm.setScrollAnimator((action: () => void): void => {
       /* animateTo 的 curve 支持字符串（'easeOut'），避免依赖 Curve 枚举导出 */
@@ -167,10 +173,29 @@ export struct ChatPage {
   build() {
     /* ChatPage 作为 NavDestination 首页（isEntry 入栈），使 customNavContentTransition 能同时驱动聊天页与侧边栏位移动画 */
     NavDestination() {
-      Column() {
-        Row() {
+      Stack() {
+        /* 阶段4 隐藏 WebView：全屏常驻（zIndex 0），被上层聊天内容覆盖 → 用户不可见。
+           docx/pptx 排版还原时注入 office-parser/index.html 渲染并逐页截图（componentSnapshot）。 */
+        Web({ src: $rawfile("office-parser/index.html"),
+          controller: OfficeHtmlParser.getInstance().getWebviewController() })
+          .id("office-web")
+          .width("100%")
+          .height("100%")
+          .backgroundColor(Color.White)
+          .zIndex(0)
+          .onPageEnd(() => {
+            /* JS Bridge 就绪（deck-ir / docx-preview bundle 加载完成） */
+            OfficeHtmlParser.getInstance().markReady();
+          })
+          .onErrorReceive((event: OnErrorReceiveEvent) => {
+            /* rawfile/bundle 加载失败会触发：记录错误码定位加载问题 */
+            Logger.error(`OfficeWebView onError: code=${event.error.getErrorCode()} info=${event.error.getErrorInfo()}`);
+          })
+
+        Column() {
           Row() {
-            /* "三横线"图标，点击弹出侧边栏 */
+            Row() {
+              /* "三横线"图标，点击弹出侧边栏 */
             SymbolGlyph($r("sys.symbol.sort"))
               .fontSize($r('app.float.font_icon_xl'))
               .fontWeight(700)
@@ -465,6 +490,9 @@ export struct ChatPage {
       )
       .width("100%")
       .height("100%")
+      /* 阶段4：上层聊天内容不透明覆盖底层 WebView（用户不可见），并置顶 zIndex */
+      .zIndex(1)
+      .backgroundColor($r('app.color.page_bg'))
       /**
        * 半模态面板（「选择文本」/「xx个网页」共用，页面级统一管理）：
        * 从下方弹出，高度 = 窗口高 - 状态栏 - 标题栏；弹层生命周期与页面绑定，
@@ -480,6 +508,9 @@ export struct ChatPage {
           this.sheetKind = "none";
         },
       });
+      } /* Stack 闭合：Web 底层 + 聊天内容上层 */
+      .width("100%")
+      .height("100%")
     }
     .backgroundColor($r('app.color.page_bg'))
     .hideTitleBar(true)

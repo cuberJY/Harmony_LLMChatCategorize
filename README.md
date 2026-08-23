@@ -17,7 +17,7 @@
 | 联网搜索   | DeepSeek 服务端 web_search 工具                             |
 | Markdown   | @luvi/lv-markdown-in 原生渲染（LaTeX / 代码高亮 / Mermaid） |
 | 分享解析   | marked ArkTS 移植（[Harmony-Markdown-Editor](https://github.com/electronicminer/Harmony-Markdown-Editor)，MIT） |
-| 文档解析   | @ohos/jszip + 自研 OOXML 提取器（docx / pptx / xlsx → Markdown），PDF Kit（pdf 逐页渲染） |
+| 文档解析   | @ohos/jszip + 自研 OOXML 提取器（docx / pptx / xlsx → Markdown），ArkWeb + deck-ir / docx-preview（视觉模型下 docx/pptx 排版还原截图），PDF Kit（pdf 逐页渲染） |
 
 ## 功能特性
 
@@ -128,8 +128,8 @@ ChatCategorize/
 - 全屏布局 + 透明系统栏，深浅色动态适配；系统栏高度注入 AppStorage，页面显式避让（固定高度组件上 `safeAreaPadding` 会失效）
 
 ### 12. 文件附件解析 — FileParser
-- `service/FileParser.ets` 单例封装系统文档选择器（DocumentViewPicker 免存储权限）与文件解析：txt/md 直接读取 UTF-8 文本（超长截断）；docx/pptx/xlsx 经 `service/OoxmlParser.ets`（@ohos/jszip 解包 + XmlPullParser 流式解析 OOXML XML）提取为 Markdown 文本（docx 段落 / 标题 / 表格、pptx 逐页文本、xlsx 逐工作表表格含 sharedStrings 还原）；pdf 因 API 20 无 `getTextContent`，经 PDF Kit 逐页渲染为 PixelMap → JPEG Base64（≤100 页，页面 Base64 总量 ≤12MB 保护请求体）
-- 发送按通道分发（`DeepSeekProvider.buildApiContent`）：txt/md/Office 提取文本以「【文件 xx 内容】」标注拼入 `input_text` 文本块（所有模型可用）；PDF 页面图逐页作为 `input_image` 视觉块（仅视觉模型，选择 / 发送 / 编辑 / Provider 四层兜底拦截）
+- `service/FileParser.ets` 单例封装系统文档选择器（DocumentViewPicker 免存储权限）与文件解析：txt/md 直接读取 UTF-8 文本（超长截断）；docx/pptx/xlsx 经 `service/OoxmlParser.ets`（@ohos/jszip 解包 + XmlPullParser 流式解析 OOXML XML）提取为 Markdown 文本（docx 段落 / 标题 / 表格、pptx 逐页文本、xlsx 逐工作表表格含 sharedStrings 还原）；docx/pptx 在视觉模型下改走 `service/OfficeHtmlParser.ets`（隐藏 ArkWeb + deck-ir/docx-preview 排版还原）逐页截图；pdf 因 API 20 无 `getTextContent`，经 PDF Kit 逐页渲染为 PixelMap → JPEG Base64（≤100 页，页面 Base64 总量 ≤12MB 保护请求体）
+- 发送按通道分发（`DeepSeekProvider.buildApiContent`）：txt/md 与 Office 提取文本以「【文件 xx 内容】」标注拼入 `input_text` 文本块（所有模型可用）；docx/pptx（视觉模型）/ PDF 页面图逐页作为 `input_image` 视觉块（仅视觉模型，选择 / 发送 / 编辑 / Provider 四层兜底拦截）
 - 约束与交互：单文件 ≤20MB；提取文本（txt/md/docx/pptx/xlsx）≤3 万字符截断；文件卡片展示在消息气泡内，编辑消息可增删文件
 
 ## 数据模型

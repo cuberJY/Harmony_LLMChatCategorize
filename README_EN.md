@@ -17,7 +17,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 | Web search        | DeepSeek server-side web_search tool                              |
 | Markdown          | @luvi/lv-markdown-in native rendering (LaTeX / code highlight / Mermaid) |
 | Share parsing     | marked ArkTS port ([Harmony-Markdown-Editor](https://github.com/electronicminer/Harmony-Markdown-Editor), MIT) |
-| Document parsing  | @ohos/jszip + in-house OOXML extractor (docx / pptx / xlsx → Markdown), PDF Kit (per-page PDF rendering) |
+| Document parsing  | @ohos/jszip + in-house OOXML extractor (docx / pptx / xlsx → Markdown), ArkWeb + deck-ir / docx-preview (layout screenshots of docx/pptx on vision models), PDF Kit (per-page PDF rendering) |
 
 ## Features
 
@@ -128,8 +128,8 @@ ChatCategorize/
 - Full-screen layout + transparent system bars with dark/light adaptation; bar heights injected into AppStorage and explicitly avoided by pages (since `safeAreaPadding` fails on fixed-height components)
 
 ### 12. File Attachment Parsing — FileParser
-- `service/FileParser.ets` wraps the system document picker (DocumentViewPicker, no storage permission) and parsing: txt/md are read as UTF-8 text (truncated); docx/pptx/xlsx are extracted to Markdown text by `service/OoxmlParser.ets` (@ohos/jszip unzip + XmlPullParser streaming OOXML XML — docx paragraphs / headings / tables, pptx per-slide text, xlsx per-sheet tables with sharedStrings); since API 20 lacks `getTextContent`, PDFs are rendered page-by-page via PDF Kit into PixelMap → JPEG Base64 (≤100 pages; total Base64 capped at 12MB to protect the request body)
-- Files are dispatched by channel in `DeepSeekProvider.buildApiContent`: txt/md/Office extracted text is merged into the `input_text` block with a `【File xx content】` marker (works on every model); PDF pages become per-page `input_image` vision blocks (vision models only, with fallback guards at pick / send / edit / provider layers)
+- `service/FileParser.ets` wraps the system document picker (DocumentViewPicker, no storage permission) and parsing: txt/md are read as UTF-8 text (truncated); docx/pptx/xlsx are extracted to Markdown text by `service/OoxmlParser.ets` (@ohos/jszip unzip + XmlPullParser streaming OOXML XML — docx paragraphs / headings / tables, pptx per-slide text, xlsx per-sheet tables with sharedStrings); on vision models, docx/pptx instead go through `service/OfficeHtmlParser.ets` (hidden ArkWeb + deck-ir/docx-preview layout) for per-page screenshots; since API 20 lacks `getTextContent`, PDFs are rendered page-by-page via PDF Kit into PixelMap → JPEG Base64 (≤100 pages; total Base64 capped at 12MB to protect the request body)
+- Files are dispatched by channel in `DeepSeekProvider.buildApiContent`: txt/md and Office extracted text is merged into the `input_text` block with a `【File xx content】` marker (works on every model); docx/pptx (vision models) / PDF pages become per-page `input_image` vision blocks (vision models only, with fallback guards at pick / send / edit / provider layers)
 - Limits & UX: one file ≤20MB; extracted text (txt/md/docx/pptx/xlsx) truncated at 30k chars; file cards shown in message bubbles, and files can be added/removed when editing a message
 
 ## Data Models

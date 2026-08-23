@@ -31,12 +31,17 @@ import { util } from "@kit.ArkTS";
 import { FileAttachment } from "../model/Message";
 import { generateId } from "../common/Utils";
 import { Logger } from "../common/Logger";
+import { AppConfig } from "../config/AppConfig";
+import { isVisionModel } from "../config/ModelPresets";
+import { OfficeHtmlParser } from "./OfficeHtmlParser";
 import { OoxmlParser } from "./OoxmlParser";
 
 /* 支持的文件后缀（DocumentViewPicker fileSuffixFilters 过滤） */
 const SUPPORTED_EXTS: string[] = [".txt", ".md", ".pdf", ".docx", ".pptx", ".xlsx"];
 /* 单文件大小上限（字节，20MB） */
 const MAX_FILE_SIZE: number = 20 * 1024 * 1024;
+/* 视觉排版解析（docx/pptx → WebView 截图）单文件大小上限（Base64 注入/截图内存保护） */
+const MAX_OFFICE_VISUAL_SIZE: number = 15 * 1024 * 1024;
 /* PDF 最大渲染页数 */
 const MAX_PDF_PAGES: number = 100;
 /* 提取文本（txt/md/docx/pptx/xlsx）长度上限（字符，超长截断避免请求体过大） */
@@ -157,9 +162,16 @@ export class FileParser {
       return Promise.resolve();
     }
     if (ext === "docx" || ext === "doc") {
+      /* 视觉模型 → WebView 排版还原截图；非视觉模型 → OOXML 文本提取 */
+      if (this.shouldParseVisual()) {
+        return this.parseOfficeVisual(localPath, file, "docx");
+      }
       return this.parseOoxml(localPath, file, OoxmlParser.parseDocx);
     }
     if (ext === "pptx" || ext === "ppt") {
+      if (this.shouldParseVisual()) {
+        return this.parseOfficeVisual(localPath, file, "pptx");
+      }
       return this.parseOoxml(localPath, file, OoxmlParser.parsePptx);
     }
     if (ext === "xlsx" || ext === "xls") {
@@ -201,6 +213,28 @@ export class FileParser {
   private async parseOoxml(localPath: string, file: FileAttachment, parser: (buf: ArrayBuffer) => Promise<string>): Promise<void> {
     const text: string = await parser(this.readBuffer(localPath));
     file.textContent = text;
+  }
+
+  /**
+   * docx/pptx 视觉解析（仅视觉模型）：读文件 Base64 → 注入隐藏 WebView 排版还原 → 逐页截图 JPEG Base64 → pageImages
+   * 失败语义：直接抛异常（调用方显示错误卡片，不自动回退文本通道——用户确认的产品决策）
+   */
+  private async parseOfficeVisual(localPath: string, file: FileAttachment, kind: string): Promise<void> {
+    const buf: ArrayBuffer = this.readBuffer(localPath);
+    if (buf.byteLength > MAX_OFFICE_VISUAL_SIZE) {
+      throw new Error(`文件过大（超过 ${MAX_OFFICE_VISUAL_SIZE / (1024 * 1024)}MB），无法进行排版还原`);
+    }
+    const b64: string = buffer.from(buf).toString("base64");
+    file.pageImages = await OfficeHtmlParser.getInstance().renderToImages(kind, b64);
+  }
+
+  /** 当前模型是否为视觉模型（决定 docx/pptx 走 WebView 排版还是 OOXML 文本通道） */
+  private shouldParseVisual(): boolean {
+    try {
+      return isVisionModel(AppConfig.getInstance().getModel());
+    } catch (e) {
+      return false;
+    }
   }
 
   /**

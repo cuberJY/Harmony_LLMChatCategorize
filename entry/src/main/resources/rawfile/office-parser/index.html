@@ -3,20 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Office Parser 阶段0验证</title>
-  <!-- 引入已打包的浏览器版本库 -->
+  <title>Office Parser</title>
+  <!-- 已打包的浏览器版本库：deck-ir（pptx 排版还原）/ docx-preview（docx 排版还原） -->
   <script src="./deck-ir.bundle.js"></script>
   <script src="./docx-preview.bundle.js"></script>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #fff; }
+    /* 舞台 = 视口；每页一个 .page-slot，全部叠放在视口内，showPage 切换 active */
+    #stage { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; }
+    .page-slot { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; overflow: hidden; display: none; background: #fff; }
+    .page-slot.active { display: block; }
+    /* 页内容：按原始尺寸定位，fit() 统一等比缩放适配视口（transform-origin 中心） */
+    .page-content { position: absolute; left: 50%; top: 50%; transform-origin: center center; }
+  </style>
 </head>
 <body>
+  <div id="stage"></div>
+  <!-- docx-preview 注入样式专用容器（每次渲染前清空，避免样式累积/重复 id） -->
+  <div id="docx-styles" style="display:none"></div>
 <script>
   (function () {
-    // 页面就绪后主动自检：确认两个库的全局 API 是否暴露
-    function report(reportObj) {
-      // 把结果写入 window.OfficeParserReady，ArkTS 侧可 runJavaScript 读取
-      window.OfficeParserReady = reportObj;
-      document.getElementById('status').textContent = JSON.stringify(reportObj);
-    }
+    'use strict';
 
     function base64ToBytes(base64) {
       const binary = atob(base64);
@@ -25,46 +32,154 @@
       return bytes;
     }
 
-    function extensionOf(name) {
-      const i = name.lastIndexOf('.');
-      return i >= 0 ? name.substring(i).toLowerCase() : '';
+    /** 内容元素适配进视口：居中 + 等比缩放（contain）。content 需有确定宽高。 */
+    function fit(content, contentW, contentH) {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const ratio = Math.min(vw / contentW, vh / contentH);
+      content.style.width = contentW + 'px';
+      content.style.height = contentH + 'px';
+      content.style.transform = 'scale(' + ratio + ')';
+      return ratio;
     }
 
-    // —— 与 ArkTS 通信的 Bridge（模式同 chatcube）——
+    /** 清空舞台，移除上一份文档的所有页槽 */
+    function clearStage() {
+      const stage = document.getElementById('stage');
+      while (stage.firstChild) { stage.removeChild(stage.firstChild); }
+    }
+
+    /** 构建页槽：items 为 { content: HTMLElement }，每项占一页；返回页数 */
+    function buildSlots(items) {
+      clearStage();
+      const stage = document.getElementById('stage');
+      for (let i = 0; i < items.length; i++) {
+        const slot = document.createElement('div');
+        slot.className = 'page-slot';
+        slot.id = 'slot-' + i;
+        slot.appendChild(items[i].content);
+        stage.appendChild(slot);
+      }
+      return items.length;
+    }
+
     window.OfficeParserBridge = {
-      // 解析 pptx/deck-ir：入参 {fileName, base64} → Promise resolve HTML 片段
-      parsePptx: function (payload) {
-        const bytes = base64ToBytes(payload.base64);
-        return OfficeParser.parsePptx(bytes.buffer).then(function (parsed) {
-          // parsed = { slideSize, slides: [{html, warnings}], media }
-          return JSON.stringify({ ok: true, slideSize: parsed.slideSize, slides: parsed.slides });
-        });
-      },
-      // 渲染 docx/docx-preview：入参 {base64} → Promise resolve 重排后的 body.innerHTML
-      renderDocx: function (payload) {
-        const bytes = base64ToBytes(payload.base64);
-        const container = document.getElementById('docx-container');
-        // 先清空，避免上次内容残留
-        container.innerHTML = '';
-        return OfficeParserDocx.renderAsync(bytes, container, container, {
-          inWrapper: true,
-          breakPage: true,
-          ignoreWidth: true // 忽略固定宽度，便于整页截图
-        }).then(function () {
-          return JSON.stringify({ ok: true, html: container.innerHTML });
-        });
-      },
+      /** 自检两个库的全局 API 是否暴露（ArkTS 侧可 runJavaScript 调用） */
       markReady: function () {
-        report({ ready: true, parsePptx: typeof OfficeParser.parsePptx, renderAsync: typeof OfficeParserDocx.renderAsync });
+        return JSON.stringify({
+          ok: true,
+          parsePptx: typeof OfficeParser.parsePptx,
+          renderAsync: typeof OfficeParserDocx.renderAsync
+        });
+      },
+
+      /**
+       * pptx：deck-ir 解析 → 每页 slide 一个 .page-slot。
+       * 入参 { base64 } → Promise resolve JSON { ok, pageCount, slideSize }
+       */
+      renderPptx: function (payload) {
+        // 异步渲染完成后写入 window._officeResult，由 ArkTS 侧轮询读取
+        // （不返回 Promise：避免 runJavaScript 等待长时异步在部分 WebView 上返回 null）
+        try {
+          const bytes = base64ToBytes(payload.base64);
+          OfficeParser.parsePptx(bytes.buffer).then(function (parsed) {
+            try {
+              const size = parsed.slideSize;
+              const sw = (size && size.width) ? size.width : 1280;
+              const sh = (size && size.height) ? size.height : 720;
+              const items = parsed.slides.map(function (slide) {
+                const holder = document.createElement('div');
+                holder.className = 'page-content';
+                holder.style.position = 'relative';
+                holder.innerHTML = slide.html; // slide.html 自带内联样式，独立可显示
+                fit(holder, sw, sh);
+                return { content: holder };
+              });
+              const pageCount = buildSlots(items);
+              // 文本协议：OK:<页数>（ArkTS 侧字符串判断，避免 JSON.parse 类型转换问题）
+              window._officeResult = 'OK:' + pageCount;
+            } catch (innerErr) {
+              window._officeResult = 'ERR:buildPptxSlots: ' + String(innerErr && innerErr.message || innerErr);
+            }
+          }).catch(function (err) {
+            window._officeResult = 'ERR:parsePptx: ' + String(err && err.message || err);
+          });
+        } catch (e) {
+          window._officeResult = 'ERR:renderPptx: ' + String(e);
+        }
+        return true;
+      },
+
+      /**
+       * docx：docx-preview 渲染 → 提取 .docx-page 逐页 → 每页一个 .page-slot。
+       * 入参 { base64 } → Promise resolve JSON { ok, pageCount }
+       */
+      renderDocx: function (payload) {
+        // 异步渲染完成后写入 window._officeResult，由 ArkTS 侧轮询读取
+        try {
+          const bytes = base64ToBytes(payload.base64);
+          // 渲染工作区：固定 A4 页宽（96dpi≈794px），隐藏但不 display:none（需参与布局测尺寸）
+          const work = document.createElement('div');
+          work.id = 'docx-work';
+          work.style.cssText = 'position:fixed;left:0;top:0;width:794px;visibility:hidden;background:#fff;';
+          document.body.appendChild(work);
+          // 样式容器：全局独立容器，先清空避免累积
+          const styleHost = document.getElementById('docx-styles');
+          styleHost.innerHTML = '';
+          OfficeParserDocx.renderAsync(bytes, work, styleHost, {
+            inWrapper: true,
+            breakPage: true,
+            ignoreWidth: true
+          }).then(function () {
+            try {
+              const pages = work.querySelectorAll('.docx-page');
+              let items;
+              if (pages.length > 0) {
+                items = Array.prototype.map.call(pages, function (el) {
+                  const holder = document.createElement('div');
+                  holder.className = 'page-content';
+                  holder.style.position = 'relative';
+                  holder.appendChild(el); // 移动节点（保留 docx-preview 注入的内联样式）
+                  fit(holder, el.offsetWidth || 794, el.offsetHeight || 1123);
+                  return { content: holder };
+                });
+              } else {
+                // 无分页元素（罕见）：整篇作为一页
+                const holder = document.createElement('div');
+                holder.className = 'page-content';
+                holder.style.position = 'relative';
+                fit(holder, work.offsetWidth || 794, work.offsetHeight || 1123);
+                holder.appendChild(work);
+                items = [{ content: holder }];
+              }
+              // 工作区移出文档（页节点已移动到各 slot）
+              if (document.getElementById('docx-work')) {
+                document.body.removeChild(document.getElementById('docx-work'));
+              }
+              const pageCount = buildSlots(items);
+              window._officeResult = 'OK:' + pageCount;
+            } catch (innerErr) {
+              window._officeResult = 'ERR:buildDocxSlots: ' + String(innerErr && innerErr.message || innerErr);
+            }
+          }).catch(function (err) {
+            window._officeResult = 'ERR:renderAsync: ' + String(err && err.message || err);
+          });
+        } catch (e) {
+          window._officeResult = 'ERR:renderDocx: ' + String(e);
+        }
+        return true;
+      },
+
+      /** 显示第 index 页（其余隐藏）。入参：数字下标。 */
+      showPage: function (index) {
+        const slots = document.querySelectorAll('.page-slot');
+        for (let i = 0; i < slots.length; i++) {
+          slots[i].classList.toggle('active', i === index);
+        }
         return 'ok';
       }
     };
-
-    // 若通过 script 标签方式验证（本 HTML 直接打开），可手动调用 markReady
-    report({ ready: false, note: 'call window.OfficeParserBridge.markReady() once libs loaded' });
   })();
 </script>
-<div id="status" style="white-space:pre-wrap;font:12px monospace;">loading...</div>
-<div id="docx-container"></div>
 </body>
 </html>
