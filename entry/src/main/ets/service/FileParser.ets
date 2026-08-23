@@ -1,5 +1,5 @@
 /**
- * 文件附件服务（txt / md / pdf 文件输入能力）—— 阶段1 延迟解析
+ * 文件附件服务（txt / md / pdf / docx / pptx / xlsx 文件输入能力）—— 阶段1/3 延迟解析
  *
  * 职责（延迟解析模式：选中文件仅持久化源文件，发送时才解析内容）：
  *  - 选文件：DocumentViewPicker（无需存储权限，返回带临时读权限的 URI）
@@ -8,6 +8,7 @@
  *    textContent / pageImages 留空）。此阶段不解析，仅保存源文件。
  *  - parseForSend(file)：发送时把选中的文件解析结果填回附件：
  *      - txt / md：读 UTF-8 文本 → textContent（走 input_text 文本通道，所有模型可用）
+ *      - docx / pptx / xlsx：@ohos/jszip 解包 + OOXML XML 提取 → Markdown 文本 → textContent（文本通道）
  *      - pdf：PDF Kit 逐页渲染 → JPEG Base64 → pageImages（走 input_image 视觉通道，仅视觉模型）
  *
  * 沙箱持久目录而非 cacheDir 的原因：源文件需保留供【阶段5 历史重解析】与【Preview Kit 预览】使用。
@@ -16,7 +17,7 @@
  *  - 单文件（DocumentViewPicker maxSelectNumber=1，重复选择替换）
  *  - 单文件 ≤ 20MB
  *  - PDF 最多渲染 100 页；全部页面 Base64 总量 ≤ MAX_TOTAL_BASE64（请求体保护，达到即停止后续页）
- *  - txt/md 提取文本 ≤ MAX_TEXT_LENGTH（截断）
+ *  - 提取文本（txt/md/docx/pptx/xlsx）≤ MAX_TEXT_LENGTH（截断）
  *
  * 失败语义：pickAndSave 返回 null = 用户取消；抛异常 = 解析失败（超限/损坏），由调用方 Toast 提示
  */
@@ -30,14 +31,15 @@ import { util } from "@kit.ArkTS";
 import { FileAttachment } from "../model/Message";
 import { generateId } from "../common/Utils";
 import { Logger } from "../common/Logger";
+import { OoxmlParser } from "./OoxmlParser";
 
 /* 支持的文件后缀（DocumentViewPicker fileSuffixFilters 过滤） */
-const SUPPORTED_EXTS: string[] = [".txt", ".md", ".pdf"];
+const SUPPORTED_EXTS: string[] = [".txt", ".md", ".pdf", ".docx", ".pptx", ".xlsx"];
 /* 单文件大小上限（字节，20MB） */
 const MAX_FILE_SIZE: number = 20 * 1024 * 1024;
 /* PDF 最大渲染页数 */
 const MAX_PDF_PAGES: number = 100;
-/* txt/md 提取文本长度上限（字符，超长截断避免请求体过大） */
+/* 提取文本（txt/md/docx/pptx/xlsx）长度上限（字符，超长截断避免请求体过大） */
 const MAX_TEXT_LENGTH: number = 30000;
 /* PDF 全部页面 Base64 总量上限（请求体保护，累计达到即停止后续页面渲染） */
 const MAX_TOTAL_BASE64: number = 12 * 1024 * 1024;
@@ -131,7 +133,7 @@ export class FileParser {
     if (size > MAX_FILE_SIZE) {
       throw new Error(`文件过大（超过 20MB）：${name}`);
     }
-    if (ext === "txt" || ext === "md" || ext === "pdf") {
+    if (ext === "txt" || ext === "md" || ext === "pdf" || ext === "docx" || ext === "pptx" || ext === "xlsx") {
       return this.persistSource(context, uri, name, ext, size);
     }
     throw new Error(`不支持的文件类型：${name}`);
@@ -154,9 +156,14 @@ export class FileParser {
       file.textContent = text;
       return Promise.resolve();
     }
+    if (ext === "docx" || ext === "doc") {
+      return this.parseOoxml(localPath, file, OoxmlParser.parseDocx);
+    }
+    if (ext === "pptx" || ext === "ppt") {
+      return this.parseOoxml(localPath, file, OoxmlParser.parsePptx);
+    }
     if (ext === "xlsx" || ext === "xls") {
-      /* xlsx 解析暂缓（@archermind/exceljs 存在 data1904 已知 bug，后续方案再定） */
-      throw new Error(`暂不支持解析 ${ext.toUpperCase()} 文件`);
+      return this.parseOoxml(localPath, file, OoxmlParser.parseXlsx);
     }
     if (ext === "pdf") {
       return this.parsePdf(localPath, file, file.size);
@@ -165,8 +172,8 @@ export class FileParser {
     throw new Error(`不支持的文件类型：${file.name}`);
   }
 
-  /** 读取 UTF-8 文件文本，超长截断 */
-  private readText(path: string): string {
+  /** 读取文件全部字节为 ArrayBuffer */
+  private readBuffer(path: string): ArrayBuffer {
     const file = fs.openSync(path, fs.OpenMode.READ_ONLY);
     try {
       const st = fs.statSync(file.fd);
@@ -174,15 +181,26 @@ export class FileParser {
       if (st.size > 0) {
         fs.readSync(file.fd, raw);
       }
-      const decoder = util.TextDecoder.create("utf-8");
-      let text: string = decoder.decodeToString(new Uint8Array(raw));
-      if (text.length > MAX_TEXT_LENGTH) {
-        text = text.substring(0, MAX_TEXT_LENGTH);
-      }
-      return text;
+      return raw;
     } finally {
       fs.closeSync(file);
     }
+  }
+
+  /** 读取 UTF-8 文件文本，超长截断 */
+  private readText(path: string): string {
+    const decoder = util.TextDecoder.create("utf-8");
+    let text: string = decoder.decodeToString(new Uint8Array(this.readBuffer(path)));
+    if (text.length > MAX_TEXT_LENGTH) {
+      text = text.substring(0, MAX_TEXT_LENGTH);
+    }
+    return text;
+  }
+
+  /** docx/pptx/xlsx：读沙箱文件字节 → OOXML 提取器解析 → textContent（走文本通道，所有模型可用） */
+  private async parseOoxml(localPath: string, file: FileAttachment, parser: (buf: ArrayBuffer) => Promise<string>): Promise<void> {
+    const text: string = await parser(this.readBuffer(localPath));
+    file.textContent = text;
   }
 
   /**

@@ -7,6 +7,8 @@
  *  - TXT：浅灰底深灰字 "TXT"
  *  - MD：深灰底白字 "MD"
  *  - XLSX/XLS：绿底白字 "XLSX"
+ *  - DOCX/DOC：蓝底白字 "DOCX"
+ *  - PPTX/PPT：橙红底白字 "PPTX"
  *
  * showRemove=true（预览条场景）：卡片右上角显示删除按钮，点击触发 onRemove
  */
@@ -40,6 +42,12 @@ export struct FileCard {
     }
     if (ext === "xlsx" || ext === "xls") {
       return { bg: "#3FA067", text: "XLSX", color: Color.White }; // 绿底白字
+    }
+    if (ext === "docx" || ext === "doc") {
+      return { bg: "#2B7DE9", text: "DOCX", color: Color.White }; // 蓝底白字
+    }
+    if (ext === "pptx" || ext === "ppt") {
+      return { bg: "#D24726", text: "PPTX", color: Color.White }; // 橙红底白字
     }
     return { bg: "#E9E9EC", text: "TXT", color: "#3A3A40" }; // 浅灰底深灰字（默认 txt）
   }

@@ -19,18 +19,19 @@ export interface ImageAttachment {
 }
 
 /**
- * 用户消息携带的文件附件（txt / md / pdf，内容供 AI 理解）
+ * 用户消息携带的文件附件（txt / md / pdf / docx / pptx / xlsx，内容供 AI 理解）
  * 解析规则（FileParser 产出）：
  *   - txt / md：textContent 为文件原文（UTF-8），pageImages 为空 → 发送时走 input_text 文本通道
+ *   - docx / pptx / xlsx：textContent 为 OOXML 提取的 Markdown 文本，pageImages 为空 → 文本通道
  *   - pdf：textContent 为空（API 20 无 getTextContent），pageImages 为页面渲染图 Base64
  *     → 发送时逐页走 input_image 视觉通道（仅视觉模型可用）
  * @param id          附件唯一标识（生成 id，用于列表 key / 删除定位）
  * @param name        文件名（含后缀，展示用）
- * @param ext         小写扩展名（txt | md | pdf；决定图标颜色与解析方式）
+ * @param ext         小写扩展名（txt | md | pdf | docx | pptx | xlsx；决定图标颜色与解析方式）
  * @param size        文件大小（字节，卡片展示小字）
  * @param localPath   源文件在应用沙箱内的持久路径（filesDir/attachments/ 下；空串=未持久化。
  *                    阶段1延迟解析：选中文件时仅拷贝源文件到此路径，解析结果在发送时填充）
- * @param textContent 提取的文本（txt/md 原文；pdf 为空串）
+ * @param textContent 提取的文本（txt/md 原文、docx/pptx/xlsx 的 Markdown 文本；pdf 为空串）
  * @param pageImages  PDF 页渲染图 Base64 列表（仅 pdf 有值，可含多页）
  */
 export interface FileAttachment {
