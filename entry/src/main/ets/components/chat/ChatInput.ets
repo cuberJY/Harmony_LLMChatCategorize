@@ -30,6 +30,7 @@ import { ImageUtil } from "../../service/ImageUtil";
 import { FileParser } from "../../service/FileParser";
 import { showToast } from "../../common/Utils";
 import { FileCard } from "./FileCard";
+import { ImageCard } from "./ImageCard";
 
 /** 单条消息图片附件上限 */
 const MAX_IMAGES: number = 9;
@@ -199,30 +200,16 @@ export struct ChatInput {
               ForEach(
                 this.images,
                 (img: ImageAttachment) => {
-                  Stack({ alignContent: Alignment.TopEnd }) {
-                    /* 缩略图：Base64 data URL 直接渲染（Image 组件原生支持） */
-                    Image('data:' + img.mimeType + ';base64,' + img.data)
-                      .width(64)
-                      .height(64)
-                      .borderRadius($r('app.float.bubble_radius'))
-                      .objectFit(ImageFit.Cover)
-                      .backgroundColor($r('app.color.divider'))
-                    /* 右上角删除按钮：深色半透明圆底 + 白色 x，点击删除该图 */
-                    Button() {
-                      SymbolGlyph($r("sys.symbol.xmark"))
-                        .fontSize(10)
-                        .fontWeight(700)
-                        .fontColor([Color.White])
-                    }
-                    .width(18)
-                    .height(18)
-                    .type(ButtonType.Circle)
-                    .backgroundColor('#CC000000')
-                    .margin({ top: $r('app.float.space_xxs'), right: $r('app.float.space_xxs') })
-                    .onClick(() => {
+                  /* 图片卡片：64×64 缩略图 + 右上角删除（样式见 ImageCard，与气泡共用） */
+                  ImageCard({
+                    img: img,
+                    cardSize: 64,
+                    cornerRadius: 12,
+                    showRemove: true,
+                    onRemove: () => {
                       this.removeImage(img.id);
-                    })
-                  }
+                    },
+                  })
                 },
                 (img: ImageAttachment) => img.id,
               )

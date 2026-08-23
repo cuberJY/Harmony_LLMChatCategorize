@@ -12,6 +12,7 @@ import { SymbolGlyphModifier } from '@kit.ArkUI';
 import { showDeleteConfirm, showToast, stripMarkdown } from "../../common/Utils";
 import { MessageErrorCard } from "./MessageErrorCard";
 import { FileCard } from "./FileCard";
+import { ImageCard } from "./ImageCard";
 
 /**
  * 思考过程块（渲染用）：
@@ -688,23 +689,21 @@ export struct MessageBubble {
       ForEach(
         this.message.images,
         (img: ImageAttachment, idx: number) => {
-          Image('data:' + img.mimeType + ';base64,' + img.data)
-            .width(72)
-            .height(72)
-            .borderRadius($r('app.float.bubble_radius'))
-            .objectFit(ImageFit.Cover)
-            .backgroundColor($r('app.color.divider'))
-            /* 共享元素转场：与 PreviewPage 全屏图同 id（preview_+img.id），点击放大衔接
-               Navigation 环境下用 geometryTransition（sharedTransition 仅 router 路由生效） */
-            .geometryTransition('preview_' + img.id)
-            .alignSelf(ItemAlign.End)
-            .margin({
-              left: $r('app.float.space_xs'),
-              top: $r('app.float.space_xs')
-            })
-            .onClick(() => {
+          /* 图片卡片：72×72 缩略图 + 共享元素转场 + 点击全屏预览（样式见 ImageCard，与预览条共用） */
+          ImageCard({
+            img: img,
+            cardSize: 72,
+            cornerRadius: 12,
+            geometryId: 'preview_' + img.id,
+            onImageClick: () => {
               this.onImagePreview(this.message, idx);
-            })
+            },
+          })
+          .alignSelf(ItemAlign.End)
+          .margin({
+            left: $r('app.float.space_xs'),
+            top: $r('app.float.space_xs')
+          })
         },
         (img: ImageAttachment) => img.id,
       )
