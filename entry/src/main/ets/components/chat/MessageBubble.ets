@@ -10,6 +10,7 @@ import { common, ConfigurationConstant, EnvironmentCallback } from '@kit.Ability
 import { pasteboard } from '@kit.BasicServicesKit';
 import { SymbolGlyphModifier } from '@kit.ArkUI';
 import { showDeleteConfirm, showToast, stripMarkdown } from "../../common/Utils";
+import { applyMarkdownTheme } from "../../common/MarkdownTheme";
 import { MessageErrorCard } from "./MessageErrorCard";
 import { FileCard } from "./FileCard";
 import { ImageCard } from "./ImageCard";
@@ -97,7 +98,7 @@ export struct MessageBubble {
    * 监听思考/搜索/文件解析状态切换：消息处于任一状态时启动点号动画定时器，全部结束时停止。
    * （isThinking/isSearching/isParsing 互斥，任一为 true 即说明仍在过程中）
    */
-  @Monitor('message.isThinking', 'message.isSearching', 'message.isParsing')
+  @Monitor('message.isThinking', 'message.isSearching', 'message.isParsing', 'message.parsingHistory')
   onStatusChanged(): void {
     this.syncStatusDotTimer();
   }
@@ -129,6 +130,7 @@ export struct MessageBubble {
   @Event onShare: (msg: Message) => void = () => {}; // 「更多」菜单-分享
   /* 图片全屏预览（页面级统一管理）：点击用户消息图片缩略图时上报消息与下标，ChatPage 弹出预览层 */
   @Event onImagePreview: (msg: Message, index: number) => void = () => {};
+  @Event onFilePreview: (file: FileAttachment) => void = () => {}; // 点击文件卡片 → 调起系统预览（ChatPage 注入）
 
   /* 非响应式成员（普通成员即可，无需观察） */
   private mdController: MarkdownController = new MarkdownController(); // lv-markdown-in 样式/拦截控制器
@@ -199,50 +201,8 @@ export struct MessageBubble {
   }
 
   private applyMarkdownColors(isDark: boolean): void {
-    /* 链式部分（返回 this 的 setter） */
-    const controller = this.mdController
-      .setLazyRender(true) // 屏幕外块先用轻量占位渲染
-      .setLazyPreloadBlockCount(2) // 仅预渲染可视区附近少量块
-      .setThreadRenderEnable(true) // 线程渲染（默认已开，可显式声明）
-      .setTitleColor($r('app.color.font_primary'))
-      .setTextColor($r('app.color.font_primary'))
-      .setInlineCodeColor($r('app.color.font_emphasize'))
-      .setInlineCodeBackgroundColor($r('app.color.bubble_bg_thinking'))
-      .setQuoteTextColor($r('app.color.font_secondary'))
-      .setQuoteBorderColor($r('app.color.divider'))
-      .setQuoteBackgroundColor($r('app.color.bubble_bg_thinking'))
-      .setHyperlinkTextColor($r('app.color.font_emphasize'))
-      .setHyperlinkBackgroundColor(Color.Transparent)
-      .setTableTitleTextColor($r('app.color.font_primary'))
-      .setTableTitleBackgroundColor($r('app.color.bubble_bg_thinking'))
-      .setTableBackgroundColor($r('app.color.bubble_bg_ai'))
-      .setTableInterleaveBackgroundColor($r('app.color.bubble_bg_thinking'))
-      .setTableOuterBorderColor($r('app.color.divider'))
-      .setTableInnerBorderColor($r('app.color.divider'))
-      .setTodoSelectedColor($r('app.color.font_emphasize'))
-      .setUlPointColor($r('app.color.font_secondary'))
-      .setFootnoteTextColor($r('app.color.font_secondary'))
-      .setLineColor($r('app.color.divider'))
-      /* 字号统一（float.json 资源管理） */
-      .setTextSize($r('app.float.font_body')) // 正文 = font_body，与用户消息一致
-      .setTitleSize([ // 标题 1-6 级字号
-        $r('app.float.font_h1'),
-        $r('app.float.font_h2'),
-        $r('app.float.font_h3'),
-        $r('app.float.font_h4'),
-        $r('app.float.font_h5'),
-        $r('app.float.font_h6'),
-      ])
-      .setLatexMathTextSize(16) // 公式字号
-      /* LaTeX 公式颜色：库只接受十六进制 number，手动随系统深浅色切换 */
-      .setLatexMathTextColor(isDark ? 0xFFE5E5E7 : 0xFF1A1A1A)
-      .setCodeBlockTheme(isDark ? 'dark' : 'light')
-      .setCodeBlockIdxState(true) // 代码块是否显示行号索引（可减少渲染节点，提升长代码块滚动性能）
-      .setCodeBlockAutoCollapseEnable(true) // 超过阈值(默认10行)的代码块自动折叠，长代码块渲染压力大时受益
-      .setMermaidTheme(isDark ? 'dark' : 'light');
-    /* 以下两个 setter 返回 void，不能链式调用，需单独设置 */
-    controller.setTableNormalTextColor($r('app.color.font_primary'));
-    controller.setTableInterleaveTextColor($r('app.color.font_secondary'));
+    /* 主题配置已抽公共方法（common/MarkdownTheme），气泡与 Markdown 预览页共用同一套渲染样式 */
+    applyMarkdownTheme(this.mdController, isDark);
   }
 
   /* 监听系统配置变化（深色/浅色切换），仅需动态更新字符串/数值类型的主题 */
@@ -389,7 +349,7 @@ export struct MessageBubble {
    *  - 定时器仅在思考/搜索期间运行（@Monitor 与 aboutToAppear/Disappear 同步启停），避免空转
    */
   private syncStatusDotTimer(): void {
-    if (this.message.isSearching || this.message.isThinking || this.message.isParsing) {
+    if (this.message.isSearching || this.message.isThinking || this.message.isParsing || this.message.parsingHistory) {
       this.startStatusDotTimer();
     } else {
       this.stopStatusDotTimer();
@@ -674,6 +634,8 @@ export struct MessageBubble {
         this.statusHint("联网搜索失败，使用普通模式回答");
       } else if (this.message.isParsing) {
         this.statusHint("文件解析中", true);
+      } else if (this.message.parsingHistory) {
+        this.statusHint("历史文件解析中", true);
       } else if (this.message.isThinking && this.message.reasoning.length === 0) {
         this.statusHint("思考中", true);
       }
@@ -723,7 +685,13 @@ export struct MessageBubble {
       ForEach(
         this.message.files,
         (file: FileAttachment) => {
-          FileCard({ file: file, showRemove: false })
+          FileCard({
+            file: file,
+            showRemove: false,
+            onPreview: () => {
+              this.onFilePreview(file);
+            },
+          })
             .margin({
               left: $r('app.float.space_xs'),
               top: $r('app.float.space_xs')

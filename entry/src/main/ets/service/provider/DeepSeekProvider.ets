@@ -287,18 +287,28 @@ export class DeepSeekProvider implements LLMProvider {
    * @returns content 字段值
    */
   private buildApiContent(msg: Message): string | ApiContentBlock[] {
-    /* 文件内容归类：pdf → 页面图（pageImages）走视觉通道；txt/md → 原文（textContent）拼入文本块 */
-    const pdfPages: string[] = [];
+    /* 当前模型是否视觉：决定 docx/pptx 排版图（pageImages）是否下发（非视觉模型下仅发文本） */
+    const vision: boolean = isVisionModel(AppConfig.getInstance().getModel());
+    /* 文件内容归类：pdf 页面图始终走视觉通道；docx/pptx 页面图仅视觉模型下发；
+       txt/md/docx/pptx/xlsx 的 textContent 均拼入文本块 */
+    const visualPages: string[] = [];
     const textFileContents: TextFileContent[] = [];
     for (const file of msg.files) {
-      for (const b64 of file.pageImages) {
-        pdfPages.push(b64);
+      if (file.ext === "pdf") {
+        for (const b64 of file.pageImages) {
+          visualPages.push(b64);
+        }
+      } else if (vision) {
+        /* docx/pptx 排版图：仅视觉模型下发（非视觉模型只发 textContent，避免 input_image 报错） */
+        for (const b64 of file.pageImages) {
+          visualPages.push(b64);
+        }
       }
       if (file.textContent.length > 0) {
         textFileContents.push({ name: file.name, text: file.textContent });
       }
     }
-    if (msg.images.length === 0 && pdfPages.length === 0 && textFileContents.length === 0) {
+    if (msg.images.length === 0 && visualPages.length === 0 && textFileContents.length === 0) {
       return msg.content;
     }
     const blocks: ApiContentBlock[] = [];
@@ -311,8 +321,8 @@ export class DeepSeekProvider implements LLMProvider {
           detail: "auto", // 自动选择细节级别（当前等价 original）
         });
       }
-      /* PDF 页面图：逐页作为 input_image 块（与普通图片同理，data: 前缀 MIME 即 image/jpeg） */
-      for (const b64 of pdfPages) {
+      /* 页面图（pdf / docx / pptx 排版图）：逐页作为 input_image 块（data: 前缀 MIME 即 image/jpeg） */
+      for (const b64 of visualPages) {
         blocks.push({
           type: "input_image",
           image_url: `data:image/jpeg;base64,${b64}`,
@@ -358,10 +368,13 @@ export class DeepSeekProvider implements LLMProvider {
     }
     /**
      * 视觉模型兜底：请求包含图片或 pdf 页面图但当前模型不支持视觉时直接拦截。
-     * 正常路径下 VM 已在发图/发 pdf 前校验拦截，此处为防御性兜底（历史消息重新生成等场景）
+     * 正常路径下 VM 已在发图/发 pdf 前校验拦截，此处为防御性兜底（历史消息重新生成等场景）。
+     * docx/pptx 的 pageImages 有 textContent 文本兜底，且非视觉模型下 buildApiContent 已过滤不下发，
+     * 故仅 pdf 的页面图计入视觉内容（图片始终走视觉通道）
      */
     const hasImages: boolean = messages.some((msg: Message) =>
-      msg.images.length > 0 || msg.files.some((f: FileAttachment) => f.pageImages.length > 0));
+      msg.images.length > 0 || msg.files.some((f: FileAttachment) =>
+        f.ext === "pdf" && f.pageImages.length > 0));
     if (hasImages && !isVisionModel(AppConfig.getInstance().getModel())) {
       callbacks.onError(buildError(
         ErrorCode.REQ_INVALID, "current model does not support image/pdf, please switch to vision model",

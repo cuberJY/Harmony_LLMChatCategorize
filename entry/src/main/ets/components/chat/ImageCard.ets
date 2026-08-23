@@ -30,7 +30,7 @@ export struct ImageCard {
 
   build() {
     Stack({ alignContent: Alignment.TopEnd }) {
-      /* 缩略图：几何 id 非空时挂共享元素转场（与 PreviewPage 全屏图同 id，Navigation 下用 geometryTransition） */
+      /* 缩略图：几何 id 非空时挂共享元素转场（与 ImagePreviewPage 全屏图同 id，Navigation 下用 geometryTransition） */
       if (this.geometryId.length > 0) {
         Image('data:' + this.img.mimeType + ';base64,' + this.img.data)
           .width(this.cardSize)

@@ -219,6 +219,10 @@
     {
       "name": "file_parse_failed",
       "value": "文件解析失败：%s"
+    },
+    {
+      "name": "file_preview_failed",
+      "value": "该文件暂不支持预览"
     }
   ]
 }

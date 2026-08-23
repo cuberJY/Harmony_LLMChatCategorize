@@ -8,7 +8,9 @@
  *    textContent / pageImages 留空）。此阶段不解析，仅保存源文件。
  *  - parseForSend(file)：发送时把选中的文件解析结果填回附件：
  *      - txt / md：读 UTF-8 文本 → textContent（走 input_text 文本通道，所有模型可用）
- *      - docx / pptx / xlsx：@ohos/jszip 解包 + OOXML XML 提取 → Markdown 文本 → textContent（文本通道）
+ *      - docx / pptx：OOXML XML 提取 → textContent（所有模型可用）；视觉模型下再 WebView 排版还原 →
+ *        pageImages（走 input_image 视觉通道）。双通道都填：切回非视觉模型仍可走文本通道
+ *      - xlsx：@ohos/jszip 解包 + OOXML XML 提取 → Markdown 表格文本 → textContent（文本通道）
  *      - pdf：PDF Kit 逐页渲染 → JPEG Base64 → pageImages（走 input_image 视觉通道，仅视觉模型）
  *
  * 沙箱持久目录而非 cacheDir 的原因：源文件需保留供【阶段5 历史重解析】与【Preview Kit 预览】使用。
@@ -162,15 +164,19 @@ export class FileParser {
       return Promise.resolve();
     }
     if (ext === "docx" || ext === "doc") {
-      /* 视觉模型 → WebView 排版还原截图；非视觉模型 → OOXML 文本提取 */
+      /* 视觉模型 → 先 OOXML 提取文本（textContent，所有模型可用的兜底）+ 再 WebView 排版还原（pageImages）；
+         双通道都填：切回非视觉模型时仍可走文本通道。
+         非视觉模型 → 仅 OOXML 文本提取 */
       if (this.shouldParseVisual()) {
-        return this.parseOfficeVisual(localPath, file, "docx");
+        return this.parseOoxml(localPath, file, OoxmlParser.parseDocx)
+          .then((): Promise<void> => this.parseOfficeVisual(localPath, file, "docx"));
       }
       return this.parseOoxml(localPath, file, OoxmlParser.parseDocx);
     }
     if (ext === "pptx" || ext === "ppt") {
       if (this.shouldParseVisual()) {
-        return this.parseOfficeVisual(localPath, file, "pptx");
+        return this.parseOoxml(localPath, file, OoxmlParser.parsePptx)
+          .then((): Promise<void> => this.parseOfficeVisual(localPath, file, "pptx"));
       }
       return this.parseOoxml(localPath, file, OoxmlParser.parsePptx);
     }
@@ -226,6 +232,16 @@ export class FileParser {
     }
     const b64: string = buffer.from(buf).toString("base64");
     file.pageImages = await OfficeHtmlParser.getInstance().renderToImages(kind, b64);
+  }
+
+  /**
+   * 历史排版补齐（阶段5）：仅对历史 docx/pptx 附件补充排版图 pageImages，
+   * 不重写 textContent（保留原文本通道数据）。由调用方在视觉模型下批量触发；
+   * 失败抛异常，调用方按"跳过该文件"处理（不阻断发送）。
+   */
+  async parseVisualForHistory(file: FileAttachment): Promise<void> {
+    const kind: string = file.ext === "pptx" ? "pptx" : "docx";
+    await this.parseOfficeVisual(file.localPath, file, kind);
   }
 
   /** 当前模型是否为视觉模型（决定 docx/pptx 走 WebView 排版还是 OOXML 文本通道） */

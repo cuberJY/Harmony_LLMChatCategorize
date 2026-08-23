@@ -31,6 +31,8 @@ export struct FileCard {
   @Param showRemove: boolean = false;
   /* 删除回调（showRemove=true 时点击触发） */
   @Event onRemove: () => void = () => {};
+  /* 预览回调（气泡场景由调用方传入：点击文件卡片 → 调起系统预览；预览条不传 → 无动作） */
+  @Event onPreview: () => void = () => {};
 
   /* 类型图标样式：背景色 + 显示文字 + 文字颜色（按扩展名硬编码） */
   private iconStyle(ext: string): FileIconStyle {
@@ -117,5 +119,10 @@ export struct FileCard {
         })
       }
     }
+    .onClick(() => {
+      /* 点击文件卡片 → 预览（气泡场景接入 onPreview；md 跳应用内预览页、其余走系统预览）。
+         删除按钮独立于本点击，不冲突 */
+      this.onPreview();
+    })
   }
 }

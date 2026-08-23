@@ -35,7 +35,7 @@
 - **沉浸式界面** — 全屏 edge-to-edge，系统栏与页面融合
 - **智能滚动** — 生成中自动钉底，手动滚动暂停，回到底部按钮
 - **Markdown 渲染** — 原生渲染 + 性能优化 + 深色模式
-- **文本交互** — 长按复制、代码块复制、原文查看
+- **文本交互** — 长按复制、代码块复制、原文查看；附件预览（md 应用内 Markdown 预览，其余走系统预览）
 - **图片输入** — 视觉模型下支持相册选图与拍照发送（自动压缩，最多 9 张），消息图片可全屏预览，编辑消息可增删图片
 - **文件输入** — 支持发送 txt / md / pdf / docx / pptx / xlsx 附件，AI 自动提取内容理解（解析细节见核心设计）
 - **分享** — 消息 / 对话一键分享：纯文本、Markdown、HTML、长图、PDF 五格式，AI 回复富文本原样呈现；长对话按轮分段导出为长图 / 多页 PDF
@@ -130,7 +130,8 @@ ChatCategorize/
 ### 12. 文件附件解析 — FileParser
 - `service/FileParser.ets` 单例封装系统文档选择器（DocumentViewPicker 免存储权限）与文件解析：txt/md 直接读取 UTF-8 文本（超长截断）；docx/pptx/xlsx 经 `service/OoxmlParser.ets`（@ohos/jszip 解包 + XmlPullParser 流式解析 OOXML XML）提取为 Markdown 文本（docx 段落 / 标题 / 表格、pptx 逐页文本、xlsx 逐工作表表格含 sharedStrings 还原）；docx/pptx 在视觉模型下改走 `service/OfficeHtmlParser.ets`（隐藏 ArkWeb + deck-ir/docx-preview 排版还原）逐页截图；pdf 因 API 20 无 `getTextContent`，经 PDF Kit 逐页渲染为 PixelMap → JPEG Base64（≤100 页，页面 Base64 总量 ≤12MB 保护请求体）
 - 发送按通道分发（`DeepSeekProvider.buildApiContent`）：txt/md 与 Office 提取文本以「【文件 xx 内容】」标注拼入 `input_text` 文本块（所有模型可用）；docx/pptx（视觉模型）/ PDF 页面图逐页作为 `input_image` 视觉块（仅视觉模型，选择 / 发送 / 编辑 / Provider 四层兜底拦截）
-- 约束与交互：单文件 ≤20MB；提取文本（txt/md/docx/pptx/xlsx）≤3 万字符截断；文件卡片展示在消息气泡内，编辑消息可增删文件
+- 双通道兜底：docx/pptx 同时持有 textContent（OOXML 文本）与 pageImages（ArkWeb 排版图）；视觉模型双通道皆发，非视觉模型仅发文本不拦截；发送时对历史消息中「未渲染排版图」的 docx/pptx 附件做排版补齐（`parseVisualForHistory`，单文件失败仅记日志不阻断）
+- 约束与交互：单文件 ≤20MB；提取文本（txt/md/docx/pptx/xlsx）≤3 万字符截断；文件卡片展示在消息气泡内，点击可预览（md 应用内 Markdown 预览，其余走 Preview Kit 系统预览），编辑消息可增删文件
 
 ## 数据模型
 

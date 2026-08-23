@@ -22,7 +22,9 @@ export interface ImageAttachment {
  * 用户消息携带的文件附件（txt / md / pdf / docx / pptx / xlsx，内容供 AI 理解）
  * 解析规则（FileParser 产出）：
  *   - txt / md：textContent 为文件原文（UTF-8），pageImages 为空 → 发送时走 input_text 文本通道
- *   - docx / pptx / xlsx：textContent 为 OOXML 提取的 Markdown 文本，pageImages 为空 → 文本通道
+ *   - docx / pptx：textContent 为 OOXML 提取的 Markdown 文本（所有模型可用）；
+ *     视觉模型下 pageImages 还有 WebView 排版图（双通道：视觉发图+文本，非视觉仅发文本）
+ *   - xlsx：textContent 为 OOXML 提取的 Markdown 表格文本，pageImages 为空 → 文本通道
  *   - pdf：textContent 为空（API 20 无 getTextContent），pageImages 为页面渲染图 Base64
  *     → 发送时逐页走 input_image 视觉通道（仅视觉模型可用）
  * @param id          附件唯一标识（生成 id，用于列表 key / 删除定位）
@@ -84,6 +86,7 @@ export class Message {
   @Trace isThinking: boolean = false; // 是否正在思考中（用于 UI 状态）
   @Trace isSearching: boolean = false; // 是否正在联网搜索（用于 UI 状态）
   @Trace isParsing: boolean = false; // 是否正在解析文件附件（仅内存态，不持久化；解析中气泡显示「文件解析中…」）
+  @Trace parsingHistory: boolean = false; // 是否正在补齐历史附件排版图（仅内存态，不持久化；气泡显示「历史文件解析中…」）
   @Trace searchFailed: boolean = false; // 联网搜索是否失败（已降级普通模式）
   @Trace isStreaming: boolean = false; // 是否正在流式输出（UI 据此保持渲染，Markdown 组件由 content 增量自动重绘）
   @Trace isPaused: boolean = false; // 是否已暂停生成（暂停态时气泡操作栏右上角显示「继续生成」；仅内存状态，不持久化）

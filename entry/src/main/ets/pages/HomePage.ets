@@ -21,7 +21,8 @@ import { ChatPage } from "./ChatPage";
 import { SideBarPage } from "./SideBarPage";
 import { FolderPage } from "./FolderPage";
 import { SettingsPage } from "./SettingsPage";
-import { PreviewPage, PreviewParams } from "./PreviewPage";
+import { ImagePreviewPage, ImagePreviewParams } from "./ImagePreviewPage";
+import { MarkdownPreviewPage, MarkdownPreviewParams } from "./MarkdownPreviewPage";
 /* FolderPage 路由参数（pushPathByName 的第二个参数） */
 import { FolderParams } from "../model/FolderParams";
 /* SideBarPage 路由参数 */
@@ -86,11 +87,16 @@ struct HomePage {
       })
     } else if (name === "SettingsPage") {
       SettingsPage()
-    } else if (name === "PreviewPage") {
+    } else if (name === "ImagePreviewPage") {
       /* 图片全屏预览：路由参数注入图片列表与起始页码（ChatPage pushPathByName 传入） */
-      PreviewPage({
-        images: (param as PreviewParams).images,
-        startIndex: (param as PreviewParams).index,
+      ImagePreviewPage({
+        images: (param as ImagePreviewParams).images,
+        startIndex: (param as ImagePreviewParams).index,
+      })
+    } else if (name === "MarkdownPreviewPage") {
+      /* Markdown 文件预览：路由参数注入 md 文件附件（ChatPage 气泡点击跳转） */
+      MarkdownPreviewPage({
+        file: (param as MarkdownPreviewParams).file,
       })
     }
   }
@@ -110,17 +116,17 @@ struct HomePage {
     .customNavContentTransition(
       (from: NavContentInfo, to: NavContentInfo, operation: NavigationOperation) => {
         /**
-         * 仅处理「ChatPage ↔ SideBarPage」与「ChatPage ↔ PreviewPage」之间的转场：
+         * 仅处理「ChatPage ↔ SideBarPage」与「ChatPage ↔ ImagePreviewPage」之间的转场：
          * - SideBarPage：抽屉式平移覆盖在 ChatPage 上
-         * - PreviewPage：淡入淡出遮罩覆盖在 ChatPage 上（ChatPage 保持静止，不产生默认左移）
+         * - ImagePreviewPage：淡入淡出遮罩覆盖在 ChatPage 上（ChatPage 保持静止，不产生默认左移）
          * 其余页面（文件夹 / 设置）返回 undefined，走系统默认转场动画
          */
         const isChatSide =
           (from.name === "ChatPage" && to.name === "SideBarPage") ||
           (from.name === "SideBarPage" && to.name === "ChatPage");
         const isPreview =
-          (from.name === "ChatPage" && to.name === "PreviewPage") ||
-          (from.name === "PreviewPage" && to.name === "ChatPage");
+          (from.name === "ChatPage" && to.name === "ImagePreviewPage") ||
+          (from.name === "ImagePreviewPage" && to.name === "ChatPage");
         if (from.index === -1 || to.index === -1 || (!isChatSide && !isPreview)) {
           return undefined;
         }

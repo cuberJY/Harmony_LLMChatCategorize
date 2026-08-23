@@ -24,6 +24,7 @@ import { showToast } from "../common/Utils";
 import { LLMError, ErrorCode, errorMessageResource, buildError } from "../service/LLMError";
 import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
 import { FileParser } from "../service/FileParser";
+import { Logger } from "../common/Logger";
 import { MessageDataSource } from "./MessageDataSource";
 import { BranchChainManager, VariantInfo } from "./BranchChainManager";
 
@@ -56,6 +57,15 @@ const ANCHOR_SUPPRESS_MS: number = 1000;
  * 将高频增量降为较低频率的 UI 更新，减少渲染与滚动竞争
  */
 const STREAM_FLUSH_INTERVAL_MS: number = 30;
+
+/**
+ * 阶段5 历史排版补齐项：当前会话历史中某条用户消息的 docx/pptx 附件
+ * （已持久化源文件 localPath 但 pageImages 为空，视觉模型下补齐排版图后 updateMessage 落库）
+ */
+interface ReparseItem {
+  msg: Message;
+  file: FileAttachment;
+}
 
 @ObservedV2
 export class ChatViewModel {
@@ -486,10 +496,32 @@ export class ChatViewModel {
       }
     }
 
-    /* 4. 解析后重算视觉：pdf 页面图（pageImages 非空）与图片一样走视觉模型；
-       txt/md 走文本通道（pageImages 为空），所有模型可用。
-       不通过 → AI 占位转为错误卡片（保留用户消息） */
-    const hasVisual: boolean = images.length > 0 || files.some((f: FileAttachment) => f.pageImages.length > 0);
+    /* 3.5 历史排版补齐（阶段5）：视觉模型下，扫描当前会话历史中「docx/pptx + 源文件已持久化 + pageImages 空」的
+       附件，逐个补齐排版图（发送前同步完成，保证新消息的 AI 回复能理解历史文件排版）。
+       补齐期间 AI 气泡显示「历史文件解析中」；单文件失败仅记日志跳过，不阻断发送（不同于当前文件解析的严格语义） */
+    if (isVisionModel(AppConfig.getInstance().getModel())) {
+      const pending: ReparseItem[] = this.collectPendingReparse();
+      if (pending.length > 0) {
+        aiMsg.isParsing = false; // 当前文件解析阶段结束（当前无文件时本就是 false）
+        aiMsg.parsingHistory = true;
+        this.scrollToBottom();
+        for (const item of pending) {
+          try {
+            await FileParser.getInstance().parseVisualForHistory(item.file);
+            ConversationRepository.getInstance().updateMessage(item.msg);
+          } catch (e) {
+            Logger.warn(`历史排版补齐失败(${item.file.name}): ${JSON.stringify(e)}`);
+          }
+        }
+        aiMsg.parsingHistory = false;
+      }
+    }
+
+    /* 4. 解析后重算视觉：图片与「无文本兜底」的页面图（pdf）走视觉模型；
+       docx/pptx 同时有 textContent（文本兜底）与 pageImages（排版图），双通道皆可用，
+       非视觉模型下仅发文本、不拦截。不通过 → AI 占位转为错误卡片（保留用户消息） */
+    const hasVisual: boolean = images.length > 0
+      || files.some((f: FileAttachment) => f.pageImages.length > 0 && f.textContent.length === 0);
     if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
       aiMsg.isParsing = false;
       aiMsg.isStreaming = false;
@@ -514,6 +546,27 @@ export class ChatViewModel {
 
     /* 7. 发起流式回复（任务登记 + 可选搜索 + 回调 + 调用 LLM） */
     this.startStreamReply(sendConvId, targetConv, aiMsg, context, this.webSearch, this.thinkingEffort, text);
+  }
+
+  /**
+   * 收集当前会话历史中需要补齐排版的附件（阶段5）：
+   * 遍历激活链用户消息，筛选「docx/pptx + 源文件已持久化（localPath 非空）+ 尚未渲染排版图（pageImages 空）」。
+   * 激活链 = 当前可见分支链，只补齐用户能看到的历史附件
+   */
+  private collectPendingReparse(): ReparseItem[] {
+    const items: ReparseItem[] = [];
+    const chain: Message[] = this.branchManager.buildActiveChain();
+    chain.forEach((m: Message) => {
+      if (!m.isUser() || m.files.length === 0) {
+        return;
+      }
+      m.files.forEach((f: FileAttachment) => {
+        if ((f.ext === "docx" || f.ext === "pptx") && f.localPath.length > 0 && f.pageImages.length === 0) {
+          items.push({ msg: m, file: f });
+        }
+      });
+    });
+    return items;
   }
 
   /**
@@ -1346,9 +1399,11 @@ export class ChatViewModel {
       }
     }
 
-    /* 6. 解析后重算视觉：pdf 页面图（pageImages 非空）与图片一样走视觉模型；
+    /* 6. 解析后重算视觉：图片与「无文本兜底」的页面图（pdf）走视觉模型；
+       docx/pptx 双通道（文本+排版图）皆可用，非视觉模型下不拦截。
        不通过 → AI 占位转为错误卡片（保留新分支） */
-    const hasVisual: boolean = images.length > 0 || files.some((f: FileAttachment) => f.pageImages.length > 0);
+    const hasVisual: boolean = images.length > 0
+      || files.some((f: FileAttachment) => f.pageImages.length > 0 && f.textContent.length === 0);
     if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
       aiMsg.isParsing = false;
       aiMsg.isStreaming = false;
@@ -1374,8 +1429,10 @@ export class ChatViewModel {
     if (msg.isStreaming) return; // 流式中不可编辑
     /* 方式 B：纯文本模型下禁止编辑带图/带 pdf 消息（无法新增/保留，直接拒绝进入编辑态）；
        视觉模型下可自由增删改图片/pdf（编辑发送路径由 handleUserSend 二次校验）。
+       docx/pptx 有文本兜底（pageImages 与 textContent 并存），纯文本模型下可正常编辑（仅发文本）；
        txt/md 文件走文本通道，纯文本模型下可正常编辑 */
-    const hasVisual: boolean = msg.images.length > 0 || msg.files.some((f: FileAttachment) => f.pageImages.length > 0);
+    const hasVisual: boolean = msg.images.length > 0
+      || msg.files.some((f: FileAttachment) => f.pageImages.length > 0 && f.textContent.length === 0);
     if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
       showToast($r("app.string.vision_required"));
       return;

@@ -36,13 +36,13 @@ class ZoomImageState {
 }
 
 /* 预览页路由参数（ChatPage pushPathByName 注入） */
-export interface PreviewParams {
+export interface ImagePreviewParams {
   images: ImageAttachment[];
   index: number;
 }
 
 @ComponentV2
-export struct PreviewPage {
+export struct ImagePreviewPage {
   /* 路由参数：图片列表（引用 ChatPage 传入的数组） */
   @Param images: ImageAttachment[] = [];
   /* 路由参数：打开时的起始页码 */

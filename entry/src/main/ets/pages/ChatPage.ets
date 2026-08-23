@@ -11,7 +11,8 @@ import { formatSmartTime } from "../common/TimeUtil";
 import { NavTransitionManager } from "../common/NavTransitionManager";
 import { showToast, KeyboardBackHelper, SafeAreaHelper } from "../common/Utils";
 import { ChatViewModel } from "../viewmodel/ChatViewModel";
-import { PreviewParams } from "./PreviewPage";
+import { ImagePreviewParams } from "./ImagePreviewPage";
+import { MarkdownPreviewParams } from "./MarkdownPreviewPage";
 import { ThinkingEffort } from "../config/ModelPresets";
 import { Markdown, MarkdownController } from "@luvi/lv-markdown-in";
 import { ShareSheetPanel, ShareCardData, ShareCardItem } from "../components/panel/ShareSheetPanel";
@@ -23,6 +24,7 @@ import { ExportLoading } from "../components/export/ExportLoading";
 import { PdfExporter } from "../service/PdfExporter";
 import { ImageMerger, IMAGE_MERGE_MAX_HEIGHT } from "../service/ImageMerger";
 import { OfficeHtmlParser } from "../service/OfficeHtmlParser";
+import { FilePreviewService } from "../service/FilePreviewService";
 import { Logger } from "../common/Logger";
 
 /**
@@ -196,33 +198,33 @@ export struct ChatPage {
           Row() {
             Row() {
               /* "三横线"图标，点击弹出侧边栏 */
-            SymbolGlyph($r("sys.symbol.sort"))
-              .fontSize($r('app.float.font_icon_xl'))
-              .fontWeight(700)
-              .fontColor([$r('app.color.font_primary')])
-          }
-          .width(40)
-          .justifyContent(FlexAlign.Start)
-          .onClick(() => {
-            this.pushSideBar();
-          })
+              SymbolGlyph($r("sys.symbol.sort"))
+                .fontSize($r('app.float.font_icon_xl'))
+                .fontWeight(700)
+                .fontColor([$r('app.color.font_primary')])
+            }
+            .width(40)
+            .justifyContent(FlexAlign.Start)
+            .onClick(() => {
+              this.pushSideBar();
+            })
 
-          Text(this.vm.title)
-            .fontSize($r('app.float.font_title'))
-            .fontWeight(700)
-            .fontColor($r('app.color.font_primary'))
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-
-          Row() {
-            SymbolGlyph($r("sys.symbol.message_badge_plus"))
-              .fontSize($r('app.float.font_icon_xxl'))
+            Text(this.vm.title)
+              .fontSize($r('app.float.font_title'))
               .fontWeight(700)
-              .fontColor([$r('app.color.font_primary')])
-          }
-          .width(40)
-          .justifyContent(FlexAlign.End)
-          .onClick(() => {
+              .fontColor($r('app.color.font_primary'))
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+
+            Row() {
+              SymbolGlyph($r("sys.symbol.message_badge_plus"))
+                .fontSize($r('app.float.font_icon_xxl'))
+                .fontWeight(700)
+                .fontColor([$r('app.color.font_primary')])
+            }
+            .width(40)
+            .justifyContent(FlexAlign.End)
+            .onClick(() => {
             /* 已在空白"新对话"中 → 提示，不重复创建 */
             if (this.vm.messageDataSource.totalCount() === 0) {
               showToast($r('app.string.already_in_new_conversation'));
@@ -313,15 +315,32 @@ export struct ChatPage {
                       /* 点击用户消息图片 → 打开全屏预览（独立路由页：预览页在栈上，手势/物理返回都弹栈回本页） */
                       onImagePreview: (m: Message, index: number) => {
                         inputMethod.getController().stopInput();
-                        const params: PreviewParams = {
+                        const params: ImagePreviewParams = {
                           images: m.images,
                           index: index,
                         };
                         /* 官方 geometryTransition 共享转场：路由跳转包在 animateTo 内提供元素过渡动画上下文；
                            不关 animated，让 customNavContentTransition 的淡入淡出继续接管页面级动画 */
                         this.getUIContext().animateTo({ duration: 300, curve: Curve.EaseInOut }, () => {
-                          this.pathStack.pushPathByName("PreviewPage", params);
+                          this.pathStack.pushPathByName("ImagePreviewPage", params);
                         });
+                      },
+                      /* 点击文件卡片 → 预览：
+                         md → 应用内 Markdown 预览页（源码/预览双模式，Preview Kit 不支持 md）；
+                         其余 → Preview Kit 系统预览（txt/pdf/office） */
+                      onFilePreview: (file: FileAttachment) => {
+                        inputMethod.getController().stopInput();
+                        if (file.ext === "md") {
+                          const params: MarkdownPreviewParams = { file: file };
+                          this.pathStack.pushPathByName("MarkdownPreviewPage", params);
+                          return;
+                        }
+                        const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+                        FilePreviewService.getInstance().preview(ctx, file)
+                          .catch((e: Error) => {
+                            Logger.warn(`文件预览失败(${file.name}): ${JSON.stringify(e)}`);
+                            showToast($r('app.string.file_preview_failed'));
+                          });
                       },
                     })
                   }.width("100%")
