@@ -279,8 +279,10 @@ export struct ChatPage {
                       /* 分支变体信息：驱动 "< 当前 / 总数 >"；getVariantInfo 已缓存，二次调用 O(1) */
                       variantCurrent: this.vm.getVariantInfo(msg).current,
                       variantTotal: this.vm.getVariantInfo(msg).total,
-                      /* 是否激活链最后一条：仅最后一条显示「换个回答」（防止在历史消息上重新生成导致上下文混乱） */
-                      isLastMessage: index === this.vm.messageDataSource.totalCount() - 1,
+                      /* 是否激活链最后一条：仅最后一条显示「换个回答」（防止在历史消息上重新生成导致上下文混乱）。
+                         数据驱动（vm.lastMessageId @Trace）替代 index 快照：删除/分支切换后即时刷新，
+                         避免"删除后新最后一条不显示「换个回答」"需退出重进的陈旧问题 */
+                      isLastMessage: this.vm.lastMessageId === msg.id,
                       /* 正在编辑的用户消息 id：编辑中的消息禁止删除（点击直接 toast） */
                       editingMessageId: this.vm.editingMessageId,
                       /* 换个回答：覆盖当前 AI 回复 */

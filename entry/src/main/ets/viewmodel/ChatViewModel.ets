@@ -105,6 +105,12 @@ export class ChatViewModel {
   @Trace streamState: "idle" | "streaming" | "paused" = "idle";
   /* 当前模型是否支持图片输入（驱动 ChatInput 选图按钮显隐；onPageShow 与模型切换时刷新） */
   @Trace supportsVision: boolean = false;
+  /**
+   * 激活链最后一条消息 id（驱动 MessageBubble 的「换个回答」显隐）。
+   * 数据驱动替代 LazyForEach index 快照：删除/分支切换后 @Trace 变化 → ChatPage build 重跑
+   * → item @Param 更新，避免"删除后新最后一条不显示「换个回答」"的陈旧问题
+   */
+  @Trace lastMessageId: string = "";
 
   /* 供页面 build 绑定的对象 */
 
@@ -211,6 +217,7 @@ export class ChatViewModel {
   newConversation(): void {
     this.messageDataSource.clear();
     this.branchManager.clearAll();
+    this.lastMessageId = ""; // 空列表无最后一条（驱动「换个回答」显隐重置）
     this.currentConversation = new Conversation();
     this.currentConversationId = this.currentConversation.id;
     this.isFirstUserMsg = true;
@@ -286,6 +293,7 @@ export class ChatViewModel {
     this.messageDataSource.replaceAll(chain);
 
     /* 4. 渲染完成后：搜索定位到命中消息（屏幕中间）或滚动到底部 */
+    this.syncLastMessageId();
     this.isAtBottom = true;
     this.resetScrollFollow(); // 切换对话 → 恢复自动跟随
     if (focusMessageId !== undefined && focusMessageId.length > 0) {
@@ -1226,6 +1234,8 @@ export class ChatViewModel {
     msg.isActive = true;
     this.branchManager.add(msg);
     this.messageDataSource.push(msg);
+    /* 新消息即链尾：同步「换个回答」标记（新增消息后新最后一条的显隐即时生效） */
+    this.lastMessageId = msg.id;
     /**
      * 修复(激活链一致性)：存在未落库的分支切换时，先把当前激活链固化进 DB 再插新消息，
      * 保证「发送落库」与「激活链落库」顺序一致；即使随后生成失败/被杀，链也不分裂
@@ -1691,6 +1701,8 @@ export class ChatViewModel {
       } else {
         this.messageDataSource.replaceRange(prefixLen, oldList.length - prefixLen, chain.slice(prefixLen));
       }
+      /* 分支切换/删除回退后链尾可能变化：同步「换个回答」标记（replaceRange 前缀复用 item，必须数据驱动刷新） */
+      this.syncLastMessageId();
 
       /**
        * 锚点恢复期间抑制 onListItemHeightChanged 的自动钉底，
@@ -1725,6 +1737,7 @@ export class ChatViewModel {
     } else {
       /* 非切换分支（新建分支/编辑等）：直接替换 + 滚到底部 */
       this.messageDataSource.replaceAll(chain);
+      this.syncLastMessageId();
       this.scrollToBottom();
     }
   }
@@ -1838,7 +1851,19 @@ export class ChatViewModel {
   private reloadActiveList(): void {
     const chain = this.branchManager.buildActiveChain();
     this.messageDataSource.replaceAll(chain);
+    this.syncLastMessageId();
     this.scrollToBottom();
+  }
+
+  /**
+   * 同步激活链最后一条消息 id（驱动「换个回答」显隐）。
+   * 在激活链结构性变化的所有出口调用（加载/新增/删除/分支切换/重载/新建对话）：
+   * 取数据源链尾 id，@Trace 变化驱动 ChatPage build 重跑 → item @Param 刷新。
+   * 空列表置空串（无消息，无最后一条）
+   */
+  private syncLastMessageId(): void {
+    const list = this.messageDataSource.getAll();
+    this.lastMessageId = list.length > 0 ? list[list.length - 1].id : "";
   }
 
   /**
