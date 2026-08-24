@@ -1,5 +1,5 @@
 import { common } from "@kit.AbilityKit";
-import { window } from "@kit.ArkUI";
+import { window, KeyboardAvoidMode } from "@kit.ArkUI";
 import { inputMethod } from "@kit.IMEKit";
 import { Message, ImageAttachment, FileAttachment } from "../model/Message";
 import { Conversation, ConversationSelection } from "../model/Conversation";
@@ -555,6 +555,15 @@ export struct ChatPage {
     .onShown(() => {
       /* 每次显示（含从侧边栏/文件夹返回）时刷新模型名与标题 */
       this.vm.onPageShow();
+      /**
+       * 兜底重设键盘避让模式为 RESIZE（延迟到转场动画完成后）：
+       * 本模式是窗口级全局设置，上层页面（侧边栏 NONE 等）离开时恢复 RESIZE 可能失效，
+       * 导致返回聊天页后输入法无法避让；且 onShown 在 pop 转场期间触发，立即设置可能被忽略，
+       * 故延迟到抽屉关闭动画（150ms）结束后再设，确保生效
+       */
+      setTimeout(() => {
+        this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+      }, 150);
       /* 返回时复位防重入标记：onPop 仅在 pop 传参时才触发（pop() 无参数不回调），
          改用 onShown 保证任何返回方式（顶部返回键/系统返回键/选中对话）都能立即复位，
          避免「返回后需等超时才能再次打开侧边栏」 */

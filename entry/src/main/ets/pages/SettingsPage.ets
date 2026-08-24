@@ -16,7 +16,6 @@
  * - 返回操作使用 NavPathStack.pop()
  */
 
-import { KeyboardAvoidMode } from "@kit.ArkUI";
 import { common } from "@kit.AbilityKit";
 import { AppConfig } from "../config/AppConfig";
 import { MODEL_PRESETS, getModelPreset } from "../config/ModelPresets";
@@ -37,15 +36,14 @@ export struct SettingsPage {
   @Local navBarHeightVp: number = 0;
   private saveTimerId: number = -1; // 保存后返回的定时器，离开页面时清理
   private isSaving: boolean = false; // 保存中标记（防连点重复保存与双 pop）
-  private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE;
 
   aboutToAppear(): void {
     /* 读取系统栏高度（标题栏/内容区避让用） */
     this.statusBarHeightVp = SafeAreaHelper.getStatusBarHeight();
     this.navBarHeightVp = SafeAreaHelper.getNavBarHeight();
-    /* 输入法避让：本页是表单页，切到"上抬"模式（键盘弹出时页面整体上抬，保证当前输入框不被遮挡） */
-    this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode(); // 记录进入前的模式
-    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.OFFSET);
+    /* 注：本页不再切换全局 KeyboardAvoidMode（原 OFFSET 切换在"窗口从未弹过键盘"时会卡死
+       窗口避让状态，导致返回聊天页后 RESIZE 失效、输入法无法避让）。保持全局 RESIZE 不变：
+       表单输入框位于 Scroll 内，键盘弹出时视口压缩 + 输入框聚焦自动滚动，仍可正常输入 */
 
     /* 回显已保存的配置 */
     const config = AppConfig.getInstance().getConfig();
@@ -70,8 +68,7 @@ export struct SettingsPage {
       clearTimeout(this.saveTimerId);
       this.saveTimerId = -1;
     }
-    /* 离开页面时恢复全局压缩模式 */
-    this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
+    /* 注：本页未修改全局 KeyboardAvoidMode，无需恢复 */
   }
 
   build() {
@@ -298,8 +295,6 @@ export struct SettingsPage {
       }
       this.saveTimerId = setTimeout(() => {
         this.saveTimerId = -1;
-        /* 在 pop 之前恢复键盘避让模式，避免 aboutToDisappear 中 UIContext 已销毁导致恢复失败 */
-        this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
         this.pathStack.pop();
       }, 500);
     } finally {

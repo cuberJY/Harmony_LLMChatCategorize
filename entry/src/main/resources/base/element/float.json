@@ -141,10 +141,6 @@
       "value": "48vp"
     },
     {
-      "name": "border_radius",
-      "value": "16vp"
-    },
-    {
       "name": "dialog_radius",
       "value": "32vp"
     },
@@ -158,7 +154,7 @@
     },
     {
       "name": "bubble_radius",
-      "value": "12vp"
+      "value": "16vp"
     },
     {
       "name": "bubble_padding_h",
