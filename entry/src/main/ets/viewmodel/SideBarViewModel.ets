@@ -156,6 +156,7 @@ export class SideBarViewModel {
     if (!conv) return;
     const oldTitle = conv.title;
     conv.title = newTitle;
+    conv.isUserNamed = true; // 用户手动命名：此后不再自动生成 AI 标题
     const ok = await ConversationRepository.getInstance().update(conv);
     if (!ok) {
       conv.title = oldTitle; // 失败回滚内存，避免界面与数据库不一致

@@ -11,6 +11,7 @@ export class Conversation {
   @Trace categoryId: string = ""; // 收藏位置（文件夹）ID，空字符串 = 未放入文件夹（仅对已收藏对话有意义）
   @Trace isFavorite: boolean = false; // 是否已收藏：只有收藏的对话才参与文件夹分类
   @Trace isPinned: boolean = false; // 是否置顶
+  @Trace isUserNamed: boolean = false; // 标题是否被用户手动命名（true = 不再自动生成 AI 标题）
   @Trace createdAt: number = 0; // 创建时间戳（毫秒）
   @Trace updatedAt: number = 0; // 最后更新时间戳（最后一条消息时间）
 

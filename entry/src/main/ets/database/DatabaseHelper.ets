@@ -53,6 +53,7 @@ export class DatabaseHelper {
       category_id TEXT NOT NULL DEFAULT '', -- 收藏位置（文件夹）ID，空串 = 未放入文件夹
       is_favorite INTEGER NOT NULL DEFAULT 0, -- 是否收藏：0 未收藏 / 1 已收藏
       is_pinned INTEGER NOT NULL DEFAULT 0, -- 是否置顶
+      is_user_named INTEGER NOT NULL DEFAULT 0, -- 标题是否被用户手动命名：1=用户命名（不再自动生成 AI 标题）
       created_at INTEGER NOT NULL,       -- 创建时间戳（毫秒）
       updated_at INTEGER NOT NULL        -- 最后更新时间戳（毫秒）
     )`,
@@ -100,6 +101,8 @@ export class DatabaseHelper {
 
       /* 兼容旧库：message 表缺少分支字段时补列（开发阶段直接 ALTER，不引入版本迁移） */
       await this.ensureMessageColumns(store);
+      /* 兼容旧库：conversation 表缺少 is_user_named 时补列 */
+      await this.ensureConversationColumns(store);
 
       store.version = DatabaseHelper.DB_VERSION;
 
@@ -154,6 +157,30 @@ export class DatabaseHelper {
     } catch (e) {
       /* 迁移失败：不影响主流程（新库已含全字段），仅记录日志 */
       Logger.error(`ensureMessageColumns failed: ${JSON.stringify(e)}`);
+    }
+  }
+
+  /**
+   * 兼容旧库：检测 conversation 表是否缺少 is_user_named 列，缺失则 ALTER TABLE 补列
+   * 新装库建表语句已含该列，此方法仅对历史版本数据库生效（幂等）
+   */
+  private async ensureConversationColumns(store: relationalStore.RdbStore): Promise<void> {
+    try {
+      /* 读取表结构：LIMIT 0 不返回数据行，但 ResultSet 携带全部列名 */
+      const rs = await store.querySql('SELECT * FROM conversation LIMIT 0');
+      const existingCols: string[] = [];
+      for (let i = 0; i < rs.columnCount; i++) {
+        existingCols.push(rs.getColumnName(i));
+      }
+      rs.close();
+      const def: string = "is_user_named INTEGER NOT NULL DEFAULT 0";
+      const colName: string = def.split(' ')[0]; // 取列名（定义首词）
+      if (existingCols.indexOf(colName) < 0) {
+        await store.executeSql(`ALTER TABLE conversation ADD COLUMN ${def}`);
+      }
+    } catch (e) {
+      /* 迁移失败：不影响主流程（新库已含全字段），仅记录日志 */
+      Logger.error(`ensureConversationColumns failed: ${JSON.stringify(e)}`);
     }
   }
 }

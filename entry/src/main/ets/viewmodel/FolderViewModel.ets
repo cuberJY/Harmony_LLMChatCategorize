@@ -177,6 +177,7 @@ export class FolderViewModel {
   async renameConv(conv: Conversation, name: string): Promise<void> {
     const oldTitle = conv.title;
     conv.title = name;
+    conv.isUserNamed = true; // 用户手动命名：此后不再自动生成 AI 标题
     const ok = await ConversationRepository.getInstance().update(conv);
     if (!ok) {
       conv.title = oldTitle; // 失败回滚内存

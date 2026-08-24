@@ -329,6 +329,19 @@ export class ChatViewModel {
    */
   private async generateConversationTitle(task: StreamTask): Promise<void> {
     const convId = task.conversationId;
+    /* 竞态/用户命名前置校验：回读 DB，若标题已被用户手动命名 → 不再自动生成，清除待生成标记。
+       先于占位比对与 LLM 请求，避免对已命名对话浪费一次标题生成调用 */
+    const preCheck = await ConversationRepository.getInstance().getById(convId);
+    if (preCheck === undefined) {
+      this.pendingTitleConvId = ""; // 对话已删除
+      this.titleAttempts.delete(convId);
+      return;
+    }
+    if (preCheck.isUserNamed) {
+      this.pendingTitleConvId = "";
+      this.titleAttempts.delete(convId);
+      return;
+    }
     /* 触发时标题 = 截断占位（addMessage 首条用户消息写入）；作为"是否被重命名"的比对基线 */
     const placeholderTitle = task.targetConv.title;
     /* assistant 上下文 = 完成任务的消息（内存最终态）：不依赖 DB 写入时序（updateMessage 异步），
@@ -1368,8 +1381,11 @@ export class ChatViewModel {
             : (images.length > 0 ? "[图片]" : (files.length > 0 ? "[文件]" : ""));
         ConversationRepository.getInstance().update(this.currentConversation);
       }
-      this.pendingTitleConvId = sendConvId; // 重置待生成标记
-      this.titleAttempts.delete(sendConvId); // 重置重试计数（全新提问，重新计数）
+      /* 仅未被用户命名的对话才重置待生成标记（用户命名过 → 不再自动生成 AI 标题） */
+      if (freshConv === undefined || !freshConv.isUserNamed) {
+        this.pendingTitleConvId = sendConvId; // 重置待生成标记
+        this.titleAttempts.delete(sendConvId); // 重置重试计数（全新提问，重新计数）
+      }
     }
     /* 2. 熄灭旧用户消息及其后续链 */
     this.branchManager.deactivateBranchFrom(target);

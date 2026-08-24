@@ -35,6 +35,7 @@ export class ConversationDao {
         category_id: conv.categoryId,
         is_favorite: conv.isFavorite ? 1 : 0,
         is_pinned: conv.isPinned ? 1 : 0,
+        is_user_named: conv.isUserNamed ? 1 : 0,
         created_at: conv.createdAt,
         updated_at: conv.updatedAt,
       };
@@ -74,6 +75,7 @@ export class ConversationDao {
         category_id: conv.categoryId,
         is_favorite: conv.isFavorite ? 1 : 0,
         is_pinned: conv.isPinned ? 1 : 0,
+        is_user_named: conv.isUserNamed ? 1 : 0,
       };
       const predicates = new relationalStore.RdbPredicates("conversation");
       predicates.equalTo("id", conv.id);
@@ -330,6 +332,7 @@ export class ConversationDao {
       conv.categoryId = rs.getString(rs.getColumnIndex("category_id"));
       conv.isFavorite = rs.getLong(rs.getColumnIndex("is_favorite")) === 1;
       conv.isPinned = rs.getLong(rs.getColumnIndex("is_pinned")) === 1;
+      conv.isUserNamed = rs.getLong(rs.getColumnIndex("is_user_named")) === 1;
       conv.createdAt = rs.getLong(rs.getColumnIndex("created_at"));
       conv.updatedAt = rs.getLong(rs.getColumnIndex("updated_at"));
     } catch (e) {
