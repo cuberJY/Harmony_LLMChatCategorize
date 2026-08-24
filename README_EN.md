@@ -35,7 +35,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Immersive UI** — full-screen edge-to-edge; system bars blend into the page
 - **Smart scroll** — auto-pin while generating, pause on manual scroll, "back to bottom" button
 - **Markdown rendering** — native rendering + performance optimizations + dark-mode support
-- **Text interaction** — long-press copy, code-block copy, raw-text viewer; attachment preview (md in-app Markdown preview, others via the system viewer)
+- **Text interaction** — long-press copy, code-block copy, raw-text viewer
 - **Image input** — With vision models, send photos from gallery or camera (auto-compressed, up to 9 per message); tap any message image for a fullscreen preview; add or remove images when editing a message
 - **File input** — Send txt / md / pdf / docx / pptx / xlsx attachments; content is auto-extracted for the AI to understand (see Core Design for details)
 - **Share** — one-tap share of messages / conversations as plain text, Markdown, HTML, a long image, or PDF; AI replies keep their rich formatting; long conversations are exported per Q&A round into a long image / multi-page PDF
@@ -131,7 +131,7 @@ ChatCategorize/
 - `service/FileParser.ets` wraps the system document picker (DocumentViewPicker, no storage permission) and parsing: txt/md are read as UTF-8 text (truncated); docx/pptx/xlsx are extracted to Markdown text by `service/OoxmlParser.ets` (@ohos/jszip unzip + XmlPullParser streaming OOXML XML — docx paragraphs / headings / tables, pptx per-slide text, xlsx per-sheet tables with sharedStrings); on vision models, docx/pptx instead go through `service/OfficeHtmlParser.ets` (hidden ArkWeb + deck-ir/docx-preview layout) for per-page screenshots; since API 20 lacks `getTextContent`, PDFs are rendered page-by-page via PDF Kit into PixelMap → JPEG Base64 (≤100 pages; total Base64 capped at 12MB to protect the request body)
 - Files are dispatched by channel in `DeepSeekProvider.buildApiContent`: txt/md and Office extracted text is merged into the `input_text` block with a `【File xx content】` marker (works on every model); docx/pptx (vision models) / PDF pages become per-page `input_image` vision blocks (vision models only, with fallback guards at pick / send / edit / provider layers)
 - Dual-channel fallback: docx/pptx hold both textContent (OOXML text) and pageImages (ArkWeb layout shots); vision models send both channels, non-vision models send text only without blocking; on send, attachments in history lacking layout shots get backfilled via `parseVisualForHistory` (a single failure only logs and does not block)
-- Limits & UX: one file ≤20MB; extracted text (txt/md/docx/pptx/xlsx) truncated at 30k chars; file cards shown in message bubbles — tap to preview (md in-app Markdown preview, others via the Preview Kit system viewer) — and files can be added/removed when editing a message
+- Limits & UX: one file ≤20MB; extracted text (txt/md/docx/pptx/xlsx) truncated at 30k chars; file cards shown in message bubbles, and files can be added/removed when editing a message
 
 ## Data Models
 

@@ -298,6 +298,8 @@ export struct SettingsPage {
       }
       this.saveTimerId = setTimeout(() => {
         this.saveTimerId = -1;
+        /* 在 pop 之前恢复键盘避让模式，避免 aboutToDisappear 中 UIContext 已销毁导致恢复失败 */
+        this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
         this.pathStack.pop();
       }, 500);
     } finally {

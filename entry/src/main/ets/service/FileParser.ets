@@ -302,10 +302,19 @@ export class FileParser {
     }
   }
 
-  /* 从 URI 提取文件名（最后一段）；解析失败回退时间戳名 */
+  /**
+   * 从 URI 提取文件名（最后一段）。
+   * DocumentViewPicker 返回的 URI 中，中文/空格等文件名是 URL 编码的（如 %E4%B8%AD），
+   * 需 decodeURIComponent 解码成可读文件名；解码失败回退原始片段；空则回退时间戳名
+   */
   private extractFileName(uri: string): string {
     const idx = uri.lastIndexOf('/');
-    const name = idx >= 0 ? uri.substring(idx + 1) : uri;
+    let name = idx >= 0 ? uri.substring(idx + 1) : uri;
+    try {
+      name = decodeURIComponent(name);
+    } catch (e) {
+      /* 非法编码（如文件本名就含 %xx）时保留原文 */
+    }
     return name.length > 0 ? name : `file_${Date.now()}`;
   }
 

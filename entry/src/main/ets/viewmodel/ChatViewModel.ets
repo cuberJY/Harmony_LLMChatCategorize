@@ -1558,13 +1558,11 @@ export class ChatViewModel {
       this.refreshStreamState();
     }
 
-    /* 3. 持久化：删除消息（子树）；若全部删空，同时删除已无内容的对话记录 */
-    if (deleteIds.length === this.branchManager.size()) {
-      /* 修复：单事务完成「删消息 + 删空对话」，避免两步独立调用的非原子窗口 */
-      ConversationRepository.getInstance().deleteMessagesAndConversationIfEmpty(convId, deleteIds);
-    } else {
-      ConversationRepository.getInstance().deleteMessages(deleteIds);
-    }
+    /* 3. 持久化：删除消息子树；随后按 DB 真实剩余条数判断对话是否已空，若空则连同对话一并删除（单事务原子）。
+       统一走 deleteMessagesAndConversationIfEmpty（内部 countByConversation 判定），
+       不再依赖「子树 == 缓存全量」的启发式条件：多根树/流式占位未落库/陈旧缓存等
+       缓存与 DB 失配场景下，该条件会误判为"未删空"，导致空对话记录残留侧边栏 */
+    await ConversationRepository.getInstance().deleteMessagesAndConversationIfEmpty(convId, deleteIds);
 
     /* 4. 更新内存缓存并重建列表 */
     this.branchManager.removeMany(deleteIds);

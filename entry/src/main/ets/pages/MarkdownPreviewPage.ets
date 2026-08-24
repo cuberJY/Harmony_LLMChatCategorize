@@ -93,36 +93,39 @@ export struct MarkdownPreviewPage {
   @Builder
   modeSwitch() {
     Row() {
-      Text("源码")
+      Text("源\n码")
         .fontSize($r('app.float.font_icon_sm'))
-        .fontColor(this.mode === "source" ? $r('app.color.font_primary') : $r('app.color.font_secondary'))
+        .fontColor(this.mode === "source" ? $r('app.color.toggle_text_active') : $r('app.color.font_secondary'))
+        .backgroundColor(this.mode === "source" ? $r('app.color.toggle_bg_active') : Color.Transparent)
         .fontWeight(this.mode === "source" ? 700 : 400)
         .padding({
-          left: $r('app.float.space_sm'),
-          right: $r('app.float.space_sm'),
-          top: $r('app.float.space_xxs'),
-          bottom: $r('app.float.space_xxs'),
+          left: $r('app.float.space_xs'),
+          right: $r('app.float.space_xs'),
+          top: $r('app.float.space_xs'),
+          bottom: $r('app.float.space_xs'),
         })
         .onClick(() => {
           this.mode = "source";
         })
-      Text("预览")
+        .border({ width:{ right:1 }, color:{ right:$r('app.color.divider') } })
+      // 预览
+      Text("预\n览")
         .fontSize($r('app.float.font_icon_sm'))
-        .fontColor(this.mode === "preview" ? $r('app.color.font_primary') : $r('app.color.font_secondary'))
+        .fontColor(this.mode === "preview" ? $r('app.color.toggle_text_active') : $r('app.color.font_secondary'))
+        .backgroundColor(this.mode === "preview" ? $r('app.color.toggle_bg_active') : Color.Transparent)
         .fontWeight(this.mode === "preview" ? 700 : 400)
         .padding({
-          left: $r('app.float.space_sm'),
-          right: $r('app.float.space_sm'),
-          top: $r('app.float.space_xxs'),
-          bottom: $r('app.float.space_xxs'),
+          left: $r('app.float.space_xs'),
+          right: $r('app.float.space_xs'),
+          top: $r('app.float.space_xs'),
+          bottom: $r('app.float.space_xs'),
         })
         .onClick(() => {
           this.mode = "preview";
         })
     }
-    .backgroundColor($r('app.color.chat_input_bg'))
-    .borderRadius($r('app.float.space_sm'))
-    .padding(2)
+    .backgroundColor($r('app.color.title_bar_bg'))
+    .borderRadius(4)
     .border({ width: 1, color: $r('app.color.divider') })
   }
 
@@ -133,21 +136,18 @@ export struct MarkdownPreviewPage {
         Row() {
           Button() {
             SymbolGlyph($r("sys.symbol.chevron_left"))
-              .fontSize(32)
-              .fontColor([$r('app.color.font_on_primary')])
+              .fontSize($r('app.float.font_icon_xxl'))
+              .fontColor([$r('app.color.font_primary')])
           }
-          .width(40)
-          .height(40)
+          .width(32)
+          .height(32)
           .type(ButtonType.Circle)
-          .backgroundColor('#FF212121')
+          .backgroundColor('#20212121')
           .padding({
             left: $r('app.float.space_xs'),
-            right: 6,
+            right: 5,
             top: $r('app.float.space_xs'),
             bottom: $r('app.float.space_xs'),
-          })
-          .margin({
-            top: $r('app.float.space_md')
           })
           .onClick(() => {
             this.pathStack.pop();
@@ -157,8 +157,12 @@ export struct MarkdownPreviewPage {
             .fontSize($r('app.float.font_title'))
             .fontWeight(700)
             .fontColor($r('app.color.font_primary'))
-            .maxLines(1)
+            .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .padding({
+              left: $r('app.float.space_xs'),
+              right: $r('app.float.space_xs'),
+            })
             .layoutWeight(1)
             .textAlign(TextAlign.Center)
 
@@ -166,13 +170,22 @@ export struct MarkdownPreviewPage {
           this.modeSwitch()
         }
         .width("100%")
-        .height(40)
+        .height(SafeAreaHelper.getTitleBarHeight(this.getUIContext()) + this.statusBarHeightVp)
         .padding({
+          top: this.statusBarHeightVp,
           left: $r('app.float.space_md'),
           right: $r('app.float.space_md')
         })
-        .justifyContent(FlexAlign.End)
-        .margin({ top: this.statusBarHeightVp })
+        .backgroundColor($r('app.color.title_bar_bg'))
+        /**
+         * 沉浸式：expandSafeArea 让标题栏背景向上延伸到状态栏背后（与系统栏同色融为一体）；
+         * 内容改用显式 padding（真实状态栏高度）避让——safeAreaPadding 在固定高度组件上会失效导致重叠
+         */
+        .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP])
+        .border({
+          width: { bottom: 2 },
+          color: { bottom: $r('app.color.divider') },
+        })
 
         /* 内容区：预览 / 源码 双模式 */
         if (this.file.textContent.length === 0) {
@@ -198,7 +211,12 @@ export struct MarkdownPreviewPage {
           .layoutWeight(1)
           .scrollBar(BarState.Auto)
           .align(Alignment.TopStart)
-          .padding({ left: $r('app.float.space_md'), right: $r('app.float.space_md'), top: $r('app.float.space_md'), bottom: $r('app.float.space_md') })
+          .padding({
+            left: $r('app.float.space_md'),
+            right: $r('app.float.space_md'),
+            top: $r('app.float.space_md'),
+            bottom: $r('app.float.space_lg'),
+          })
         } else {
           /* 源码模式：等宽字体原样展示 md 源码 */
           Scroll() {

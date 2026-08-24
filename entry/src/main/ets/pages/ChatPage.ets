@@ -213,6 +213,10 @@ export struct ChatPage {
               .fontSize($r('app.float.font_title'))
               .fontWeight(700)
               .fontColor($r('app.color.font_primary'))
+              .padding({
+                left: $r('app.float.space_xs'),
+                right: $r('app.float.space_xs'),
+              })
               .layoutWeight(1)
               .textAlign(TextAlign.Center)
 

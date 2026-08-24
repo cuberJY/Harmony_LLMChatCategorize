@@ -43,13 +43,13 @@ export struct FileCard {
       return { bg: "#4A4A52", text: "MD", color: Color.White }; // 深灰底白字
     }
     if (ext === "xlsx" || ext === "xls") {
-      return { bg: "#3FA067", text: "XLSX", color: Color.White }; // 绿底白字
+      return { bg: "#3FA067", text: "XLS", color: Color.White }; // 绿底白字
     }
     if (ext === "docx" || ext === "doc") {
-      return { bg: "#2B7DE9", text: "DOCX", color: Color.White }; // 蓝底白字
+      return { bg: "#2B7DE9", text: "DOC", color: Color.White }; // 蓝底白字
     }
     if (ext === "pptx" || ext === "ppt") {
-      return { bg: "#D24726", text: "PPTX", color: Color.White }; // 橙红底白字
+      return { bg: "#D24726", text: "PPT", color: Color.White }; // 橙红底白字
     }
     return { bg: "#E9E9EC", text: "TXT", color: "#3A3A40" }; // 浅灰底深灰字（默认 txt）
   }
@@ -107,7 +107,7 @@ export struct FileCard {
           SymbolGlyph($r("sys.symbol.xmark"))
             .fontSize(10)
             .fontWeight(700)
-            .fontColor([Color.White])
+            .fontColor([$r('app.color.font_primary')])
         }
         .width(18)
         .height(18)
