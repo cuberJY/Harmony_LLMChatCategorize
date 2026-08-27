@@ -1489,11 +1489,22 @@ export class ChatViewModel {
       return; // 目标不在激活链上（异常场景）：无法对齐，保持当前位置
     }
     this.setAtBottom(false); // 编辑对齐后不再处于底部，取消自动跟随
+    /* 可调偏移（vp）：正值越大消息越贴输入区（更靠下）。调这个值即可改对齐高度 */
+    const editAlignBottomVp: number = 42;
     try {
-      this.listScroller.scrollToIndex(idx, true, ScrollAlign.END);
+      /* 无动画定位到消息尾部（END），避免与下面 scrollBy 的平滑动画竞争抖动 */
+      this.listScroller.scrollToIndex(idx, false, ScrollAlign.END);
     } catch (e) {
-      /* 个别版本平滑滚动异常：回退为无动画滚动到消息顶部，至少保证消息可见 */
+      /* 个别版本滚动异常：回退为无动画滚动到消息顶部，至少保证消息可见 */
       this.listScroller.scrollToIndex(idx, false, ScrollAlign.START);
+    }
+    /* 再向上回滚 editAlignBottomVp：让消息相对更靠下（贴近输入区），微调对齐位置 */
+    if (this.scrollAnimator !== undefined) {
+      this.scrollAnimator(() => {
+        this.listScroller.scrollBy(0, -editAlignBottomVp);
+      });
+    } else {
+      this.listScroller.scrollBy(0, -editAlignBottomVp);
     }
   }
 
