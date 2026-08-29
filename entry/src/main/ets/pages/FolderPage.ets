@@ -31,8 +31,8 @@ import { ConversationItem } from "../components/item/ConversationItem";
 import { EditFolderDialogParams, buildEditFolderContent } from "../components/dialog/EditFolderDialog";
 import { FolderPickerDialogParams, buildFolderPickerContent } from "../components/dialog/FolderPickerDialog";
 import { RenameDialogParams, buildRenameDialog } from "../components/dialog/RenameInputDialog";
-import { showDeleteConfirm, SafeAreaHelper, showToast } from "../common/Utils";
-import { DIALOG_DELAY_AFTER_MENU, DIALOG_OFFSET_SLIGHT, DIALOG_OFFSET_TALL, DEFAULT_FOLDER_COLOR } from "../common/AppConstants";
+import { showDeleteConfirm, SafeAreaHelper, showToast, DialogKeyboardAvoid } from "../common/Utils";
+import { DIALOG_DELAY_AFTER_MENU, DIALOG_OFFSET_SLIGHT, DIALOG_OFFSET_TALL, DEFAULT_FOLDER_COLOR, DIALOG_KEYBOARD_MARGIN } from "../common/AppConstants";
 import { FolderParams } from "../model/FolderParams";
 import { FolderViewModel } from "../viewmodel/FolderViewModel";
 import { ShareSheetPanel, ShareCardData, ShareCardItem } from "../components/panel/ShareSheetPanel";
@@ -62,6 +62,9 @@ export struct FolderPage {
   private renameConvNode: ComponentContent<RenameDialogParams> | null = null; // 重命名对话
   private batchMoveNode: ComponentContent<FolderPickerDialogParams> | null = null; // 批量移动对话
   private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE; // 记录全局避让模式
+  /* 输入弹窗键盘避让：当前输入弹窗高度（vp，弹窗 onAreaChange 上报）与键盘订阅注销函数 */
+  @Local dialogHeightVp: number = 0;
+  private dialogKbUnsubscribe: (() => void) | null = null;
   /* 沉浸式系统栏高度（vp，EntryAbility 注入）：aboutToAppear 一次性读取（V2 无 @StorageProp，用 @Local + 手动读取） */
   @Local statusBarHeightVp: number = 0;
   @Local navBarHeightVp: number = 0;
@@ -95,6 +98,8 @@ export struct FolderPage {
   aboutToDisappear(): void {
     /* 离开页面恢复全局模式，保证上层页面（SideBarPage/ChatPage）的避让行为不受影响 */
     this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
+    /* 兜底注销输入弹窗键盘避让订阅，防止页面销毁后回调泄漏 */
+    this.disableDialogKeyboardAvoid();
   }
 
   build() {
@@ -341,6 +346,9 @@ export struct FolderPage {
     params.onRequestClose = () => {
       this.closeDialog();
     };
+    params.onHeightChange = (heightVp: number) => {
+      this.dialogHeightVp = heightVp;
+    };
     const node = new ComponentContent<RenameDialogParams>(this.getUIContext(),
       wrapBuilder(buildRenameDialog), params);
     this.renameConvNode = node;
@@ -350,6 +358,13 @@ export struct FolderPage {
         autoCancel: true,
         alignment: DialogAlignment.Center,
         offset: DIALOG_OFFSET_SLIGHT,
+        /* 弹窗关闭（含点遮罩自动关闭）时注销键盘避让订阅 */
+        onWillDisappear: () => {
+          this.disableDialogKeyboardAvoid();
+        },
+      }).then(() => {
+        /* 打开成功后再订阅键盘高度：键盘弹出/拉高时动态抬高弹窗，避免被遮挡 */
+        this.enableDialogKeyboardAvoid(node, DIALOG_OFFSET_SLIGHT);
       }).catch((err: BusinessError) => {
         console.error(`openCustomDialog(重命名对话) 失败 code=${err.code} msg=${err.message}`);
         this.renameConvNode = null;
@@ -392,6 +407,8 @@ export struct FolderPage {
 
   /* 关闭当前打开的弹窗（弹窗组件通过 onRequestClose 回调触发） */
   private closeDialog(): void {
+    /* 先注销输入弹窗的键盘避让订阅（手动点"确定/取消"关闭走这里，点遮罩走 onWillDisappear） */
+    this.disableDialogKeyboardAvoid();
     /* 同一时刻至多一个节点非空；先置 null 再关闭，避免重复 close */
     const n1 = this.newFolderNode;
     if (n1) {
@@ -425,6 +442,42 @@ export struct FolderPage {
     }
   }
 
+  /**
+   * 输入弹窗键盘避让：订阅键盘高度变化并动态抬高弹窗（弹窗打开成功后调用）。
+   * 键盘弹出/拉高时，按「弹窗底部始终高于键盘顶部」计算新 offset 并 updateCustomDialog，
+   * 避免高键盘盖住居中的输入弹窗。
+   * @param node 已打开弹窗的内容节点（用于 updateCustomDialog）
+   * @param baseOffset 无键盘时的基准偏移（如 DIALOG_OFFSET_SLIGHT）
+   */
+  private enableDialogKeyboardAvoid<T extends Object>(node: ComponentContent<T>, baseOffset: Offset): void {
+    /* 防重复订阅：若上一弹窗未注销（极端时序），先清掉旧订阅再挂新订阅 */
+    this.disableDialogKeyboardAvoid();
+    this.dialogHeightVp = 0;
+    this.dialogKbUnsubscribe = DialogKeyboardAvoid.subscribe(this.getUIContext(),
+      (kbHeightVp: number, windowHeightVp: number) => {
+        const dy = DialogKeyboardAvoid.computeOffsetDy({
+          windowHeightVp: windowHeightVp,
+          dialogHeightVp: this.dialogHeightVp,
+          keyboardHeightVp: kbHeightVp,
+          baseDy: Number(baseOffset.dy),
+          margin: DIALOG_KEYBOARD_MARGIN,
+        });
+        this.getUIContext().getPromptAction().updateCustomDialog(node, {
+          offset: { dx: 0, dy: dy },
+        }).catch((err: BusinessError) => {
+          console.error(`updateCustomDialog(键盘避让) 失败 code=${err.code} msg=${err.message}`);
+        });
+      });
+  }
+
+  /** 注销输入弹窗键盘避让订阅（弹窗关闭/页面销毁时调用，幂等） */
+  private disableDialogKeyboardAvoid(): void {
+    if (this.dialogKbUnsubscribe) {
+      this.dialogKbUnsubscribe();
+      this.dialogKbUnsubscribe = null;
+    }
+  }
+
   /* 新建子文件夹（ComponentContent 方式，复用 EditFolderDialog：名称 + 颜色，与收藏 Tab 新建文件夹统一） */
   private openNewFolderDialog(): void {
     /* 先释放上次点遮罩关闭后残留的节点，防止内存泄漏 */
@@ -443,6 +496,9 @@ export struct FolderPage {
     params.onRequestClose = () => {
       this.closeDialog();
     };
+    params.onHeightChange = (heightVp: number) => {
+      this.dialogHeightVp = heightVp;
+    };
     /* ComponentContent：内容绑定本页面 UIContext，但组件实例独立，规避成员 @Builder 的时序/绑定问题 */
     const node = new ComponentContent<EditFolderDialogParams>(this.getUIContext(),
       wrapBuilder(buildEditFolderContent), params);
@@ -451,6 +507,13 @@ export struct FolderPage {
       autoCancel: true,
       alignment: DialogAlignment.Center,
       offset: DIALOG_OFFSET_TALL,
+      /* 弹窗关闭（含点遮罩自动关闭）时注销键盘避让订阅 */
+      onWillDisappear: () => {
+        this.disableDialogKeyboardAvoid();
+      },
+    }).then(() => {
+      /* 打开成功后再订阅键盘高度：键盘弹出/拉高时动态抬高弹窗，避免被遮挡 */
+      this.enableDialogKeyboardAvoid(node, DIALOG_OFFSET_TALL);
     }).catch((err: BusinessError) => {
       console.error(`openCustomDialog(新建子文件夹) 失败 code=${err.code} msg=${err.message}`);
       this.newFolderNode = null;
@@ -473,6 +536,9 @@ export struct FolderPage {
     params.onRequestClose = () => {
       this.closeDialog();
     };
+    params.onHeightChange = (heightVp: number) => {
+      this.dialogHeightVp = heightVp;
+    };
     const node = new ComponentContent<EditFolderDialogParams>(this.getUIContext(),
       wrapBuilder(buildEditFolderContent), params);
     this.editFolderNode = node;
@@ -482,6 +548,13 @@ export struct FolderPage {
         autoCancel: true,
         alignment: DialogAlignment.Center,
         offset: DIALOG_OFFSET_TALL,
+        /* 弹窗关闭（含点遮罩自动关闭）时注销键盘避让订阅 */
+        onWillDisappear: () => {
+          this.disableDialogKeyboardAvoid();
+        },
+      }).then(() => {
+        /* 打开成功后再订阅键盘高度：键盘弹出/拉高时动态抬高弹窗，避免被遮挡 */
+        this.enableDialogKeyboardAvoid(node, DIALOG_OFFSET_TALL);
       }).catch((err: BusinessError) => {
         console.error(`openCustomDialog(编辑文件夹) 失败 code=${err.code} msg=${err.message}`);
         this.editFolderNode = null;

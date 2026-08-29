@@ -31,5 +31,7 @@ export const BUBBLE_MAX_WIDTH_RATIO_AI: number = 1;
  */
 export const DIALOG_OFFSET_SLIGHT: Offset = { dx: 0, dy: -5 };
 export const DIALOG_OFFSET_TALL: Offset = { dx: 0, dy: -34 };
+/* 输入弹窗键盘避让：弹窗底部与键盘顶部的最小间距（vp） */
+export const DIALOG_KEYBOARD_MARGIN: number = 16;
 /* 长按菜单触发弹窗的延迟打开时间（ms）：等 bindContextMenu 子窗口关闭动画结束，避免弹窗被吞 */
 export const DIALOG_DELAY_AFTER_MENU: number = 150;

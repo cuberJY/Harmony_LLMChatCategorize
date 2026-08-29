@@ -197,3 +197,107 @@ export class KeyboardBackHelper {
     return false;
   }
 }
+
+/** DialogKeyboardAvoid.computeOffsetDy 的入参（ArkTS 不允许内联对象字面量类型，需显式声明类） */
+export class DialogKeyboardAvoidOffsetParams {
+  /** 窗口高度（vp） */
+  windowHeightVp: number = 0;
+  /** 弹窗渲染高度（vp），未上报时按 0 处理（保持基准偏移） */
+  dialogHeightVp: number = 0;
+  /** 键盘高度（vp） */
+  keyboardHeightVp: number = 0;
+  /** 无键盘时的基准偏移（vp，负值向上） */
+  baseDy: number = 0;
+  /** 弹窗底部与键盘顶部的最小间距（vp） */
+  margin: number = 0;
+}
+
+/**
+ * 输入弹窗键盘避让辅助器（解决「键盘高度较高时弹窗被键盘遮挡」）
+ *
+ * 背景：SideBarPage / FolderPage 为避免键盘顶起页面底部，将全局 KeyboardAvoidMode 设为 NONE，
+ * 此时窗口不避让键盘；而输入弹窗（重命名/新建/编辑文件夹）用 openCustomDialog + Center 全屏居中，
+ * 弹起键盘（尤其键盘被拉高）后弹窗下半部会被键盘盖住。
+ * 弹窗自身的 keyboardAvoidMode 选项仅支持 DEFAULT/NONE（默认即 DEFAULT），在页面级 NONE 下实测不生效，
+ * 因此这里改为显式动态抬高：订阅 keyboardHeightChange，按「弹窗底部始终高于键盘顶部」的
+ * 最小位移量实时计算 offset.dy，由页面调用 updateCustomDialog 更新弹窗位置。
+ */
+export class DialogKeyboardAvoid {
+  /** 当前键盘高度（vp，0 = 未弹出） */
+  private static kbHeightVp: number = 0;
+  /** 窗口高度（vp，底层 window 就绪后获取一次） */
+  private static winHeightVp: number = 0;
+  /** 底层 window 是否已就绪（getLastWindow 异步，就绪后挂 keyboardHeightChange） */
+  private static ready: boolean = false;
+  /** 订阅者列表（弹窗打开时订阅、关闭时注销；同一时刻至多一个输入弹窗） */
+  private static listeners: Array<(kbHeightVp: number, windowHeightVp: number) => void> = [];
+
+  /**
+   * 订阅键盘高度变化（输入弹窗打开成功后调用），返回取消订阅函数（弹窗关闭时调用）。
+   * @param uiContext 页面 UIContext（调用处传 this.getUIContext()）
+   * @param listener 回调：参数为键盘高度（vp）与窗口高度（vp）
+   */
+  static subscribe(uiContext: UIContext, listener: (kbHeightVp: number, windowHeightVp: number) => void): () => void {
+    DialogKeyboardAvoid.listeners.push(listener);
+    if (!DialogKeyboardAvoid.ready) {
+      DialogKeyboardAvoid.ready = true;
+      /* 首次订阅：异步取主窗口并挂键盘高度监听（与 ChatPage 同款事件） */
+      const context = uiContext.getHostContext() as common.UIAbilityContext;
+      window.getLastWindow(context).then((win: window.Window) => {
+        DialogKeyboardAvoid.winHeightVp = uiContext.px2vp(win.getWindowProperties().windowRect.height);
+        win.on('keyboardHeightChange', (heightPx: number) => {
+          DialogKeyboardAvoid.kbHeightVp = uiContext.px2vp(heightPx);
+          DialogKeyboardAvoid.notify();
+        });
+        /* 就绪后立即通知一次，覆盖「键盘已弹出再开弹窗」的场景 */
+        DialogKeyboardAvoid.notify();
+      });
+    } else {
+      /* 已就绪：新订阅者先拿一次当前值（含键盘已弹出的情况） */
+      listener(DialogKeyboardAvoid.kbHeightVp, DialogKeyboardAvoid.winHeightVp);
+    }
+    return () => {
+      const idx = DialogKeyboardAvoid.listeners.indexOf(listener);
+      if (idx >= 0) {
+        DialogKeyboardAvoid.listeners.splice(idx, 1);
+      }
+    };
+  }
+
+  /** 通知所有订阅者（键盘高度/窗口高度变化） */
+  private static notify(): void {
+    DialogKeyboardAvoid.listeners.forEach((l: (kbHeightVp: number, windowHeightVp: number) => void) => {
+      l(DialogKeyboardAvoid.kbHeightVp, DialogKeyboardAvoid.winHeightVp);
+    });
+  }
+
+  /**
+   * 计算输入弹窗在键盘弹出时应使用的 offset.dy（vp，Center 对齐）。
+   * 原则：弹窗尽量停在原居中位置；一旦键盘可能盖住弹窗，就按最小位移上移，
+   * 保证弹窗底部与键盘顶部保持 margin 间距；同时夹紧弹窗顶部不越出屏幕。
+   * @param opts 见 DialogKeyboardAvoidOffsetParams（windowHeightVp/dialogHeightVp/keyboardHeightVp/baseDy/margin）
+   */
+  static computeOffsetDy(opts: DialogKeyboardAvoidOffsetParams): number {
+    const windowHeightVp = opts.windowHeightVp;
+    const dialogHeightVp = opts.dialogHeightVp;
+    const keyboardHeightVp = opts.keyboardHeightVp;
+    const baseDy = opts.baseDy;
+    const margin = opts.margin;
+    /* 键盘未弹出（高度≈0）或弹窗高度尚未上报：保持基准偏移，避免误动 */
+    if (keyboardHeightVp <= 1 || dialogHeightVp <= 0) {
+      return baseDy;
+    }
+    /* 键盘顶部以下可用区域的底边 = 窗口底 - 键盘高 - 间距 */
+    const availableBottom = windowHeightVp - keyboardHeightVp - margin;
+    /* 弹窗中心允许的最大 y（弹窗底部不压键盘） */
+    const maxCenterY = availableBottom - dialogHeightVp / 2;
+    /* 弹窗中心允许的最小 y（弹窗顶部不越出屏顶） */
+    const minCenterY = dialogHeightVp / 2 + margin;
+    /* Center 对齐：弹窗中心 = 窗口中心 + dy → dy = 期望中心 - 窗口中心 */
+    const dyNoOverlap = maxCenterY - windowHeightVp / 2;
+    const dyNoClipTop = minCenterY - windowHeightVp / 2;
+    let dy = Math.min(baseDy, dyNoOverlap); // 仅当键盘可能遮挡时才上移（取更靠上者）
+    dy = Math.max(dy, dyNoClipTop); // 夹紧：顶部不越出屏幕
+    return dy;
+  }
+}

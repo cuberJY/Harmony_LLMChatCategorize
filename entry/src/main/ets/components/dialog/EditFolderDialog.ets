@@ -18,6 +18,7 @@ export struct EditFolderDialog {
   @Param oldColor: string = DEFAULT_FOLDER_COLOR; // 原图标颜色（高亮选中）
   @Event onConfirm: (name: string, color: string) => void = (name: string, color: string) => {};
   @Event onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
+  @Event onHeightChange: (heightVp: number) => void = () => {}; // 弹窗渲染高度上报（vp，父页面键盘避让用）
   @Local inputValue: string = ""; // 名称输入内容
   @Local selectedColor: string = DEFAULT_FOLDER_COLOR; // 当前选中的颜色
 
@@ -128,7 +129,11 @@ export struct EditFolderDialog {
     .width("92%")
     /* 弹出框按官方规范用超大圆角（32vp） */
     .borderRadius($r('app.float.dialog_radius'))
-    .backgroundColor($r('app.color.dialog_bg'));
+    .backgroundColor($r('app.color.dialog_bg'))
+    /* 上报渲染高度（vp）：父页面据此计算键盘弹出时的最小避让位移 */
+    .onAreaChange((_oldArea: Area, newArea: Area) => {
+      this.onHeightChange(Math.round(Number(newArea.height)));
+    });
   }
 }
 
@@ -143,6 +148,7 @@ export class EditFolderDialogParams {
   oldColor: string = DEFAULT_FOLDER_COLOR; // 原图标颜色（高亮选中）
   onConfirm: (name: string, color: string) => void = (name: string, color: string) => {}; // 确认回调
   onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
+  onHeightChange: (heightVp: number) => void = () => {}; // 弹窗渲染高度上报（vp，父页面键盘避让用）
 }
 
 /**
@@ -160,6 +166,9 @@ export function buildEditFolderContent(params: EditFolderDialogParams) {
     },
     onRequestClose: () => {
       params.onRequestClose();
+    },
+    onHeightChange: (heightVp: number) => {
+      params.onHeightChange(heightVp);
     },
   })
 }

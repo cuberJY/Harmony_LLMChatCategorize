@@ -16,6 +16,7 @@ export struct RenameInputDialog {
   @Param oldValue: string = ""; // 预填值（重命名时使用）
   @Event onConfirm: (value: string) => void = (value: string) => {}; // 确认回调
   @Event onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
+  @Event onHeightChange: (heightVp: number) => void = () => {}; // 弹窗渲染高度上报（vp，父页面键盘避让用）
   @Local inputValue: string = ""; // 输入框内容
 
   aboutToAppear(): void {
@@ -80,7 +81,11 @@ export struct RenameInputDialog {
     .width("92%")
     /* 弹出框按官方规范用超大圆角（32vp） */
     .borderRadius($r('app.float.dialog_radius'))
-    .backgroundColor($r('app.color.dialog_bg'));
+    .backgroundColor($r('app.color.dialog_bg'))
+    /* 上报渲染高度（vp）：父页面据此计算键盘弹出时的最小避让位移 */
+    .onAreaChange((_oldArea: Area, newArea: Area) => {
+      this.onHeightChange(Math.round(Number(newArea.height)));
+    });
   }
 }
 
@@ -95,6 +100,7 @@ export class RenameDialogParams {
   oldValue: string = ""; // 预填值（重命名时使用）
   onConfirm: (value: string) => void = (value: string) => {}; // 确认回调
   onRequestClose: () => void = () => {}; // 关闭回调（父页面负责关闭弹窗）
+  onHeightChange: (heightVp: number) => void = () => {}; // 弹窗渲染高度上报（vp，父页面键盘避让用）
 }
 
 /**
@@ -112,6 +118,9 @@ export function buildRenameDialog(params: RenameDialogParams) {
     },
     onRequestClose: () => {
       params.onRequestClose();
+    },
+    onHeightChange: (heightVp: number) => {
+      params.onHeightChange(heightVp);
     },
   })
 }
