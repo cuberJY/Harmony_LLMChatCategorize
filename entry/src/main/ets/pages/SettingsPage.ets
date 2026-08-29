@@ -17,6 +17,7 @@
  */
 
 import { common } from "@kit.AbilityKit";
+import { KeyboardAvoidMode } from "@kit.ArkUI";
 import { AppConfig } from "../config/AppConfig";
 import { MODEL_PRESETS, getModelPreset } from "../config/ModelPresets";
 import { showToast, SafeAreaHelper } from "../common/Utils";
@@ -34,6 +35,7 @@ export struct SettingsPage {
   /* 沉浸式系统栏高度（vp，EntryAbility 注入）：aboutToAppear 一次性读取（V2 无 @StorageProp，用 @Local + 手动读取） */
   @Local statusBarHeightVp: number = 0;
   @Local navBarHeightVp: number = 0;
+  private globalKeyboardAvoidMode: KeyboardAvoidMode = KeyboardAvoidMode.RESIZE; // 记录全局避让模式
   private saveTimerId: number = -1; // 保存后返回的定时器，离开页面时清理
   private isSaving: boolean = false; // 保存中标记（防连点重复保存与双 pop）
 
@@ -41,9 +43,12 @@ export struct SettingsPage {
     /* 读取系统栏高度（标题栏/内容区避让用） */
     this.statusBarHeightVp = SafeAreaHelper.getStatusBarHeight();
     this.navBarHeightVp = SafeAreaHelper.getNavBarHeight();
-    /* 注：本页不再切换全局 KeyboardAvoidMode（原 OFFSET 切换在"窗口从未弹过键盘"时会卡死
-       窗口避让状态，导致返回聊天页后 RESIZE 失效、输入法无法避让）。保持全局 RESIZE 不变：
-       表单输入框位于 Scroll 内，键盘弹出时视口压缩 + 输入框聚焦自动滚动，仍可正常输入 */
+    /* 键盘避让：记住全局模式后固定 RESIZE（表单输入需要键盘避让）。
+       背景：从 SideBarPage/FolderPage push 进入时，这两页已把全局模式切成 NONE，
+       本页若不显式改回 RESIZE，键盘弹出时视口不压缩、API Key 输入框会被键盘盖住。
+       注意只能用 RESIZE（OFFSET 在窗口未弹过键盘时会造成避让状态卡死的历史问题） */
+    this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode();
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
 
     /* 回显已保存的配置 */
     const config = AppConfig.getInstance().getConfig();
@@ -63,12 +68,13 @@ export struct SettingsPage {
   }
 
   aboutToDisappear(): void {
+    /* 离开页面恢复全局模式（上层 SideBarPage/FolderPage 期望 NONE，保持其行为不变） */
+    this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
     /* 离开页面时清理返回定时器，避免越层返回 */
     if (this.saveTimerId !== -1) {
       clearTimeout(this.saveTimerId);
       this.saveTimerId = -1;
     }
-    /* 注：本页未修改全局 KeyboardAvoidMode，无需恢复 */
   }
 
   build() {
