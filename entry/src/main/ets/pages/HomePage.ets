@@ -46,11 +46,12 @@ struct HomePage {
   private mainWindow?: window.Window;
   /* 折叠状态监听回调（命名引用，便于注销） */
   private foldListener: (status: display.FoldStatus) => void = (_status: display.FoldStatus) => {
-    this.updateDeviceState();
+    this.updateDeviceState(this.getWindowWidthVp());
   };
-  /* 窗口尺寸监听回调（折叠/旋转/分屏触发） */
-  private windowSizeListener: (size: window.Size) => void = (_size: window.Size) => {
-    this.updateDeviceState();
+  /* 窗口尺寸监听回调（折叠/旋转/分屏/自由窗口触发）：size.width 为窗口物理像素宽，÷密度换算 vp */
+  private windowSizeListener: (size: window.Size) => void = (size: window.Size) => {
+    const density: number = display.getDefaultDisplaySync().densityPixels;
+    this.updateDeviceState(size.width / density);
   };
 
   aboutToAppear(): void {
@@ -67,6 +68,9 @@ struct HomePage {
       window.getLastWindow(context).then((win: window.Window) => {
         this.mainWindow = win;
         win.on('windowSizeChange', this.windowSizeListener);
+        /* 主窗口就绪后：用窗口实际宽度（而非物理屏宽）重新计算断点，
+           修正分屏/自由窗口下窗口宽 < 物理屏宽导致的误判 */
+        this.updateDeviceState(this.getWindowWidthVp());
       });
     }
   }
@@ -80,22 +84,45 @@ struct HomePage {
     }
   }
 
-  /** 依据当前窗口宽度与折叠状态刷新全局设备状态（断点 + 宽屏标志） */
-  private updateDeviceState(): void {
+  /**
+   * 依据窗口宽度与折叠状态刷新全局设备状态（断点 + 宽屏标志）
+   * @param windowWidthVp 窗口实际宽度（vp）；未传或 <=0 时回退物理屏宽兜底
+   */
+  private updateDeviceState(windowWidthVp?: number): void {
     const prevWide: boolean = this.deviceState.isWide;
-    const widthVp: number = getWindowWidthVp();
+    const widthVp: number =
+      windowWidthVp !== undefined && windowWidthVp > 0 ? windowWidthVp : this.getWindowWidthVp();
     this.deviceState.breakpoint = calcBreakpoint(widthVp);
     this.deviceState.isWide = isWideLayout(this.deviceState.breakpoint);
     /* 折叠状态（字符串常量，非折叠屏返回 unknown） */
     this.deviceState.foldStatus = getFoldState();
-    /* 变宽屏（如折叠屏展开）：左栏侧边栏已常驻，若右栏栈顶残留窄屏抽屉式 SideBarPage，自动弹出，
-       避免出现"左栏 + 右栏抽屉"同时存在的异常布局 */
+    /* 变宽屏（如折叠屏展开）：左栏侧边栏已常驻，栈内不应再有任何抽屉式 SideBarPage。
+       边缘场景——多页面叠放时折叠展开（如 ChatPage→SideBarPage→FolderPage→SettingsPage），
+       SideBarPage 可能不在栈顶，逐层残留会在右栏浮现重复侧边栏。
+       故用 popToName 清到 ChatPage 栈底，彻底移除所有 SideBarPage。
+       宽屏下 FolderPage/SettingsPage 本就应从 NavBar 重新进入，此处一并弹出无副作用 */
     if (this.deviceState.isWide && !prevWide) {
       const names: string[] = this.pathStack.getAllPathName();
-      if (names.length > 1 && names[names.length - 1] === "SideBarPage") {
-        this.pathStack.pop();
+      if (names.length > 1 && names.indexOf("SideBarPage") >= 0) {
+        this.pathStack.popToName("ChatPage");
       }
     }
+  }
+
+  /** 获取窗口实际宽度（vp）：优先取主窗口 windowRect，未就绪回退物理屏宽 */
+  private getWindowWidthVp(): number {
+    if (this.mainWindow !== undefined) {
+      try {
+        const w: number = this.mainWindow.getWindowProperties().windowRect.width;
+        const density: number = display.getDefaultDisplaySync().densityPixels;
+        if (w > 0 && density > 0) {
+          return w / density;
+        }
+      } catch (e) {
+        /* 窗口属性读取异常 → 回退物理屏宽 */
+      }
+    }
+    return getWindowWidthVp();
   }
 
   /**
@@ -176,7 +203,7 @@ struct HomePage {
        - 左栏初始占 30%
        - 拖拽时左栏可调范围 25%~75% */
     .navBarWidth('30%')
-    .navBarWidthRange(['25%', '75%'])
+    .navBarWidthRange(['240vp', '75%'])
     .enableDragBar(true)
     /* 自定义页面切换转场：SideBarPage 抽屉式覆盖在 ChatPage 上 */
     .customNavContentTransition(
