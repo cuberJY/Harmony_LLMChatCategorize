@@ -46,13 +46,24 @@ import { ExportCardLayer, EXPORT_CARD_WIDTH, EXPORT_IMAGE_MAX_ROUNDS, EXPORT_PDF
 import { ExportLoading } from "../components/export/ExportLoading";
 import { PdfExporter } from "../service/PdfExporter";
 import { ImageMerger, IMAGE_MERGE_MAX_HEIGHT } from "../service/ImageMerger";
+import { getChatBridge, ChatBridgeState } from "../common/ChatBridge";
 
 @ComponentV2
 export struct SideBarPage {
-  /* 路由栈（NavDestination.onReady 获取）：跳转 FolderPage/SettingsPage 并转发返回结果 */
+  /**
+   * 嵌入式模式（宽屏分栏左栏常驻）：由 HomePage 直接渲染（非路由 NavDestination）。
+   * true 时：顶部返回按钮隐藏、选中对话经全局总线通知 ChatPage（不走 pop 回传）、
+   * 不注册抽屉转场动画；false = 窄屏路由模式（现状：NavDestination + 抽屉覆盖）
+   */
+  @Param embedded: boolean = false;
+  /* 嵌入式模式下注入的宿主路由栈（与右栏 Navigation 共享，push FolderPage/SettingsPage 用） */
+  @Param hostPathStack: NavPathStack | undefined = undefined;
+  /* 路由栈（NavDestination.onReady 获取 / 嵌入式由 hostPathStack 注入）：跳转 FolderPage/SettingsPage 并转发返回结果 */
   private pathStack: NavPathStack = new NavPathStack();
-  /* 当前打开的对话 id（来自 ChatPage 路由参数，用于历史列表高亮当前对话） */
+  /* 当前打开的对话 id（路由模式来自 ChatPage 参数；嵌入式读全局总线，用于历史列表高亮当前对话） */
   @Param currentConversationId: string = "";
+  /* 全局对话桥接（嵌入式选中对话回传 / 外部返回后刷新数据用） */
+  private chatBridge: ChatBridgeState = getChatBridge();
   /* 转场位移动画状态：百分比字符串，绑定 NavDestination.translate（由转场回调驱动） */
   @Local offsetX: string = "0%";
   /* 本页在路由栈中的索引（注册/注销转场回调用，onReady 时确定） */
@@ -99,12 +110,19 @@ export struct SideBarPage {
   private swiperController: SwiperController = new SwiperController(); // Swiper 控制器：程序化带动画切换
 
   aboutToAppear(): void {
+    /* 嵌入式模式：注入宿主路由栈（右栏 Navigation 共享），供 push FolderPage/SettingsPage 使用 */
+    if (this.embedded && this.hostPathStack !== undefined) {
+      this.pathStack = this.hostPathStack;
+    }
     /* 读取系统栏高度（标题栏/底部栏/内容区避让用） */
     this.statusBarHeightVp = SafeAreaHelper.getStatusBarHeight();
     this.navBarHeightVp = SafeAreaHelper.getNavBarHeight();
-    /* 记住全局模式（EntryAbility 里设的 RESIZE），本页切换为 NONE：键盘不顶起底部"设置" */
-    this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode();
-    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
+    /* 仅路由模式：记住全局模式（EntryAbility 里设的 RESIZE），本页切换为 NONE（键盘不顶起底部"设置"）。
+       嵌入式（宽屏左栏）不碰全局 keyboardAvoidMode，避免覆盖 ChatPage 需要的 RESIZE（输入框被键盘顶起） */
+    if (!this.embedded) {
+      this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode();
+      this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
+    }
     /* 初始化数据库（单例已初始化则跳过） */
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     if (context) {
@@ -117,9 +135,25 @@ export struct SideBarPage {
     }
   }
 
+  /**
+   * 嵌入式模式数据刷新监听：右栏页面（FolderPage 等）返回 ChatPage 时，
+   * ChatPage 递增全局 sidebarRefreshVersion → 本页刷新收藏/历史（嵌入式无 onShown 事件）
+   */
+  @Monitor('chatBridge.sidebarRefreshVersion')
+  onBridgeSidebarRefresh(): void {
+    if (!this.embedded) {
+      return;
+    }
+    this.vm.loadConversations();
+    this.vm.loadFavorites();
+    this.vm.listVersion++;
+  }
+
   aboutToDisappear(): void {
-    /* 离开页面恢复全局模式，保证 ChatPage 底部输入框的避让不受影响 */
-    this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
+    /* 仅路由模式：离开页面恢复全局键盘避让模式，保证 ChatPage 底部输入框的避让不受影响 */
+    if (!this.embedded) {
+      this.getUIContext().setKeyboardAvoidMode(this.globalKeyboardAvoidMode);
+    }
     /* 兜底注销输入弹窗键盘避让订阅，防止页面销毁后回调泄漏 */
     this.disableDialogKeyboardAvoid();
     /* 注销转场动画回调 */
@@ -137,6 +171,11 @@ export struct SideBarPage {
       onSelectConversation: (selected: Conversation, messageId: string) => {
         /* 选中搜索结果：关闭面板 + 携带对话与定位消息返回 ChatPage（本页即由 ChatPage push 而来） */
         this.searchSheetShow = false;
+        if (this.embedded) {
+          /* 嵌入式：写全局总线，ChatPage 监听消费（focusMessageId 定位命中消息） */
+          this.notifySelectConversation(selected, messageId);
+          return;
+        }
         const selection: ConversationSelection = { conv: selected, focusMessageId: messageId };
         this.pathStack.pop(selection);
       },
@@ -149,8 +188,65 @@ export struct SideBarPage {
   }
 
   build() {
-    NavDestination() {
-      Column() {
+    if (this.embedded) {
+      /* 嵌入式（宽屏分栏左栏常驻）：普通容器渲染，不挂 NavDestination 专属逻辑 */
+      this.sidebarContent()
+    } else {
+      /* 路由模式（窄屏抽屉）：NavDestination 承载 + 抽屉转场 + 生命周期刷新 */
+      NavDestination() {
+        this.sidebarContent()
+      }
+      .hideTitleBar(true)
+      /* 转场位移：由 HomePage 的 customNavContentTransition 通过动画回调驱动（0% 时无偏移） */
+      .translate({ x: this.offsetX })
+      .onReady((context: NavDestinationContext) => {
+        this.pathStack = context.pathStack;
+        /* 注册转场动画回调：本页在路由栈中的索引 = 当前栈内页面数 - 1 */
+        this.transitionIndex = this.pathStack.getAllPathName().length - 1;
+        NavTransitionManager.getInstance().register(this.transitionIndex, {
+          start: (isPush: boolean, isExit: boolean) => {
+            /* 初始位置：作为 to（打开侧边栏）先位于左侧屏外；作为 from（关闭侧边栏）留在原位 */
+            this.offsetX = isExit ? "0%" : "-100%";
+          },
+          finish: (isPush: boolean, isExit: boolean) => {
+            /* 目标位置：作为 to 左滑入原位；作为 from 左滑出屏幕 */
+            this.offsetX = isExit ? "-100%" : "0%";
+          },
+          onFinish: () => {
+            /* 动画结束重置，供下次转场使用 */
+            this.offsetX = "0%";
+          },
+        });
+      })
+      .onShown(() => {
+        /* 返回时刷新数据（收藏/历史可能已变）；兜底纠正上层页面改过的全局键盘模式为 NONE */
+        this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
+        this.vm.loadConversations();
+        this.vm.loadFavorites();
+        this.vm.listVersion++;
+      })
+      .onBackPressed(() => {
+        /* 导出加载期间：拦截返回键，避免导出中断或页面 pop 后分享弹窗错位 */
+        if (this.exportShow) {
+          return true; // true = 本页自行处理返回键，框架不再执行默认弹栈
+        }
+        /* 多选编辑模式：系统返回键优先退出编辑模式（拦截本次返回），再按一次才真正返回 ChatPage */
+        if (this.vm.isEditMode) {
+          this.vm.exitEditMode();
+          return true; // true = 本页自行处理返回键，框架不再执行默认弹栈
+        }
+        return false; // 非编辑模式：交还默认弹栈逻辑返回 ChatPage
+      })
+    }
+  }
+
+  /**
+   * 侧边栏主体内容（路由模式与嵌入式共用）
+   * 顶部栏（Tab 切换）+ 内容区（Swiper 历史/收藏）+ 底部编辑栏 + 导出层 + 分享面板
+   */
+  @Builder
+  sidebarContent() {
+    Column() {
         /* 顶部栏：Tab 切换 + 返回 */
         if (this.vm.isEditMode) {
           EditModeTitleBar({
@@ -246,16 +342,19 @@ export struct SideBarPage {
                     this.searchSheetShow = false;
                   },
                 });
-              SymbolGlyph($r("sys.symbol.ellipsis_message"))
-                .fontSize($r('app.float.font_icon_xxl'))
-                .fontWeight(700)
-                .fontColor([$r('app.color.font_primary')])
-                .margin({
-                  left: $r('app.float.space_md'),
-                })
-                .onClick(() => {
-                  this.pathStack.pop();
-                })
+              /* 顶部返回按钮：嵌入式（宽屏左栏常驻）无返回概念，隐藏 */
+              if (!this.embedded) {
+                SymbolGlyph($r("sys.symbol.ellipsis_message"))
+                  .fontSize($r('app.float.font_icon_xxl'))
+                  .fontWeight(700)
+                  .fontColor([$r('app.color.font_primary')])
+                  .margin({
+                    left: $r('app.float.space_md'),
+                  })
+                  .onClick(() => {
+                    this.pathStack.pop();
+                  })
+              }
             }
             .layoutWeight(1)
             .justifyContent(FlexAlign.End)
@@ -319,14 +418,14 @@ export struct SideBarPage {
                             conversation: conv,
                             isEditMode: this.vm.isEditMode,
                             isSelected: this.vm.selectedIds.indexOf(conv.id) >= 0,
-                            /* 是否为当前对话（高亮显示） */
-                            isCurrent: conv.id === this.currentConversationId,
+                            /* 是否为当前对话（高亮显示）：嵌入式读全局总线，路由模式读路由参数 */
+                            isCurrent: conv.id === (this.embedded ? this.chatBridge.currentConversationId : this.currentConversationId),
                             /* 历史页：星标显示在行尾；不显示"移动"（未收藏对话不参与文件夹分类） */
                             showMoveMenu: false,
 
                             onClickItem: (selected: Conversation) => {
-                              /* 选中对话 → pop 携带结果返回 ChatPage（pushPathByName 的 onPop 接收） */
-                              this.pathStack.pop(selected);
+                              /* 选中对话 → 通知 ChatPage 加载（路由模式 pop 回传 / 嵌入式写全局总线） */
+                              this.notifySelectConversation(selected);
                             },
                             onSelectChange: (selected: Conversation, checked: boolean) => {
                               this.vm.toggleSelect(selected.id, checked);
@@ -391,8 +490,8 @@ export struct SideBarPage {
                             (popInfo: PopInfo) => {
                               const conv = popInfo.result as Conversation | undefined;
                               if (conv && conv.id.length > 0) {
-                                /* 文件夹页选中对话 → 继续 pop 回 ChatPage 并携带结果 */
-                                this.pathStack.pop(conv);
+                                /* 文件夹页选中对话 → 通知 ChatPage 加载（路由模式继续 pop 回传 / 嵌入式写全局总线） */
+                                this.notifySelectConversation(conv);
                               }
                             },
                           );
@@ -429,8 +528,8 @@ export struct SideBarPage {
                         showPinMenu: true,
 
                         onClickItem: (selected: Conversation) => {
-                          /* 直接进入对话 → pop 携带结果返回 ChatPage */
-                          this.pathStack.pop(selected);
+                          /* 直接进入对话 → 通知 ChatPage 加载（路由模式 pop 回传 / 嵌入式写全局总线） */
+                          this.notifySelectConversation(selected);
                         },
                         onSelectChange: (selected: Conversation, checked: boolean) => {
                           this.vm.toggleSelect(selected.id, checked);
@@ -547,48 +646,22 @@ export struct SideBarPage {
           this.shareSheetShow = false;
         },
       });
+  }
+
+  /**
+   * 通知 ChatPage 加载选中的对话：
+   * - 路由模式（窄屏）：pop 携带结果，走 onPop 回传链（现状）
+   * - 嵌入式（宽屏左栏）：写全局总线 pendingSelection，ChatPage @Monitor 消费
+   * @param conv 选中的对话
+   * @param focusMessageId 定位消息 ID（搜索面板选中时传入，无定位目标为空串）
+   */
+  private notifySelectConversation(conv: Conversation, focusMessageId: string = ""): void {
+    if (!this.embedded) {
+      this.pathStack.pop(conv);
+      return;
     }
-    .hideTitleBar(true)
-    /* 转场位移：由 HomePage 的 customNavContentTransition 通过动画回调驱动（0% 时无偏移） */
-    .translate({ x: this.offsetX })
-    .onReady((context: NavDestinationContext) => {
-      this.pathStack = context.pathStack;
-      /* 注册转场动画回调：本页在路由栈中的索引 = 当前栈内页面数 - 1 */
-      this.transitionIndex = this.pathStack.getAllPathName().length - 1;
-      NavTransitionManager.getInstance().register(this.transitionIndex, {
-        start: (isPush: boolean, isExit: boolean) => {
-          /* 初始位置：作为 to（打开侧边栏）先位于左侧屏外；作为 from（关闭侧边栏）留在原位 */
-          this.offsetX = isExit ? "0%" : "-100%";
-        },
-        finish: (isPush: boolean, isExit: boolean) => {
-          /* 目标位置：作为 to 左滑入原位；作为 from 左滑出屏幕 */
-          this.offsetX = isExit ? "-100%" : "0%";
-        },
-        onFinish: () => {
-          /* 动画结束重置，供下次转场使用 */
-          this.offsetX = "0%";
-        },
-      });
-    })
-    .onShown(() => {
-      /* 返回时刷新数据（收藏/历史可能已变）；兜底纠正上层页面改过的全局键盘模式为 NONE */
-      this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
-      this.vm.loadConversations();
-      this.vm.loadFavorites();
-      this.vm.listVersion++;
-    })
-    .onBackPressed(() => {
-      /* 导出加载期间：拦截返回键，避免导出中断或页面 pop 后分享弹窗错位 */
-      if (this.exportShow) {
-        return true; // true = 本页自行处理返回键，框架不再执行默认弹栈
-      }
-      /* 多选编辑模式：系统返回键优先退出编辑模式（拦截本次返回），再按一次才真正返回 ChatPage */
-      if (this.vm.isEditMode) {
-        this.vm.exitEditMode();
-        return true; // true = 本页自行处理返回键，框架不再执行默认弹栈
-      }
-      return false; // 非编辑模式：交还默认弹栈逻辑返回 ChatPage
-    })
+    this.chatBridge.pendingSelection = { conv: conv, focusMessageId: focusMessageId };
+    this.chatBridge.selectionVersion++;
   }
 
   /**

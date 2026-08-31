@@ -26,6 +26,8 @@ import { ImageMerger, IMAGE_MERGE_MAX_HEIGHT } from "../service/ImageMerger";
 import { OfficeHtmlParser } from "../service/OfficeHtmlParser";
 import { FilePreviewService } from "../service/FilePreviewService";
 import { Logger } from "../common/Logger";
+import { getDeviceState, DeviceState } from "../common/DeviceAdapt";
+import { getChatBridge, ChatBridgeState } from "../common/ChatBridge";
 
 /**
  * 状态管理 V2 结构：
@@ -80,6 +82,30 @@ export struct ChatPage {
    * 驱动 List.contentEndOffset（"到底"判定位置 = ChatInput 上沿）与 FAB 避让
    */
   @Local chatInputHeightVp: number = 140;
+  /* 全局设备状态（宽屏判断：隐藏侧边栏入口、禁用右滑手势、聊天内容限宽居中） */
+  private deviceState: DeviceState = getDeviceState();
+  /* 全局对话桥接（宽屏嵌入式侧边栏选中对话 → 本页加载） */
+  private chatBridge: ChatBridgeState = getChatBridge();
+
+  /**
+   * 监听嵌入式侧边栏选中的对话（全局总线）：
+   * 宽屏左栏常驻时 SideBarPage 无法 pop 回传，改为写总线 pendingSelection，
+   * 本页消费并加载对话（focusMessageId 非空时定位到命中消息）
+   */
+  @Monitor('chatBridge.selectionVersion')
+  onBridgeSelection(): void {
+    const sel = this.chatBridge.pendingSelection;
+    if (sel === null || sel === undefined || sel.conv === undefined || sel.conv.id.length === 0) {
+      return;
+    }
+    /* 同步当前对话 id（嵌入式侧边栏高亮用；宽屏下本页常驻不触发 onShown，须在此更新） */
+    this.chatBridge.currentConversationId = sel.conv.id;
+    if (sel.focusMessageId !== undefined && sel.focusMessageId.length > 0) {
+      this.vm.loadConversation(sel.conv, sel.focusMessageId);
+    } else {
+      this.vm.loadConversation(sel.conv);
+    }
+  }
 
   aboutToAppear(): void {
     /* 读取系统栏高度（标题栏/输入区内容避让用） */
@@ -196,18 +222,23 @@ export struct ChatPage {
 
         Column() {
           Row() {
-            Row() {
-              /* "三横线"图标，点击弹出侧边栏 */
-              SymbolGlyph($r("sys.symbol.sort"))
-                .fontSize($r('app.float.font_icon_xl'))
-                .fontWeight(700)
-                .fontColor([$r('app.color.font_primary')])
+            if (this.deviceState.isWide) {
+              /* 宽屏：左栏侧边栏常驻，无抽屉入口，空占位保持标题居中 */
+              Row() {}.width(40)
+            } else {
+              Row() {
+                /* "三横线"图标，点击弹出侧边栏 */
+                SymbolGlyph($r("sys.symbol.sort"))
+                  .fontSize($r('app.float.font_icon_xl'))
+                  .fontWeight(700)
+                  .fontColor([$r('app.color.font_primary')])
+              }
+              .width(40)
+              .justifyContent(FlexAlign.Start)
+              .onClick(() => {
+                this.pushSideBar();
+              })
             }
-            .width(40)
-            .justifyContent(FlexAlign.Start)
-            .onClick(() => {
-              this.pushSideBar();
-            })
 
             Text(this.vm.title)
               .fontSize($r('app.float.font_title'))
@@ -480,6 +511,9 @@ export struct ChatPage {
         }
         .layoutWeight(1)
         .width("100%")
+        /* 宽屏限宽居中：聊天消息/输入框/FAB 在平板/折叠展开时不超过 720vp 居中显示（Column 默认 Center 对齐），
+           避免气泡与输入框横向拉满整屏难以阅读；窄屏（<720）不受影响 */
+        .constraintSize({ maxWidth: 720 })
 
         /* Markdown 库预热：提前触发 lv-markdown-in worker 初始化，消除首次打开正文卡顿（Hidden 零尺寸不占布局） */
         Markdown({
@@ -507,9 +541,12 @@ export struct ChatPage {
         }
       }
 
-      /* 从左向右滑 → 打开侧边栏 */
+      /* 从左向右滑 → 打开侧边栏（宽屏左栏常驻，禁用此手势） */
       .gesture(
         PanGesture({ direction: PanDirection.Right, distance: 40 }).onActionStart(() => {
+          if (this.deviceState.isWide) {
+            return;
+          }
           this.pushSideBar();
         }),
       )
@@ -555,6 +592,9 @@ export struct ChatPage {
     .onShown(() => {
       /* 每次显示（含从侧边栏/文件夹返回）时刷新模型名与标题 */
       this.vm.onPageShow();
+      /* 更新全局桥接：当前对话 id（嵌入式侧边栏高亮）+ 递增刷新信号（嵌入式侧边栏列表刷新） */
+      this.chatBridge.currentConversationId = this.vm.getCurrentConversationId();
+      this.chatBridge.sidebarRefreshVersion++;
       /**
        * 兜底重设键盘避让模式为 RESIZE（延迟到转场动画完成后）：
        * 本模式是窗口级全局设置，上层页面（侧边栏 NONE 等）离开时恢复 RESIZE 可能失效，

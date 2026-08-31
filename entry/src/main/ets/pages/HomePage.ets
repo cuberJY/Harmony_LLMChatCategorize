@@ -32,12 +32,26 @@ import { NavTransitionManager } from "../common/NavTransitionManager";
 /* 键盘返回键辅助器（解决键盘弹出时按返回键被系统直接执行根页面返回的缺陷） */
 import { KeyboardBackHelper } from "../common/Utils";
 import { inputMethod } from '@kit.IMEKit';
+import { display, window } from "@kit.ArkUI";
+import { getDeviceState, DeviceState, getWindowWidthVp, calcBreakpoint, isWideLayout, getFoldState } from "../common/DeviceAdapt";
 
 @Entry
 @ComponentV2
 struct HomePage {
   /* 路由栈：唯一持有者，注入给需要导航的页面 */
   private pathStack: NavPathStack = new NavPathStack();
+  /* 全局设备状态（断点 + 折叠状态，@Trace 驱动布局重排） */
+  private deviceState: DeviceState = getDeviceState();
+  /* 主窗口引用（注销窗口尺寸监听用） */
+  private mainWindow?: window.Window;
+  /* 折叠状态监听回调（命名引用，便于注销） */
+  private foldListener: (status: display.FoldStatus) => void = (_status: display.FoldStatus) => {
+    this.updateDeviceState();
+  };
+  /* 窗口尺寸监听回调（折叠/旋转/分屏触发） */
+  private windowSizeListener: (size: window.Size) => void = (_size: window.Size) => {
+    this.updateDeviceState();
+  };
 
   aboutToAppear(): void {
     /**
@@ -45,6 +59,43 @@ struct HomePage {
      * 首页参与 customNavContentTransition 的 from/to 转场，使双向抽屉动画能覆盖聊天页本身
      */
     this.pathStack.pushPath({ name: "ChatPage", isEntry: true }, false);
+    /* 初始化断点 + 注册折叠/窗口尺寸监听（折叠屏展开↔折叠、平板旋转时实时重排布局） */
+    this.updateDeviceState();
+    display.on('foldStatusChange', this.foldListener);
+    const context = this.getUIContext().getHostContext();
+    if (context) {
+      window.getLastWindow(context).then((win: window.Window) => {
+        this.mainWindow = win;
+        win.on('windowSizeChange', this.windowSizeListener);
+      });
+    }
+  }
+
+  aboutToDisappear(): void {
+    /* 注销监听，防止回调泄漏 */
+    display.off('foldStatusChange', this.foldListener);
+    if (this.mainWindow !== undefined) {
+      this.mainWindow.off('windowSizeChange', this.windowSizeListener);
+      this.mainWindow = undefined;
+    }
+  }
+
+  /** 依据当前窗口宽度与折叠状态刷新全局设备状态（断点 + 宽屏标志） */
+  private updateDeviceState(): void {
+    const prevWide: boolean = this.deviceState.isWide;
+    const widthVp: number = getWindowWidthVp();
+    this.deviceState.breakpoint = calcBreakpoint(widthVp);
+    this.deviceState.isWide = isWideLayout(this.deviceState.breakpoint);
+    /* 折叠状态（字符串常量，非折叠屏返回 unknown） */
+    this.deviceState.foldStatus = getFoldState();
+    /* 变宽屏（如折叠屏展开）：左栏侧边栏已常驻，若右栏栈顶残留窄屏抽屉式 SideBarPage，自动弹出，
+       避免出现"左栏 + 右栏抽屉"同时存在的异常布局 */
+    if (this.deviceState.isWide && !prevWide) {
+      const names: string[] = this.pathStack.getAllPathName();
+      if (names.length > 1 && names[names.length - 1] === "SideBarPage") {
+        this.pathStack.pop();
+      }
+    }
   }
 
   /**
@@ -102,16 +153,31 @@ struct HomePage {
   }
 
   build() {
+    /* 原生分栏重构：单一 Navigation 动态切换 Stack/Split（替代 Row 手写双栏）。
+       宽屏(Split)：NavBar=SideBarPage 左栏常驻 + NavDestination 右栏（ChatPage 栈底），自带分割线与拖拽调宽；
+       窄屏(Stack)：NavBar 隐藏，ChatPage 全屏，SideBarPage 走抽屉 push（现状）。
+       Navigation 组件本身不随宽窄屏重建 → 路由栈保留，ChatPage 状态不丢 */
     Navigation(this.pathStack) {
-      /* 首页为路由栈中的 ChatPage（aboutToAppear 中 pushPath 入栈），此处内容区留空 */
-      Column() {}
+      /* 宽屏：NavBar = SideBarPage 左栏常驻；窄屏：NavBar 隐藏（被右栏 NavDestination 覆盖） */
+      if (this.deviceState.isWide) {
+        SideBarPage({
+          embedded: true,
+          hostPathStack: this.pathStack,
+        })
+      } else {
+        Column() {}
+      }
     }
     .navDestination(this.pageMap)
-    .mode(NavigationMode.Stack)
+    .mode(this.deviceState.isWide ? NavigationMode.Split : NavigationMode.Stack)
     /* 各页面自绘标题栏，隐藏 Navigation 自带的标题栏 */
     .hideTitleBar(true)
-    .width("100%")
-    .height("100%")
+    /* 原生分栏：分割线 + 拖拽调宽（宽屏 Split 生效；API 20 分割线样式为系统默认灰色）。
+       - 左栏初始占 30%
+       - 拖拽时左栏可调范围 25%~75% */
+    .navBarWidth('30%')
+    .navBarWidthRange(['25%', '75%'])
+    .enableDragBar(true)
     /* 自定义页面切换转场：SideBarPage 抽屉式覆盖在 ChatPage 上 */
     .customNavContentTransition(
       (from: NavContentInfo, to: NavContentInfo, operation: NavigationOperation) => {
@@ -180,5 +246,7 @@ struct HomePage {
         };
       },
     )
+    .width("100%")
+    .height("100%")
   }
 }

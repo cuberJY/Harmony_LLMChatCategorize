@@ -33,6 +33,7 @@
 - **密钥安全** — API Key 经 TEE 加密落盘，旧明文自动迁移
 - **后台保活** — 后台流式时申请长时任务
 - **沉浸式界面** — 全屏 edge-to-edge，系统栏与页面融合
+- **多端适配** — 按宽度断点自适应手机 / 平板 / 折叠屏；宽屏侧边栏常驻分栏，折叠屏展开收起实时重排
 - **智能滚动** — 生成中自动钉底，手动滚动暂停，回到底部按钮
 - **Markdown 渲染** — 原生渲染 + 性能优化 + 深色模式
 - **文本交互** — 长按复制、代码块复制、原文查看
@@ -66,7 +67,7 @@ ChatCategorize/
 ├── AppScope/                  # 应用级配置
 ├── entry/src/main/
 │   ├── ets/
-│   │   ├── common/            # 常量与公共工具（markdown/ 为 marked 移植解析核心）
+│   │   ├── common/            # 常量与公共工具（markdown/ 为 marked 移植核心；ChatBridge 跨页桥接、DeviceAdapt 多端适配）
 │   │   ├── config/            # 应用配置与密钥存储
 │   │   ├── database/          # 数据层（DAO + Repository）
 │   │   ├── service/           # 服务层（Provider 工厂 + StreamTask）
@@ -131,6 +132,12 @@ ChatCategorize/
 - `service/FileParser.ets` 单例封装系统文档选择器（DocumentViewPicker 免存储权限）与文件解析：txt/md 直接读取 UTF-8 文本（超长截断）；docx/pptx/xlsx 经 `service/OoxmlParser.ets`（@ohos/jszip 解包 + XmlPullParser 流式解析 OOXML XML）提取为 Markdown 文本（docx 段落 / 标题 / 表格、pptx 逐页文本、xlsx 逐工作表表格含 sharedStrings 还原）；docx/pptx 在视觉模型下改走 `service/OfficeHtmlParser.ets`（隐藏 ArkWeb + deck-ir/docx-preview 排版还原）逐页截图；pdf 因 API 20 无 `getTextContent`，经 PDF Kit 逐页渲染为 PixelMap → JPEG Base64（≤100 页，页面 Base64 总量 ≤12MB 保护请求体）
 - 发送按通道分发（`DeepSeekProvider.buildApiContent`）：txt/md 与 Office 提取文本以「【文件 xx 内容】」标注拼入 `input_text` 文本块（所有模型可用）；docx/pptx（视觉模型）/ PDF 页面图逐页作为 `input_image` 视觉块（仅视觉模型，选择 / 发送 / 编辑 / Provider 四层兜底拦截）
 - 约束与交互：单文件 ≤20MB；提取文本（txt/md/docx/pptx/xlsx）≤3 万字符截断；文件卡片展示在消息气泡内，编辑消息可增删文件
+
+### 13. 多端 / 宽屏适配
+- `common/DeviceAdapt.ets` 统一断点体系（sm <600vp / md <840vp / lg ≥840vp）与折叠屏状态监听，状态经 AppStorageV2 全局共享，断点变化任意页面自动刷新
+- 宿主 `HomePage` 依据断点动态切换 Navigation Stack / Split：宽屏（≥600vp）侧边栏嵌入式常驻左栏 + 聊天右栏，可拖拽调宽（25%~75%）并带原生分割线；窄屏保持抽屉式
+- 宽屏下嵌入式侧边栏选中对话经 `common/ChatBridge.ets`（AppStorageV2 全局响应式总线）回传：`selectionVersion` 驱动 ChatPage 消费加载，`sidebarRefreshVersion` / `currentConversationId` 驱动列表刷新与高亮；聊天内容列限宽 720vp 居中
+- 监听 `display.foldStatusChange` 与 `window.windowSizeChange`，折叠屏展开 / 收起实时切换分栏 / 单栏
 
 ## 数据模型
 

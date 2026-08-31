@@ -33,6 +33,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **Secure key storage** — API Key encrypted in TEE; legacy plaintext auto-migrated
 - **Background keep-alive** — continuous task while streaming in background
 - **Immersive UI** — full-screen edge-to-edge; system bars blend into the page
+- **Multi-device adaptation** — breakpoint-driven layouts for phones / tablets / foldables, and folding/unfolding rearranges in real time
 - **Smart scroll** — auto-pin while generating, pause on manual scroll, "back to bottom" button
 - **Markdown rendering** — native rendering + performance optimizations + dark-mode support
 - **Text interaction** — long-press copy, code-block copy, raw-text viewer
@@ -66,7 +67,7 @@ ChatCategorize/
 ├── AppScope/                  # App-level config
 ├── entry/src/main/
 │   ├── ets/
-│   │   ├── common/            # Constants & utilities (markdown/ = marked port core)
+│   │   ├── common/            # Constants & utilities (markdown/ = marked port core; ChatBridge cross-page bus, DeviceAdapt breakpoints)
 │   │   ├── config/            # App config & key storage
 │   │   ├── database/          # Data layer (DAO + Repository)
 │   │   ├── service/           # Service layer (Provider factory + StreamTask)
