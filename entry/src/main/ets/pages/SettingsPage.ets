@@ -49,7 +49,7 @@ export struct SettingsPage {
        注意只能用 RESIZE（OFFSET 在窗口未弹过键盘时会造成避让状态卡死的历史问题） */
     this.globalKeyboardAvoidMode = this.getUIContext().getKeyboardAvoidMode();
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
-
+ 
     /* 回显已保存的配置 */
     const config = AppConfig.getInstance().getConfig();
     this.providerId = config.providerId;
