@@ -1,3 +1,2 @@
-# GitHub linguist 尚未内置 .ets（ArkTS）语言识别，
-# 通过此映射让 GitHub 把 ArkTS 文件统计/高亮为 TypeScript。
+# Map ArkTS (.ets) to TypeScript for GitHub language statistics and highlighting.
 *.ets linguist-language=TypeScript
