@@ -160,10 +160,10 @@ export struct MessageBubble {
         const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
         pasteboard.getSystemPasteboard().setData(data)
           .then(() => {
-            showToast($r('app.string.copied'));
+            showToast(this.getUIContext(), $r('app.string.copied'));
           })
           .catch(() => {
-            showToast($r('app.string.copy_failed'));
+            showToast(this.getUIContext(), $r('app.string.copy_failed'));
           });
       })
       /* 3. 可选：代码块右上角"复制"按钮 */
@@ -171,7 +171,7 @@ export struct MessageBubble {
         const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
         pasteboard.getSystemPasteboard().setData(data)
           .then(() => {
-            showToast($r('app.string.code_copied'));
+            showToast(this.getUIContext(), $r('app.string.code_copied'));
           });
       });
     this.registerEnvironmentListener();
@@ -1029,10 +1029,10 @@ export struct MessageBubble {
     const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
     pasteboard.getSystemPasteboard().setData(data)
       .then(() => {
-        showToast($r('app.string.copied'));
+        showToast(this.getUIContext(), $r('app.string.copied'));
       })
       .catch(() => {
-        showToast($r('app.string.copy_failed'));
+        showToast(this.getUIContext(), $r('app.string.copy_failed'));
       });
   }
 
@@ -1043,7 +1043,7 @@ export struct MessageBubble {
    */
   private confirmDelete(): void {
     if (this.editingMessageId === this.message.id) {
-      showToast($r('app.string.edit_delete_forbidden'));
+      showToast(this.getUIContext(), $r('app.string.edit_delete_forbidden'));
       return;
     }
     showDeleteConfirm(

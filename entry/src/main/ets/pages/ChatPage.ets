@@ -262,7 +262,7 @@ export struct ChatPage {
             .onClick(() => {
             /* 已在空白"新对话"中 → 提示，不重复创建 */
             if (this.vm.messageDataSource.totalCount() === 0) {
-              showToast($r('app.string.already_in_new_conversation'));
+              showToast(this.getUIContext(), $r('app.string.already_in_new_conversation'));
               return;
             }
             /* 创建新对话对象，清空消息列表（不立即入库，等待首条用户消息） */
@@ -327,7 +327,7 @@ export struct ChatPage {
                       /* 编辑：回填输入框（发送时创建新分支） */
                       onEdit: (m: Message) => {
                         this.vm.startEdit(m);
-                        /* 重新点击「编辑」时也强制弹出键盘：prefill 未变化（如同一条消息重复编辑）
+                        /* 重新点击「编辑」时也强制弹出键盘：prefill 未变化（同一条消息重复编辑）
                            时 ChatInput 的 @Monitor 不触发，需在此显式清焦点+请求焦点。
                            时序与 ChatInput 内一致：setTimeout 延迟到本次触摸事件结束后再请求焦点 */
                         const focus = this.getUIContext().getFocusController();
@@ -384,7 +384,7 @@ export struct ChatPage {
                         FilePreviewService.getInstance().preview(ctx, file)
                           .catch((e: Error) => {
                             Logger.warn(`文件预览失败(${file.name}): ${JSON.stringify(e)}`);
-                            showToast($r('app.string.file_preview_failed'));
+                            showToast(this.getUIContext(), $r('app.string.file_preview_failed'));
                           });
                       },
                     })
@@ -925,7 +925,7 @@ export struct ChatPage {
       const err: Error = e as Error;
       console.error(`ChatPage export FAILED: ${err.message}`);
       this.exportShow = false;
-      showToast($r('app.string.share_snapshot_failed'));
+      showToast(this.getUIContext(), $r('app.string.share_snapshot_failed'));
     }
   }
 }

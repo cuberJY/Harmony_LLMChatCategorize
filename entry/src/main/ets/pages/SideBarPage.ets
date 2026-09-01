@@ -1213,7 +1213,7 @@ export struct SideBarPage {
       const err: Error = e as Error;
       console.error(`SideBarPage export FAILED: ${err.message}`);
       this.exportShow = false;
-      showToast($r('app.string.share_snapshot_failed'));
+      showToast(this.getUIContext(), $r('app.string.share_snapshot_failed'));
     }
   }
 

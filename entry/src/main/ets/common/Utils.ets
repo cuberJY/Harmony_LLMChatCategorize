@@ -85,16 +85,36 @@ export function stripMarkdown(md: string): string {
 }
 
 /**
- * 统一 Toast 提示（行为与直接调用 promptAction.showToast({ message }) 一致）
+ * 全局 UIContext（EntryAbility 窗口创建后注册，供 ViewModel 等非组件层获取使用）。
+ * 用于替代已废弃的全局 promptAction 调用：UI 层传组件级 UIContext，非 UI 层走全局注册
+ */
+let globalUiContext: UIContext | undefined = undefined;
+
+/** 注册全局 UIContext（EntryAbility.onWindowStageCreate 中调用一次） */
+export function registerGlobalUiContext(uiContext: UIContext): void {
+  globalUiContext = uiContext;
+}
+
+/** 获取全局 UIContext（ViewModel 等非组件层调用；未注册时抛错，理论不会发生） */
+export function getGlobalUiContext(): UIContext {
+  if (globalUiContext === undefined) {
+    throw new Error('Global UIContext has not been registered.');
+  }
+  return globalUiContext;
+}
+
+/**
+ * 统一 Toast 提示（升级后统一走 UIContext.getPromptAction()，不再使用全局 promptAction 废弃 API）
+ * @param uiContext 页面 UIContext：组件/页面传 this.getUIContext()；ViewModel 传 getGlobalUiContext()
  * @param message 提示文案
  * @param bottom Toast 底部与屏幕底部的距离（vp，越大越靠上）。不传则用默认值（160vp）
  */
-export function showToast(message: string | Resource, bottom: number = 160): void {
+export function showToast(uiContext: UIContext, message: string | Resource, bottom: number = 160): void {
   const options: promptAction.ShowToastOptions = { message: message };
   if (bottom !== undefined) {
     options.bottom = bottom;
   }
-  promptAction.showToast(options);
+  uiContext.getPromptAction().showToast(options);
 }
 
 /**

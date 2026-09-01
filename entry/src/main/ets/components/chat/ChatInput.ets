@@ -141,7 +141,7 @@ export struct ChatInput {
   private async pickImages(source: "gallery" | "camera"): Promise<void> {
     const remaining: number = MAX_IMAGES - this.images.length;
     if (remaining <= 0) {
-      showToast($r("app.string.image_limit_reached"));
+      showToast(this.getUIContext(), $r("app.string.image_limit_reached"));
       return;
     }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -176,7 +176,7 @@ export struct ChatInput {
         this.files = [file]; // 单文件：新选替换旧文件
       }
     } catch (e) {
-      showToast($r('app.string.file_parse_failed', (e as Error).message));
+      showToast(this.getUIContext(), $r('app.string.file_parse_failed', (e as Error).message));
     }
   }
 
@@ -326,6 +326,17 @@ export struct ChatInput {
           })
           .onBlur(() => {
             this.onInputFocusChange(false);
+          })
+          /**
+           * 键盘判断事件（API 24+，HarmonyOS 6.1.1）：组件获焦时系统询问「是否需要软键盘」，
+           * 回调无参数、返回 boolean：true=需要（保持键盘）/ false=不需要（收起）。
+           * 本输入框始终需要软键盘（普通输入与编辑态都需弹键盘），故恒返回 true，
+           * 确保编辑回填/焦点转移等场景下键盘不被误收起。
+           * 注意：该回调是「获焦时是否保持键盘」的感知性接口，与 @Monitor 里 clearFocus+requestFocus
+           * 「主动弹键盘」兜底互补，此处不改动兜底逻辑。
+           */
+          .onNeedSoftkeyboard(() => {
+            return true;
           })
 
         /* 3. 底部操作栏 */

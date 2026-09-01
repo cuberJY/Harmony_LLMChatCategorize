@@ -20,7 +20,7 @@ import { StreamTask } from "../service/StreamTask";
 import { LLMProviderFactory } from "../service/LLMProviderFactory";
 import { AppConfig } from "../config/AppConfig";
 import { ThinkingEffort, DEFAULT_THINKING_EFFORT, isVisionModel } from "../config/ModelPresets";
-import { showToast } from "../common/Utils";
+import { showToast, getGlobalUiContext } from "../common/Utils";
 import { LLMError, ErrorCode, errorMessageResource, buildError } from "../service/LLMError";
 import { BackgroundRunGuardService } from "../service/BackgroundRunGuardService";
 import { FileParser } from "../service/FileParser";
@@ -473,7 +473,7 @@ export class ChatViewModel {
     const sendConvId = this.currentConversationId;
     /* 连发限制按"对话"粒度判断（放在 await 之后，避免快速连点两次双双通过检查） */
     if (this.isStreamingFor(sendConvId)) {
-      showToast($r("app.string.streaming_busy"));
+      showToast(getGlobalUiContext(), $r("app.string.streaming_busy"));
       return;
     }
 
@@ -820,7 +820,7 @@ export class ChatViewModel {
           this.requestAutoFold(aiMsg); // 思考块折叠请求
           this.streamState = "paused";
           this.scrollToBottom();
-          showToast(errorMessageResource(error.code));
+          showToast(getGlobalUiContext(), errorMessageResource(error.code));
         }
       },
       /**
@@ -856,7 +856,7 @@ export class ChatViewModel {
             this.streamState = "paused"; // 可续写错误 → 输入区显示「继续生成」
           }
           this.scrollToBottom();
-          showToast(errorMessageResource(error.code));
+          showToast(getGlobalUiContext(), errorMessageResource(error.code));
         }
       },
       /**
@@ -895,7 +895,7 @@ export class ChatViewModel {
           this.requestAutoFold(aiMsg); // 思考块折叠请求
           this.streamState = "paused";
           this.scrollToBottom();
-          showToast(errorMessageResource(reason.code));
+          showToast(getGlobalUiContext(), errorMessageResource(reason.code));
         }
       },
     };
@@ -1297,7 +1297,7 @@ export class ChatViewModel {
     if (this.isDestroyed) return;
     const sendConvId = this.currentConversationId;
     if (this.isStreamingFor(sendConvId)) {
-      showToast($r("app.string.streaming_busy"));
+      showToast(getGlobalUiContext(), $r("app.string.streaming_busy"));
       return;
     }
     if (aiMsg.isUser()) return; // 仅 AI 消息支持重新生成
@@ -1327,7 +1327,7 @@ export class ChatViewModel {
     if (this.isDestroyed) return;
     const sendConvId = this.currentConversationId;
     if (this.isStreamingFor(sendConvId)) {
-      showToast($r("app.string.streaming_busy"));
+      showToast(getGlobalUiContext(), $r("app.string.streaming_busy"));
       return;
     }
     if (aiMsg.isUser()) return; // 仅 AI 消息支持新建分支
@@ -1369,7 +1369,7 @@ export class ChatViewModel {
     /* 编辑路径的视觉/文件校验延迟到占位创建后的解析阶段（见下方步骤 5/6）：
        编辑回填的文件可能未解析（新增文件），需先解析再判定 pageImages */
     if (this.isStreamingFor(sendConvId)) {
-      showToast($r("app.string.streaming_busy"));
+      showToast(getGlobalUiContext(), $r("app.string.streaming_busy"));
       return;
     }
     /* 1. 创建新用户消息变体（同父、同分支组、序号 +1；用编辑后的图片、文件与文本） */
@@ -1460,7 +1460,7 @@ export class ChatViewModel {
     const hasVisual: boolean = msg.images.length > 0
       || msg.files.some((f: FileAttachment) => f.pageImages.length > 0 && f.textContent.length === 0);
     if (hasVisual && !isVisionModel(AppConfig.getInstance().getModel())) {
-      showToast($r("app.string.vision_required"));
+      showToast(getGlobalUiContext(), $r("app.string.vision_required"));
       return;
     }
     this.resetScrollFollow(); // 进入编辑态 → 恢复自动跟随（用户即将输入/阅读输入区）
@@ -1551,7 +1551,7 @@ export class ChatViewModel {
 
     /* 编辑中的用户消息不可删除：其内容正回填在输入框中，删除会破坏"编辑 → 新建分支"的锚点 */
     if (msg.id === this.editingMessageId) {
-      showToast($r('app.string.edit_delete_forbidden'));
+      showToast(getGlobalUiContext(), $r('app.string.edit_delete_forbidden'));
       return;
     }
 

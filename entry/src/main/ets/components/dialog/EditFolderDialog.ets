@@ -119,7 +119,7 @@ export struct EditFolderDialog {
             if (this.inputValue.trim().length > 0) {
               this.onConfirm(this.inputValue.trim(), this.selectedColor);
             } else {
-              showToast($r('app.string.name_empty'));
+              showToast(this.getUIContext(), $r('app.string.name_empty'));
             }
             this.onRequestClose();
           })

@@ -71,7 +71,7 @@ export struct RenameInputDialog {
             if (this.inputValue.trim().length > 0) {
               this.onConfirm(this.inputValue.trim());
             } else {
-              showToast($r('app.string.name_empty'));
+              showToast(this.getUIContext(), $r('app.string.name_empty'));
             }
             this.onRequestClose();
           })

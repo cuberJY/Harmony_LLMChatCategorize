@@ -7,6 +7,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { AppConfig } from '../config/AppConfig';
 import { BackgroundRunGuardService } from '../service/BackgroundRunGuardService';
+import { registerGlobalUiContext } from '../common/Utils';
 
 const DOMAIN = 0x0000;
 
@@ -54,6 +55,9 @@ export default class EntryAbility extends UIAbility {
         return;
       }
       hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
+
+      /* 注册全局 UIContext：ViewModel 等非组件层调用 showToast 时使用（替代废弃的 promptAction）。 */
+      registerGlobalUiContext(mainWindow.getUIContext());
 
       /**
        * 将状态栏/导航条高度（vp）存入 AppStorage：各页面用显式 padding 避让系统栏。

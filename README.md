@@ -8,7 +8,7 @@
 
 | 维度       | 选型                                                        |
 | ---------- | ----------------------------------------------------------- |
-| 平台       | HarmonyOS NEXT（API 20）                                    |
+| 平台       | HarmonyOS NEXT（API 24）                                    |
 | 语言 / UI  | ArkTS / ArkUI 声明式（@Observed 状态管理，LazyForEach）     |
 | 数据持久化 | relationalStore + Preferences                               |
 | 凭据安全   | Asset Store Kit（TEE 加密存储 API Key）                     |

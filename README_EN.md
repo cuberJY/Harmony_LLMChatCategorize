@@ -8,7 +8,7 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 
 | Dimension         | Choice                                                            |
 | ----------------- | ----------------------------------------------------------------- |
-| Platform          | HarmonyOS NEXT (API 20)                                           |
+| Platform          | HarmonyOS NEXT (API 24)                                           |
 | Language / UI     | ArkTS / ArkUI declarative (@Observed state, LazyForEach)          |
 | Persistence       | relationalStore + Preferences                                     |
 | Credential safety | Asset Store Kit (API Key encrypted in TEE)                        |

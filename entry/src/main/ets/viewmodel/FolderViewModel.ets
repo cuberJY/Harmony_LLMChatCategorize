@@ -13,7 +13,7 @@ import { ConversationRepository } from "../database/ConversationRepository";
 import { CategoryRepository } from "../database/CategoryRepository";
 import { Conversation } from "../model/Conversation";
 import { Category } from "../model/Category";
-import { showToast } from "../common/Utils";
+import { showToast, getGlobalUiContext } from "../common/Utils";
 import { ChatViewModel } from "./ChatViewModel";
 
 @ObservedV2
@@ -91,11 +91,11 @@ export class FolderViewModel {
     const cat = new Category(undefined, name, this.folderId, color);
     const ok = await CategoryRepository.getInstance().insert(cat);
     if (!ok) {
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
-    showToast($r('app.string.toast_created_folder', name));
+    showToast(getGlobalUiContext(), $r('app.string.toast_created_folder', name));
   }
 
   /* 执行编辑子文件夹：重命名 + 切换图标颜色 */
@@ -106,12 +106,12 @@ export class FolderViewModel {
     if (!ok) {
       cat.name = oldName; // 失败回滚内存
       cat.color = oldColor;
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
     this.listVersion++; // 强制 ForEach 重建，刷新名称/颜色
-    showToast($r('app.string.saved'));
+    showToast(getGlobalUiContext(), $r('app.string.saved'));
   }
 
   /* 执行置顶/取消置顶（文件夹）：切换标记、DB 持久化、失败回滚，重载排序 */
@@ -121,23 +121,23 @@ export class FolderViewModel {
     const ok = await CategoryRepository.getInstance().setPinned(cat, cat.isPinned);
     if (!ok) {
       cat.isPinned = oldPin;
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData(); // 重载：置顶文件夹排到当前文件夹列表顶部
     this.listVersion++;
-    showToast(cat.isPinned ? $r('app.string.toast_pinned') : $r('app.string.toast_unpinned'));
+    showToast(getGlobalUiContext(), cat.isPinned ? $r('app.string.toast_pinned') : $r('app.string.toast_unpinned'));
   }
 
   /* 执行删除文件夹（级联） */
   async deleteFolderCascade(id: string): Promise<void> {
     const ok = await CategoryRepository.getInstance().deleteCategoryCascade(id);
     if (!ok) {
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
-    showToast($r('app.string.folder_deleted'));
+    showToast(getGlobalUiContext(), $r('app.string.folder_deleted'));
   }
 
   /* 执行移动文件夹：更新 parentId 并刷新列表 */
@@ -146,11 +146,11 @@ export class FolderViewModel {
     const ok = await CategoryRepository.getInstance().moveTo(cat, targetId); // 空串 = 移到顶级
     if (!ok) {
       cat.parentId = oldParent; // 失败回滚内存
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
-    showToast(targetId.length > 0 ? $r('app.string.moved') : $r('app.string.moved_to_top'));
+    showToast(getGlobalUiContext(), targetId.length > 0 ? $r('app.string.moved') : $r('app.string.moved_to_top'));
   }
 
   /* 对话操作 */
@@ -163,14 +163,14 @@ export class FolderViewModel {
     if (!ok) {
       conv.categoryId = oldCat; // 失败回滚内存
       conv.isFavorite = oldFav;
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     /* 若移出的目标不是当前文件夹 → 从当前列表移除 */
     if (folderId !== this.folderId) {
       this.convs = this.convs.filter((c: Conversation) => c.id !== conv.id);
     }
-    showToast($r('app.string.moved_ok'));
+    showToast(getGlobalUiContext(), $r('app.string.moved_ok'));
   }
 
   /* 执行重命名对话 */
@@ -181,11 +181,11 @@ export class FolderViewModel {
     const ok = await ConversationRepository.getInstance().update(conv);
     if (!ok) {
       conv.title = oldTitle; // 失败回滚内存
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     this.listVersion++; // 强制 ForEach 重建，刷新对话标题
-    showToast($r('app.string.rename_conv_success'));
+    showToast(getGlobalUiContext(), $r('app.string.rename_conv_success'));
   }
 
   /* 执行置顶/取消置顶（对话）：切换标记、DB 持久化、失败回滚，重载排序 */
@@ -195,19 +195,19 @@ export class FolderViewModel {
     const ok = await ConversationRepository.getInstance().setPinned(conv, conv.isPinned);
     if (!ok) {
       conv.isPinned = oldPin;
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData(); // 重载：置顶对话排到当前文件夹列表顶部
     this.listVersion++;
-    showToast(conv.isPinned ? $r('app.string.toast_pinned') : $r('app.string.toast_unpinned'));
+    showToast(getGlobalUiContext(), conv.isPinned ? $r('app.string.toast_pinned') : $r('app.string.toast_unpinned'));
   }
 
   /* 执行删除对话 */
   async deleteConv(id: string): Promise<void> {
     const ok = await ConversationRepository.getInstance().deleteConversations([id]);
     if (!ok) {
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     /* 删除对话时同步中止并清理其流任务（与侧边栏 doDelete 对齐，避免后台流/保活泄漏） */
@@ -216,7 +216,7 @@ export class FolderViewModel {
       chatVm.abortTasksOfConversations([id]);
     }
     this.convs = this.convs.filter((c: Conversation) => c.id !== id);
-    showToast($r('app.string.deleted'));
+    showToast(getGlobalUiContext(), $r('app.string.deleted'));
   }
 
   /* 取消收藏：清空收藏标记与位置，并从当前文件夹移除（未收藏对话不参与文件夹分类） */
@@ -227,7 +227,7 @@ export class FolderViewModel {
     if (!ok) {
       conv.isFavorite = oldFav; // 失败回滚内存
       conv.categoryId = oldCat;
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     conv.isFavorite = false;
@@ -235,7 +235,7 @@ export class FolderViewModel {
     /* 从当前文件夹对话列表移除（对话不再属于任何文件夹） */
     this.convs = this.convs.filter((c: Conversation) => c.id !== conv.id);
     this.listVersion++;
-    showToast($r('app.string.unfavorited'));
+    showToast(getGlobalUiContext(), $r('app.string.unfavorited'));
   }
 
   /* 批量操作（多选编辑模式） */
@@ -246,12 +246,12 @@ export class FolderViewModel {
     this.exitEditMode();
     const ok = await ConversationRepository.getInstance().unfavoriteByIds(ids);
     if (!ok) {
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
     this.listVersion++;
-    showToast($r('app.string.toast_unfavorited_n', ids.length));
+    showToast(getGlobalUiContext(), $r('app.string.toast_unfavorited_n', ids.length));
   }
 
   /* 执行批量删除：退出编辑模式后重载列表，并同步中止删除对话的流任务 */
@@ -260,7 +260,7 @@ export class FolderViewModel {
     this.exitEditMode();
     const ok = await ConversationRepository.getInstance().deleteConversations(ids);
     if (!ok) {
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     const chatVm = ChatViewModel.getInstance();
@@ -269,7 +269,7 @@ export class FolderViewModel {
     }
     await this.loadData();
     this.listVersion++;
-    showToast($r('app.string.toast_deleted_n', ids.length));
+    showToast(getGlobalUiContext(), $r('app.string.toast_deleted_n', ids.length));
   }
 
   /* 执行批量移动：选中对话统一移入目标文件夹，退出编辑模式后重载 */
@@ -278,11 +278,11 @@ export class FolderViewModel {
     this.exitEditMode();
     const ok = await ConversationRepository.getInstance().move(ids, folderId);
     if (!ok) {
-      showToast($r('app.string.toast_op_failed'));
+      showToast(getGlobalUiContext(), $r('app.string.toast_op_failed'));
       return;
     }
     await this.loadData();
     this.listVersion++;
-    showToast(folderId.length > 0 ? $r('app.string.toast_moved_n', ids.length) : $r('app.string.moved_out'));
+    showToast(getGlobalUiContext(), folderId.length > 0 ? $r('app.string.toast_moved_n', ids.length) : $r('app.string.moved_out'));
   }
 }

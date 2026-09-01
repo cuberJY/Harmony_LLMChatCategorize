@@ -278,7 +278,7 @@ export struct SettingsPage {
 
       /* 必填校验：API Key 不能为空 */
       if (this.apiKey.trim().length === 0) {
-        showToast($r('app.string.config_incomplete'));
+        showToast(this.getUIContext(), $r('app.string.config_incomplete'));
         return;
       }
 
@@ -290,11 +290,11 @@ export struct SettingsPage {
       const ok: boolean = await config.updateConfig(this.providerId, this.apiKey.trim(), model);
       if (!ok) {
         /* 落盘失败：提示并停留本页，避免"提示成功但重启后配置丢失" */
-        showToast($r('app.string.save_failed'));
+        showToast(this.getUIContext(), $r('app.string.save_failed'));
         return;
       }
 
-      showToast($r('app.string.save_success'));
+      showToast(this.getUIContext(), $r('app.string.save_success'));
       /* 延时返回，让 Toast 可见（先清旧定时器，杜绝双 pop） */
       if (this.saveTimerId !== -1) {
         clearTimeout(this.saveTimerId);
