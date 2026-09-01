@@ -327,6 +327,14 @@ export struct ChatPage {
                       /* 编辑：回填输入框（发送时创建新分支） */
                       onEdit: (m: Message) => {
                         this.vm.startEdit(m);
+                        /* 重新点击「编辑」时也强制弹出键盘：prefill 未变化（如同一条消息重复编辑）
+                           时 ChatInput 的 @Monitor 不触发，需在此显式清焦点+请求焦点。
+                           时序与 ChatInput 内一致：setTimeout 延迟到本次触摸事件结束后再请求焦点 */
+                        const focus = this.getUIContext().getFocusController();
+                        focus.clearFocus();
+                        setTimeout(() => {
+                          focus.requestFocus('chat_input');
+                        }, 0);
                       },
                       /* 切换分支：在变体间 ±1 循环 */
                       onSwitchBranch: (m: Message, delta: number) => {
