@@ -1,0 +1,20 @@
+{
+  "appSelected": {
+    "appId": "6917615257369488328",
+    "appName": "ChatCategorize",
+    "deviceTypes": [
+      {
+        "appAdapters": "5",
+        "deviceType": 4
+      }
+    ],
+    "enableSites": "CN",
+    "installationFree": 0,
+    "packageType": 7,
+    "projectId": "101653523864911677",
+    "projectName": "ChatCategorize",
+    "siteId": "CN"
+  },
+  "teamId": "40086000301297442",
+  "uid": "40086000301297442"
+}

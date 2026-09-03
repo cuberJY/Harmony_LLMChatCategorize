@@ -21,6 +21,8 @@ import { ChatPage } from "./ChatPage";
 import { SideBarPage } from "./SideBarPage";
 import { FolderPage } from "./FolderPage";
 import { SettingsPage } from "./SettingsPage";
+import { ModelConfigPage } from "./ModelConfigPage";
+import { AccountSyncPage } from "./AccountSyncPage";
 import { ImagePreviewPage, ImagePreviewParams } from "./ImagePreviewPage";
 import { MarkdownPreviewPage, MarkdownPreviewParams } from "./MarkdownPreviewPage";
 /* FolderPage 路由参数（pushPathByName 的第二个参数） */
@@ -165,6 +167,10 @@ struct HomePage {
       })
     } else if (name === "SettingsPage") {
       SettingsPage()
+    } else if (name === "ModelConfigPage") {
+      ModelConfigPage()
+    } else if (name === "AccountSyncPage") {
+      AccountSyncPage()
     } else if (name === "ImagePreviewPage") {
       /* 图片全屏预览：路由参数注入图片列表与起始页码（ChatPage pushPathByName 传入） */
       ImagePreviewPage({

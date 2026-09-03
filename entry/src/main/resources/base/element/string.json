@@ -223,6 +223,18 @@
     {
       "name": "file_preview_failed",
       "value": "该文件暂不支持预览"
+    },
+    {
+      "name": "sync_started",
+      "value": "开始与云空间同步"
+    },
+    {
+      "name": "sync_failed",
+      "value": "同步失败，请检查网络与云空间设置"
+    },
+    {
+      "name": "cloud_settings_manual",
+      "value": "无法打开云空间，请在系统「设置-云空间」中管理"
     }
   ]
 }

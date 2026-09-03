@@ -1,23 +1,26 @@
-# Harmony LLM Chat Categorize
+# Harmony LLM Chat Categorize（端云一体化）
 
 > **简体中文 | [English](README_EN.md)**
 
-基于 HarmonyOS NEXT 的 AI 聊天应用，支持 SSE 流式对话、深度思考、联网搜索、历史会话持久化与多级文件夹分类管理，采用 MVVM + 分层架构，使用 ArkTS / ArkUI 声明式开发。
+基于 HarmonyOS NEXT 的端云一体化 AI 聊天应用。客户端具备 SSE 流式对话、深度思考、联网搜索、多级文件夹分类等完整能力，并通过 AGC 云开发（Cloud DB + Cloud Functions + Auth）实现数据云同步。采用 MVVM + 分层架构，ArkTS / ArkUI 声明式开发。
 
 ## 技术栈
 
-| 维度       | 选型                                                        |
-| ---------- | ----------------------------------------------------------- |
-| 平台       | HarmonyOS NEXT（API 24）                                    |
-| 语言 / UI  | ArkTS / ArkUI 声明式（@Observed 状态管理，LazyForEach）     |
-| 数据持久化 | relationalStore + Preferences                               |
-| 凭据安全   | Asset Store Kit（TEE 加密存储 API Key）                     |
-| 网络       | NetworkKit（HTTP SSE 流式，Responses API）                  |
-| 大模型 API | DeepSeek Responses API（Provider 工厂模式可扩展）           |
-| 联网搜索   | DeepSeek 服务端 web_search 工具                             |
-| Markdown   | @luvi/lv-markdown-in 原生渲染（LaTeX / 代码高亮 / Mermaid） |
-| 分享解析   | marked ArkTS 移植（[Harmony-Markdown-Editor](https://github.com/electronicminer/Harmony-Markdown-Editor)，MIT） |
-| 文档解析   | @ohos/jszip + 自研 OOXML 提取器（docx / pptx / xlsx → Markdown），ArkWeb + deck-ir / docx-preview（视觉模型下 docx/pptx 排版还原截图），PDF Kit（pdf 逐页渲染） |
+| 维度         | 选型                                                        |
+| ------------ | ----------------------------------------------------------- |
+| 平台         | HarmonyOS NEXT（API 24）                                    |
+| 语言 / UI    | ArkTS / ArkUI 声明式（@Observed 状态管理，LazyForEach）     |
+| 数据持久化   | relationalStore + Preferences                               |
+| 凭据安全     | Asset Store Kit（TEE 加密存储 API Key）                     |
+| 网络         | NetworkKit（HTTP SSE 流式，Responses API）                  |
+| 大模型 API   | DeepSeek Responses API（Provider 工厂模式可扩展）           |
+| 联网搜索     | DeepSeek 服务端 web_search 工具                             |
+| Markdown     | @luvi/lv-markdown-in 原生渲染（LaTeX / 代码高亮 / Mermaid） |
+| 分享解析     | marked ArkTS 移植（[Harmony-Markdown-Editor](https://github.com/electronicminer/Harmony-Markdown-Editor)，MIT） |
+| 文档解析     | @ohos/jszip + 自研 OOXML 提取器（docx / pptx / xlsx → Markdown），ArkWeb + deck-ir / docx-preview（视觉模型下 docx/pptx 排版还原截图），PDF Kit（pdf 逐页渲染） |
+| 云端同步     | AGC Cloud DB（Cloud Foundation Kit，本地 RDB 双向同步）     |
+| 云认证       | AGC Auth（匿名登录）                                        |
+| 云函数       | Cloud Functions（id-generator 生成 UUID）                   |
 
 ## 功能特性
 
@@ -31,6 +34,8 @@
 - **历史会话** — 自动持久化，按时间分组，全局搜索 / 多选 / 批量删除；首轮问答完成后自动生成对话标题
 - **全局搜索** — 标题 + 消息正文匹配，按对话分组，可定位到命中消息
 - **密钥安全** — API Key 经 TEE 加密落盘，旧明文自动迁移
+- **账号登录 / 云同步** — AGC Auth 匿名登录，本地数据与 AGC Cloud DB 全量双向同步（last-write-wins 合并）；「账号登录」页展示同步状态并支持手动立即同步
+- **模型配置** — 独立二级页集中配置供应商 / 模型 / API Key
 - **后台保活** — 后台流式时申请长时任务
 - **沉浸式界面** — 全屏 edge-to-edge，系统栏与页面融合
 - **多端适配** — 按宽度断点自适应手机 / 平板 / 折叠屏；宽屏侧边栏常驻分栏，折叠屏展开收起实时重排
@@ -49,7 +54,7 @@
 
 ### 2. 配置 API
 
-应用内进入"设置"页填写（无需改代码，保存后持久化）：
+应用内进入"设置-模型配置"页填写（无需改代码，保存后持久化）：
 
 | 字段     | 说明                                                      |
 | -------- | --------------------------------------------------------- |
@@ -60,28 +65,44 @@
 - 接口地址 / 模型 / 能力开关由代码内预设（`ModelPresets.ets`）推导，设置页只读展示
 - 联网搜索由 DeepSeek 服务端提供
 
+### 3. 部署云开发（CloudProgram）
+
+云同步依赖 AGC 云开发，需先在 [AppGallery Connect](https://developer.huawei.com/consumer/cn/service/josp/agc/index.html) 完成以下配置：
+
+1. 创建应用（bundleName 与客户端一致）并开通**认证服务**（允许匿名登录）与**云数据库**
+2. 在云数据库按 `CloudProgram/clouddb/objecttype/` 下三类对象（conversation / message / category）创建 schema 并部署
+3. 部署云函数 `id-generator`（生成 UUID）
+4. 下载 `agconnect-services.json` 放入客户端 `AppScope/resources/rawfile/`（不参与版本管理）
+5. 运行应用，进入"设置-账号登录"页，点击「立即同步」完成认证初始化与首次同步
+
 ## 项目结构
 
 ```
 ChatCategorize/
-├── AppScope/                  # 应用级配置
+├── AppScope/                    # 应用级配置（含云数据库 schema.json、agconnect-services.json）
 ├── entry/src/main/
 │   ├── ets/
-│   │   ├── common/            # 常量与公共工具（markdown/ 为 marked 移植核心；ChatBridge 跨页桥接、DeviceAdapt 多端适配）
-│   │   ├── config/            # 应用配置与密钥存储
-│   │   ├── database/          # 数据层（DAO + Repository）
-│   │   ├── service/           # 服务层（Provider 工厂 + StreamTask）
-│   │   ├── viewmodel/         # 状态层（MVVM）
-│   │   ├── model/             # 数据模型
-│   │   ├── components/        # UI 组件（chat / common / dialog / item / panel）
-│   │   ├── pages/             # 页面
-│   │   ├── entryability/      # Ability 入口
-│   │   └── entrybackupability/# 备份恢复
-│   ├── resources/             # 资源文件
-│   └── module.json5           # 模块配置与权限
-├── build-profile.json5        # 构建配置（本地签名，不入库）
-├── oh-package.json5           # 依赖管理
-└── hvigorfile.ts              # 构建脚本
+│   │   ├── common/              # 常量与公共工具（markdown/ 为 marked 移植核心；ChatBridge 跨页桥接、DeviceAdapt 多端适配）
+│   │   ├── config/              # 应用配置与密钥存储
+│   │   ├── database/            # 数据层（DAO + Repository）
+│   │   ├── service/             # 服务层（Provider 工厂 + StreamTask + sync/ 云同步）
+│   │   ├── viewmodel/           # 状态层（MVVM）
+│   │   ├── model/               # 数据模型
+│   │   ├── components/          # UI 组件（chat / common / dialog / item / panel）
+│   │   ├── pages/               # 页面（含 AccountSyncPage、ModelConfigPage）
+│   │   ├── entryability/        # Ability 入口
+│   │   └── entrybackupability/  # 备份恢复
+│   ├── resources/               # 资源文件
+│   └── module.json5             # 模块配置与权限
+├── cloud_objects/               # 客户端云数据库对象（Cloud Objects 编译器生成，调用云函数）
+├── build-profile.json5          # 构建配置（本地签名，不入库）
+├── oh-package.json5             # 依赖管理（@hw-agconnect/auth）
+├── hvigorfile.ts                # 构建脚本
+└── CloudProgram/                # 云开发
+    ├── clouddb/                 # 云数据库（objecttype: conversation / message / category）
+    ├── cloudfunctions/          # 云函数（id-generator）
+    ├── cloud-config.json        # AGC 项目配置
+    └── package.json
 ```
 
 ## 核心设计
@@ -139,6 +160,13 @@ ChatCategorize/
 - 宽屏下嵌入式侧边栏选中对话经 `common/ChatBridge.ets`（AppStorageV2 全局响应式总线）回传：`selectionVersion` 驱动 ChatPage 消费加载，`sidebarRefreshVersion` / `currentConversationId` 驱动列表刷新与高亮；聊天内容列限宽 720vp 居中
 - 监听 `display.foldStatusChange` 与 `window.windowSizeChange`，折叠屏展开 / 收起实时切换分栏 / 单栏
 
+### 14. 端云同步 — CloudSyncService
+- **方案 A（本地 RDB 为主 + 云端副本）**：本地 RDB 为唯一数据源，`service/sync/cloud/CloudSyncService.ets` 负责与 AGC Cloud DB 全量双向同步；`service/sync/SyncManager.ets` 为同步门面（状态码 + 监听广播），「账号登录」页（AccountSyncPage）展示状态并触发手动同步
+- **同步流程**：先 push（本地 → 云端：conversation / message / category 全量 `upsert`）再 pull（云端 → 本地，逐条按时间戳合并）；初始化经 AGC Auth 匿名登录获取 Authenticated 身份并注入 `cloudCommon`
+- **冲突策略**：last-write-wins — conversation 用 `updated_at`，message / category 用 `created_at`（云侧秒级时间戳 ×1000 转毫秒后与本地比较）；删除暂不同步（避免墓碑机制，后续增强）
+- **时间戳处理**：本地毫秒 → 云侧秒（规避 Cloud DB Integer 32 位溢出，`Date.now()` 约 1.7e12 超限）
+- **云函数 id-generator**：经客户端 `cloud_objects`（Cloud Objects 编译器生成 + `importObject` Proxy）调用 Cloud Functions 生成 UUID
+
 ## 数据模型
 
 | 模型           | 说明                                                       |
@@ -146,6 +174,8 @@ ChatCategorize/
 | `Message`      | 单条消息（@Observed），含思考 / 搜索 / 生成状态、图片与文件附件、分支字段 |
 | `Conversation` | 一个对话会话，可归属某个文件夹                              |
 | `Category`     | 文件夹 / 分类（@Observed），多级嵌套 + 图标颜色             |
+
+云端三张表（`conversation` / `message` / `category`）与本地结构镜像，字段与上述模型一一对应，仅时间戳以秒存储。
 
 ## 权限说明
 

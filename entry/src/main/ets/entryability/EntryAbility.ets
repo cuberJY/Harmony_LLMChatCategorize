@@ -7,6 +7,8 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { AppConfig } from '../config/AppConfig';
 import { BackgroundRunGuardService } from '../service/BackgroundRunGuardService';
+import { DatabaseHelper } from '../database/DatabaseHelper';
+import { SyncManager } from '../service/sync/SyncManager';
 import { registerGlobalUiContext } from '../common/Utils';
 
 const DOMAIN = 0x0000;
@@ -25,6 +27,14 @@ export default class EntryAbility extends UIAbility {
     AppConfig.getInstance().init(this.context);
     /* 初始化后台长时任务保活服务（流式期间退后台保持网络连接） */
     BackgroundRunGuardService.getInstance().initialize(this.context);
+    /**
+     * 初始化数据库并启动云同步：
+     * 数据库 init（建表/补列）完成后初始化 SyncManager（AGC Auth 认证 + 云数据库就绪）。
+     * DatabaseHelper.init 幂等，与 ChatViewModel/SideBarPage 的调用互不冲突。
+     */
+    DatabaseHelper.getInstance().init(this.context).then(() => {
+      SyncManager.getInstance().init(this.context);
+    });
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onCreate');
   }
   
@@ -113,6 +123,20 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, 'testTag', '%{public}s', 'Ability onForeground');
     /* 回到前台：通知保活服务（停止长时任务，恢复正常状态） */
     BackgroundRunGuardService.getInstance().onAppBackgroundChanged(false);
+    /* 回到前台自动同步一次（CloudSyncService 内部防重入；未初始化时静默跳过） */
+    this.tryAutoSync();
+  }
+
+  /* 后台自动同步：前台恢复时拉取云端变更，无需用户手动触发 */
+  private tryAutoSync(): void {
+    SyncManager.getInstance().syncNow().then((ok: boolean) => {
+      if (!ok) {
+        /* 未初始化 / 同步失败：静默处理，不打扰用户（可在账号登录页手动重试） */
+        hilog.info(DOMAIN, 'testTag', 'Auto sync skipped or failed');
+      }
+    }).catch((err: Error) => {
+      hilog.error(DOMAIN, 'testTag', 'Auto sync error: %{public}s', JSON.stringify(err));
+    });
   }
 
   onBackground(): void {

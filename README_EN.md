@@ -1,8 +1,8 @@
-# Harmony LLM Chat Categorize
+# Harmony LLM Chat Categorize (Cloud)
 
 > **English | [简体中文](README.md)**
 
-An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web search, persistent history and multi-level folder categorization, built with an MVVM + layered architecture using ArkTS / ArkUI declarative development.
+A cloud-integrated AI chat app for HarmonyOS NEXT. The client provides full chat capabilities (SSE streaming, deep thinking, web search, multi-level folder categorization) and syncs data through AGC cloud development (Cloud DB + Cloud Functions + Auth). Built with an MVVM + layered architecture using ArkTS / ArkUI declarative development.
 
 ## Tech Stack
 
@@ -18,6 +18,9 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 | Markdown          | @luvi/lv-markdown-in native rendering (LaTeX / code highlight / Mermaid) |
 | Share parsing     | marked ArkTS port ([Harmony-Markdown-Editor](https://github.com/electronicminer/Harmony-Markdown-Editor), MIT) |
 | Document parsing  | @ohos/jszip + in-house OOXML extractor (docx / pptx / xlsx → Markdown), ArkWeb + deck-ir / docx-preview (layout screenshots of docx/pptx on vision models), PDF Kit (per-page PDF rendering) |
+| Cloud sync        | AGC Cloud DB (Cloud Foundation Kit, bidirectional sync with local RDB) |
+| Cloud auth        | AGC Auth (anonymous sign-in)                                      |
+| Cloud functions   | Cloud Functions (id-generator for UUIDs)                          |
 
 ## Features
 
@@ -31,6 +34,8 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 - **History** — auto-persisted, time-grouped, global search / multi-select / batch delete; titles are auto-generated after the first Q&A round
 - **Global search** — matches titles and message content, grouped by conversation, with hit positioning
 - **Secure key storage** — API Key encrypted in TEE; legacy plaintext auto-migrated
+- **Account login / cloud sync** — AGC Auth anonymous sign-in; full bidirectional sync between local data and AGC Cloud DB (last-write-wins merge); the "Account" page shows sync status and offers one-tap manual sync
+- **Model config** — a dedicated page to configure provider / model / API Key
 - **Background keep-alive** — continuous task while streaming in background
 - **Immersive UI** — full-screen edge-to-edge; system bars blend into the page
 - **Multi-device adaptation** — breakpoint-driven layouts for phones / tablets / foldables, and folding/unfolding rearranges in real time
@@ -45,11 +50,11 @@ An AI chat app for HarmonyOS NEXT with SSE streaming chat, deep thinking, web se
 
 ### 1. Run the project
 
-Open the project root in DevEco Studio, wait for dependency sync, connect a device/emulator, and click Run.
+Open the `Application/` directory in DevEco Studio, wait for dependency sync, connect a device/emulator, and click Run.
 
 ### 2. Configure the API
 
-Fill in the in-app "Settings" page (no code changes, persisted after save):
+Fill in the in-app "Settings → Model config" page (no code changes, persisted after save):
 
 | Field     | Description                                               |
 | --------- | --------------------------------------------------------- |
@@ -60,28 +65,44 @@ Fill in the in-app "Settings" page (no code changes, persisted after save):
 - Endpoint / models / capability flags are derived from code presets (`ModelPresets.ets`) and shown read-only
 - Web search is provided by the DeepSeek server
 
+### 3. Deploy the cloud (CloudProgram)
+
+Cloud sync depends on AGC cloud development. Configure it in [AppGallery Connect](https://developer.huawei.com/consumer/en/service/josp/agc/index.html) first:
+
+1. Create an app (bundleName must match the client) and enable **Auth service** (allow anonymous sign-in) and **Cloud DB**
+2. In Cloud DB, create and deploy the three object types from `CloudProgram/clouddb/objecttype/` (conversation / message / category)
+3. Deploy the `id-generator` cloud function (generates UUIDs)
+4. Download `agconnect-services.json` and place it under `AppScope/resources/rawfile/` (not version-controlled)
+5. Run the app, open "Settings → Account login", and tap "Sync now" to initialize auth and run the first sync
+
 ## Project Structure
 
 ```
 ChatCategorize/
-├── AppScope/                  # App-level config
+├── AppScope/                    # App-level config (incl. cloud DB schema.json, agconnect-services.json)
 ├── entry/src/main/
 │   ├── ets/
-│   │   ├── common/            # Constants & utilities (markdown/ = marked port core; ChatBridge cross-page bus, DeviceAdapt breakpoints)
-│   │   ├── config/            # App config & key storage
-│   │   ├── database/          # Data layer (DAO + Repository)
-│   │   ├── service/           # Service layer (Provider factory + StreamTask)
-│   │   ├── viewmodel/         # State layer (MVVM)
-│   │   ├── model/             # Data models
-│   │   ├── components/        # UI components (chat / common / dialog / item / panel)
-│   │   ├── pages/             # Pages
-│   │   ├── entryability/      # Ability entry
-│   │   └── entrybackupability/# Backup & restore
-│   ├── resources/             # Resources
-│   └── module.json5           # Module config & permissions
-├── build-profile.json5        # Build config (local signing, not committed)
-├── oh-package.json5           # Dependency management
-└── hvigorfile.ts              # Build script
+│   │   ├── common/              # Constants & utilities (markdown/ = marked port core; ChatBridge cross-page bus, DeviceAdapt breakpoints)
+│   │   ├── config/              # App config & key storage
+│   │   ├── database/            # Data layer (DAO + Repository)
+│   │   ├── service/             # Service layer (Provider factory + StreamTask + sync/ cloud sync)
+│   │   ├── viewmodel/           # State layer (MVVM)
+│   │   ├── model/               # Data models
+│   │   ├── components/          # UI components (chat / common / dialog / item / panel)
+│   │   ├── pages/               # Pages (incl. AccountSyncPage, ModelConfigPage)
+│   │   ├── entryability/        # Ability entry
+│   │   └── entrybackupability/  # Backup & restore
+│   ├── resources/               # Resources
+│   └── module.json5             # Module config & permissions
+├── cloud_objects/               # Client cloud objects (generated by the Cloud Objects compiler; calls cloud functions)
+├── build-profile.json5          # Build config (local signing, not committed)
+├── oh-package.json5             # Dependency management (@hw-agconnect/auth)
+├── hvigorfile.ts                # Build script
+└── CloudProgram/                # Cloud development
+    ├── clouddb/                 # Cloud DB (object types: conversation / message / category)
+    ├── cloudfunctions/          # Cloud functions (id-generator)
+    ├── cloud-config.json        # AGC project config
+    └── package.json
 ```
 
 ## Core Design
@@ -131,8 +152,20 @@ ChatCategorize/
 ### 12. File Attachment Parsing — FileParser
 - `service/FileParser.ets` wraps the system document picker (DocumentViewPicker, no storage permission) and parsing: txt/md are read as UTF-8 text (truncated); docx/pptx/xlsx are extracted to Markdown text by `service/OoxmlParser.ets` (@ohos/jszip unzip + XmlPullParser streaming OOXML XML — docx paragraphs / headings / tables, pptx per-slide text, xlsx per-sheet tables with sharedStrings); on vision models, docx/pptx instead go through `service/OfficeHtmlParser.ets` (hidden ArkWeb + deck-ir/docx-preview layout) for per-page screenshots; since API 20 lacks `getTextContent`, PDFs are rendered page-by-page via PDF Kit into PixelMap → JPEG Base64 (≤100 pages; total Base64 capped at 12MB to protect the request body)
 - Files are dispatched by channel in `DeepSeekProvider.buildApiContent`: txt/md and Office extracted text is merged into the `input_text` block with a `【File xx content】` marker (works on every model); docx/pptx (vision models) / PDF pages become per-page `input_image` vision blocks (vision models only, with fallback guards at pick / send / edit / provider layers)
-- Dual-channel fallback: docx/pptx hold both textContent (OOXML text) and pageImages (ArkWeb layout shots); vision models send both channels, non-vision models send text only without blocking; on send, attachments in history lacking layout shots get backfilled via `parseVisualForHistory` (a single failure only logs and does not block)
 - Limits & UX: one file ≤20MB; extracted text (txt/md/docx/pptx/xlsx) truncated at 30k chars; file cards shown in message bubbles, and files can be added/removed when editing a message
+
+### 13. Multi-device / Wide-Screen Adaptation
+- `common/DeviceAdapt.ets` provides a unified breakpoint system (sm <600vp / md <840vp / lg ≥840vp) plus foldable-state listening; the state is shared globally via AppStorageV2 so any page refreshes automatically when the breakpoint changes
+- The host `HomePage` switches between Navigation Stack / Split modes by breakpoint: on wide screens (≥600vp) the sidebar is embedded and persistent on the left with the chat on the right, resizable by dragging (25%~75%) with a native divider; narrow screens keep the drawer
+- On wide screens the embedded sidebar reports its selected conversation through `common/ChatBridge.ets` (an AppStorageV2 reactive bus): `selectionVersion` drives ChatPage to load the conversation, while `sidebarRefreshVersion` / `currentConversationId` drive list refresh and highlighting; the chat column is width-limited to 720vp and centered
+- `display.foldStatusChange` and `window.windowSizeChange` are observed so foldables switch between split / single-pane in real time
+
+### 14. Cloud Sync — CloudSyncService
+- **Scheme A (local RDB as the source of truth + cloud replica)**: the local RDB is the single source of truth; `service/sync/cloud/CloudSyncService.ets` handles full bidirectional sync with AGC Cloud DB; `service/sync/SyncManager.ets` is the sync facade (status code + listener broadcast), and the "Account login" page (AccountSyncPage) shows the status and triggers manual sync
+- **Sync flow**: push first (local → cloud: full `upsert` of conversation / message / category) then pull (cloud → local, merged row by row by timestamp); initialization signs in anonymously via AGC Auth to obtain the Authenticated identity and injects it into `cloudCommon`
+- **Conflict policy**: last-write-wins — conversation uses `updated_at`, message / category use `created_at` (cloud seconds ×1000 back to ms before comparing with local); deletion is not synced yet (avoids tombstone complexity, planned enhancement)
+- **Timestamps**: local milliseconds → cloud seconds (avoids the Cloud DB Integer 32-bit overflow since `Date.now()` is ~1.7e12)
+- **Cloud function id-generator**: invoked from the client via `cloud_objects` (generated by the Cloud Objects compiler + `importObject` Proxy) to generate UUIDs through Cloud Functions
 
 ## Data Models
 
@@ -141,6 +174,8 @@ ChatCategorize/
 | `Message`       | A single message (@Observed), with thinking / search / generation state, image & file attachments and branch fields |
 | `Conversation`  | A conversation, optionally owned by a folder                        |
 | `Category`      | Folder/category (@Observed), multi-level nesting + icon color       |
+
+The three cloud tables (`conversation` / `message` / `category`) mirror the local structure — fields map one-to-one, with timestamps stored in seconds.
 
 ## Permissions
 

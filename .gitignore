@@ -1,23 +1,17 @@
 /node_modules
+**/node_modules
 /oh_modules
+**/oh_modules
+/agconnect-services.json
+**/agconnect-services.json
+/build-profile.json5
 /local.properties
 /.idea
-# IDE 本地配置
-/.vscode
 **/build
 /.hvigor
 .cxx
-# 签名/证书/密钥文件（防止 DevEco 自动签名密钥泄露）
-*.cer
-*.p7b
-*.p12
-*.pem
-*.key
-# 构建签名配置（本地保留，DevEco 会注入密钥，不入库）
-/entry/build-profile.json5
-/build-profile.json5
-# 调试临时目录
-/.dbg
-/.dump
-# 构建日志
-*.log
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer

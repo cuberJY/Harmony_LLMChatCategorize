@@ -1,14 +1,14 @@
 {
+  "license": "",
+  "devDependencies": {},
+  "author": "",
   "name": "entry",
-  "version": "1.0.0",
   "description": "Please describe the basic information.",
   "main": "",
-  "author": "",
-  "license": "",
+  "version": "1.0.0",
   "dependencies": {
+    "cloud_objects": "file:../cloud_objects",
     "@luvi/lv-markdown-in": "^3.4.5",
     "@ohos/jszip": "^1.0.0"
-  },
-  "devDependencies": {},
-  "dynamicDependencies": {}
+  }
 }
