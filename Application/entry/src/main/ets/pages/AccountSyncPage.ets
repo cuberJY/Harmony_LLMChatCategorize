@@ -61,7 +61,7 @@ export struct AccountSyncPage {
         Row() {
           Row() {
             SymbolGlyph($r("sys.symbol.chevron_left"))
-              .fontSize($r('app.float.font_icon_xl'))
+              .fontSize($r('app.float.font_icon_xxl'))
               .fontWeight(700)
               .fontColor([$r('app.color.font_primary')])
           }

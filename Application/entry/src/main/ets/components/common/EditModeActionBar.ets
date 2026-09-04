@@ -54,7 +54,10 @@ export struct EditModeActionBar {
             })
         }
       }
-      .margin({ bottom: $r('app.float.space_lg') })
+      .margin({
+        top: $r('app.float.space_xs'),
+        bottom: $r('app.float.space_lg')
+      })
     }
     .width("100%")
     /* 沉浸式：操作栏高度 = 标题栏 + 导航条，背景延伸 + 显式 padding 内容避让 */

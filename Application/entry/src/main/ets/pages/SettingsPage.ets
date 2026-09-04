@@ -44,11 +44,11 @@ export struct SettingsPage {
   build() {
     NavDestination() {
       Column() {
-        /* 标题栏：返回键 + 居中标题（与现有页面规范一致） */
+        /* 标题栏：返回键 + 居中标题 */
         Row() {
           Row() {
             SymbolGlyph($r("sys.symbol.chevron_left"))
-              .fontSize($r('app.float.font_icon_xl'))
+              .fontSize($r('app.float.font_icon_xxl'))
               .fontWeight(700)
               .fontColor([$r('app.color.font_primary')])
           }
