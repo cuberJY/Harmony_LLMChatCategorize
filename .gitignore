@@ -6,7 +6,7 @@
 **/agconnect-services.json
 /Application/build-profile.json5
 /local.properties
-/.idea
+**/.idea/
 **/build
 /.hvigor
 .cxx
