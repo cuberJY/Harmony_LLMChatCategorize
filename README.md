@@ -50,7 +50,7 @@
 
 ### 1. 运行项目
 
-使用 DevEco Studio 打开项目根目录，等待依赖同步后连接真机或模拟器，点击 Run 即可。
+使用 DevEco Studio 打开 `Application/` 目录，等待依赖同步后连接真机或模拟器，点击 Run 即可。
 
 ### 2. 配置 API
 
@@ -72,36 +72,37 @@
 1. 创建应用（bundleName 与客户端一致）并开通**认证服务**（允许匿名登录）与**云数据库**
 2. 在云数据库按 `CloudProgram/clouddb/objecttype/` 下三类对象（conversation / message / category）创建 schema 并部署
 3. 部署云函数 `id-generator`（生成 UUID）
-4. 下载 `agconnect-services.json` 放入客户端 `AppScope/resources/rawfile/`（不参与版本管理）
+4. 下载 `agconnect-services.json` 放入客户端 `Application/AppScope/resources/rawfile/`（不参与版本管理）
 5. 运行应用，进入"设置-账号登录"页，点击「立即同步」完成认证初始化与首次同步
 
 ## 项目结构
 
 ```
 ChatCategorize/
-├── AppScope/                    # 应用级配置（含云数据库 schema.json、agconnect-services.json）
-├── entry/src/main/
-│   ├── ets/
-│   │   ├── common/              # 常量与公共工具（markdown/ 为 marked 移植核心；ChatBridge 跨页桥接、DeviceAdapt 多端适配）
-│   │   ├── config/              # 应用配置与密钥存储
-│   │   ├── database/            # 数据层（DAO + Repository）
-│   │   ├── service/             # 服务层（Provider 工厂 + StreamTask + sync/ 云同步）
-│   │   ├── viewmodel/           # 状态层（MVVM）
-│   │   ├── model/               # 数据模型
-│   │   ├── components/          # UI 组件（chat / common / dialog / item / panel）
-│   │   ├── pages/               # 页面（含 AccountSyncPage、ModelConfigPage）
-│   │   ├── entryability/        # Ability 入口
-│   │   └── entrybackupability/  # 备份恢复
-│   ├── resources/               # 资源文件
-│   └── module.json5             # 模块配置与权限
-├── cloud_objects/               # 客户端云数据库对象（Cloud Objects 编译器生成，调用云函数）
-├── build-profile.json5          # 构建配置（本地签名，不入库）
-├── oh-package.json5             # 依赖管理（@hw-agconnect/auth）
-├── hvigorfile.ts                # 构建脚本
-└── CloudProgram/                # 云开发
-    ├── clouddb/                 # 云数据库（objecttype: conversation / message / category）
-    ├── cloudfunctions/          # 云函数（id-generator）
-    ├── cloud-config.json        # AGC 项目配置
+├── Application/                  # HarmonyOS 客户端（端云一体化）
+│   ├── AppScope/                 # 应用级配置（含云数据库 schema.json、agconnect-services.json）
+│   ├── entry/src/main/
+│   │   ├── ets/
+│   │   │   ├── common/           # 常量与公共工具（markdown/ 为 marked 移植核心；ChatBridge 跨页桥接、DeviceAdapt 多端适配）
+│   │   │   ├── config/           # 应用配置与密钥存储
+│   │   │   ├── database/         # 数据层（DAO + Repository）
+│   │   │   ├── service/          # 服务层（Provider 工厂 + StreamTask + sync/ 云同步）
+│   │   │   ├── viewmodel/        # 状态层（MVVM）
+│   │   │   ├── model/            # 数据模型
+│   │   │   ├── components/       # UI 组件（chat / common / dialog / item / panel）
+│   │   │   ├── pages/            # 页面（含 AccountSyncPage、ModelConfigPage）
+│   │   │   ├── entryability/     # Ability 入口
+│   │   │   └── entrybackupability/# 备份恢复
+│   │   ├── resources/            # 资源文件
+│   │   └── module.json5          # 模块配置与权限
+│   ├── cloud_objects/            # 客户端云数据库对象（Cloud Objects 编译器生成，调用云函数）
+│   ├── build-profile.json5       # 构建配置（本地签名，不入库）
+│   ├── oh-package.json5          # 依赖管理（@hw-agconnect/auth）
+│   └── hvigorfile.ts             # 构建脚本
+└── CloudProgram/                 # 云开发
+    ├── clouddb/                  # 云数据库（objecttype: conversation / message / category）
+    ├── cloudfunctions/           # 云函数（id-generator）
+    ├── cloud-config.json         # AGC 项目配置
     └── package.json
 ```
 

@@ -1,10 +1,5 @@
 /node_modules
-**/node_modules
 /oh_modules
-**/oh_modules
-/agconnect-services.json
-**/agconnect-services.json
-/Application/build-profile.json5
 /local.properties
 /.idea
 **/build
