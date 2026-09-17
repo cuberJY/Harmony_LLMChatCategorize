@@ -18,7 +18,7 @@
  * 对外统一封装见 service/MarkdownParser.ets（markdownToHtml / markdownToText / HIGHLIGHT_CSS）。
  */
 
- import type { MarkedOptions } from './MarkedOptions';
+import type { MarkedOptions } from './MarkedOptions';
 
 /**
  * Gets the original marked default options.

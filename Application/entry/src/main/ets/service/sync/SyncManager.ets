@@ -14,11 +14,13 @@
  *   - 2  网络错误 / 同步失败
  *   - 3  未登录 / 未初始化（需先在账号登录页完成初始化）
  *   - 4  同步进行中
+ *   - 5  单条同步数据超过云端限制
+ *   - 6  云端服务错误
  */
 
 import { common } from "@kit.AbilityKit";
 import { Logger } from "../../common/Logger";
-import { CloudSyncService } from "./cloud/CloudSyncService";
+import { CloudSyncFailureType, CloudSyncService } from "./cloud/CloudSyncService";
 
 /* 同步状态码 */
 export enum SyncStatusCode {
@@ -28,6 +30,8 @@ export enum SyncStatusCode {
   NETWORK_ERROR = 2, // 网络错误，同步失败
   NOT_ENABLED = 3, // 未登录 / 未初始化
   SYNCING = 4, // 同步进行中
+  DATA_TOO_LARGE = 5, // 单条同步数据超过云端限制
+  CLOUD_ERROR = 6, // 云端服务错误
 }
 
 /* 状态变更回调（UI 订阅用，入参为当前状态码） */
@@ -94,6 +98,10 @@ export class SyncManager {
         return "未登录或未初始化（请点击立即同步初始化）";
       case SyncStatusCode.SYNCING:
         return "正在同步…";
+      case SyncStatusCode.DATA_TOO_LARGE:
+        return "单条同步数据过大，请检查消息附件或长文本";
+      case SyncStatusCode.CLOUD_ERROR:
+        return "云端同步失败，请稍后重试";
       default:
         return "同步状态未知";
     }
@@ -109,8 +117,9 @@ export class SyncManager {
       return false;
     }
     this.updateStatus(SyncStatusCode.SYNCING);
-    const ok: boolean = await CloudSyncService.getInstance().syncNow();
-    this.updateStatus(ok ? SyncStatusCode.SYNCED : SyncStatusCode.NETWORK_ERROR);
+    const service: CloudSyncService = CloudSyncService.getInstance();
+    const ok: boolean = await service.syncNow();
+    this.updateStatus(ok ? SyncStatusCode.SYNCED : this.failureStatus(service.getLastFailureType()));
     return ok;
   }
 
@@ -125,6 +134,21 @@ export class SyncManager {
     this.statusCode = code;
     for (const listener of this.listeners) {
       listener(code);
+    }
+  }
+
+  /* CloudSyncService 失败类型 → 页面状态码 */
+  private failureStatus(type: CloudSyncFailureType): SyncStatusCode {
+    switch (type) {
+      case CloudSyncFailureType.NOT_READY:
+        return SyncStatusCode.NOT_ENABLED;
+      case CloudSyncFailureType.DATA_TOO_LARGE:
+        return SyncStatusCode.DATA_TOO_LARGE;
+      case CloudSyncFailureType.CLOUD:
+        return SyncStatusCode.CLOUD_ERROR;
+      case CloudSyncFailureType.NETWORK:
+      default:
+        return SyncStatusCode.NETWORK_ERROR;
     }
   }
 }
